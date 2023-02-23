@@ -1,2 +1,2 @@
 # universal-agent
-An universal implementation of agent interface for RL tasks
+Universal implementation of agent interface for RL tasks
