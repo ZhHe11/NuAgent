@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package eval_server;
+
+message ActionRequest {
+  string name = 1;
+}
+
+message ActionReply {
+  string message = 1;
+}
+
+message AgentRequest {
+  string message = 1;
+}
+
+message AgentReply {
+  string message = 1;
+}
+
+service AgentServer {
+  rpc Action (ActionRequest) returns (ActionReply) {}
+  rpc Connect (AgentRequest) returns (AgentReply) {}
+}

@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package eval_server;
+
+message EnvRequest {
+  string name = 1;
+}
+
+message EnvReply {
+  string message = 1;
+}
+
+message EnvObs {
+  string message = 1;
+}
+
+service EnvServer {
+  rpc GetObs(EnvRequest) returns (EnvObs) {}
+  rpc Step (EnvRequest) returns (EnvReply) {}
+  rpc RegisterEnv (EnvRequest) returns (EnvReply) {}
+  rpc Connect (EnvRequest) returns (EnvReply) {}
+}
