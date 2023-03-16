@@ -15,6 +15,6 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    logging.basicConfig()
+    logging.basicConfig(level=logging.INFO)
 
     serve(args.port, args.max_workers)
