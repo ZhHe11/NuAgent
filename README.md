@@ -1,6 +1,8 @@
 # universal-agent
 Universal implementation of agent interface for RL evaluation.
 
+![Design](/assets/Diagram.png)
+
 ## Installation
 
 ```bash
