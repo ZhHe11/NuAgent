@@ -1,5 +1,7 @@
 # universal-agent
-Universal implementation of agent interface for RL evaluation.
+Universal implementation of an agent interface for RL evaluation, all agents (in one group) will behave as a big agent, 
+and an evaluation framework on top of it is policy-/model-agnostic.
+
 
 ![Design](/assets/Diagram.png)
 
