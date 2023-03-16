@@ -34,4 +34,7 @@ class Agent:
             observation (List[Any]): A list of raw environment observation.
         """
 
-        raise NotImplementedError
+        if self.policy is None:
+            return [self.act_space.sample() for obs in observation]
+        else:
+            raise NotImplementedError

@@ -32,9 +32,6 @@ class GymAgent(Agent):
             obs_space, act_space, policy, obs_preprocessor, act_preprocessor
         )
 
-    def act(self, observation: List[Any]):
-        raise NotImplementedError
-
 
 if __name__ == "__main__":
     import argparse
@@ -64,4 +61,5 @@ if __name__ == "__main__":
         policies,
         args.env_id,
         args.eval_episodes,
+        max_episode_steps=200,  # for gym only
     )

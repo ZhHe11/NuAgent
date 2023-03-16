@@ -23,5 +23,5 @@ rm-pycache:
 
 .PHONY: compile
 compile:
-	python -m grpc_tools.protoc -I protos --python_out=core/service --pyi_out=core/service --grpc_python_out=core/service protos/env_server.proto
-	python -m grpc_tools.protoc -I protos --python_out=core/service --pyi_out=core/service --grpc_python_out=core/service protos/agent_server.proto
+	python -m grpc_tools.protoc -I protos --python_out=service --pyi_out=service --grpc_python_out=service protos/env_server.proto
+	python -m grpc_tools.protoc -I protos --python_out=service --pyi_out=service --grpc_python_out=service protos/agent_server.proto

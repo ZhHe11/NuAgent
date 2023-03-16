@@ -5,7 +5,8 @@ from concurrent import futures
 import logging
 import grpc
 
-from core.agent_server import AgentServer, agent_server_pb2_grpc
+from core.agent_server import AgentServer
+import agent_server_pb2_grpc
 
 
 def serve(port: str = "50052", max_workers: int = 10):

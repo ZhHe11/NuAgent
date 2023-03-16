@@ -29,8 +29,8 @@ class EnvServerStub(object):
             request_serializer=env__server__pb2.EnvRequest.SerializeToString,
             response_deserializer=env__server__pb2.EnvReply.FromString,
         )
-        self.RequestEnvs = channel.unary_unary(
-            "/eval_server.EnvServer/RequestEnvs",
+        self.RequestEvaluation = channel.unary_unary(
+            "/eval_server.EnvServer/RequestEvaluation",
             request_serializer=env__server__pb2.EnvRequest.SerializeToString,
             response_deserializer=env__server__pb2.EnvReply.FromString,
         )
@@ -57,7 +57,7 @@ class EnvServerServicer(object):
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
-    def RequestEnvs(self, request, context):
+    def RequestEvaluation(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")
@@ -81,8 +81,8 @@ def add_EnvServerServicer_to_server(servicer, server):
             request_deserializer=env__server__pb2.EnvRequest.FromString,
             response_serializer=env__server__pb2.EnvReply.SerializeToString,
         ),
-        "RequestEnvs": grpc.unary_unary_rpc_method_handler(
-            servicer.RequestEnvs,
+        "RequestEvaluation": grpc.unary_unary_rpc_method_handler(
+            servicer.RequestEvaluation,
             request_deserializer=env__server__pb2.EnvRequest.FromString,
             response_serializer=env__server__pb2.EnvReply.SerializeToString,
         ),
@@ -185,7 +185,7 @@ class EnvServer(object):
         )
 
     @staticmethod
-    def RequestEnvs(
+    def RequestEvaluation(
         request,
         target,
         options=(),
@@ -200,7 +200,7 @@ class EnvServer(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            "/eval_server.EnvServer/RequestEnvs",
+            "/eval_server.EnvServer/RequestEvaluation",
             env__server__pb2.EnvRequest.SerializeToString,
             env__server__pb2.EnvReply.FromString,
             options,

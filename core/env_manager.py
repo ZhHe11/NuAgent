@@ -7,10 +7,9 @@ import gym
 from readerwriterlock import rwlock
 
 
-# TODO(ming): implement rw safe
 class EnvStatus:
     def __init__(self) -> None:
-        self.states = None
+        self.state = None
         self.obs = None
         self.rews = None
         self.dones = None
@@ -18,9 +17,9 @@ class EnvStatus:
         self.truncated = None
         self.marker = rwlock.RWLockFair()
 
-    def write(self, states, obs, rews, dones, truncated, infos):
+    def write(self, state, obs, rews, dones, truncated, infos):
         with self.marker.gen_wlock():
-            self.states = states
+            self.state = state
             self.obs = obs
             self.rews = rews
             self.dones = dones
@@ -29,9 +28,9 @@ class EnvStatus:
 
     def read(self):
         with self.marker.gen_rlock():
-            states = copy.deepcopy(self.states)
+            state = copy.deepcopy(self.state)
             obs = copy.deepcopy(self.obs)
-        return states, obs
+        return state, obs
 
 
 class EnvManager:
@@ -56,13 +55,16 @@ class EnvManager:
         self.envs[name] = env
         env.reset()
 
-    def create_envs(self, env_id: str, env_num: int) -> List[str]:
+    def create_envs(
+        self, env_id: str, env_num: int, max_episode_steps: int
+    ) -> List[str]:
         """Create a list of registered environment class that is named as `env_id`.
         The number is determined by `env_num`.
 
         Args:
             env_id: Registered environment id.
             env_num: Number of new added environment instances.
+            max_episode_steps: Maximum length of an episode.
 
         Returns:
             List[str]: A list of new added instance ids.
@@ -73,17 +75,27 @@ class EnvManager:
             env_name = str(uuid.uuid4())
             while env_name in self.envs:
                 env_name = str(uuid.uuid4())
-            env = gym.make(env_id)
+            env = gym.make(env_id, max_episode_steps=max_episode_steps)
             self.envs[env_name] = env
             self.status_buffer[env_name] = EnvStatus()
-            instance_ids.append(instance_ids)
+            instance_ids.append(env_name)
+            observation = env.reset()
+            if hasattr(env, "get_state"):
+                state = env.get_state()
+            else:
+                state = None
+            self.status_buffer[env_name].write(
+                state=state,
+                obs=observation,
+                rews=None,
+                dones=False,
+                truncated=False,
+                infos=None,
+            )
         return instance_ids
 
-    def episode_analyze(self, states, obses, rews, dones, trucated, infos):
+    def episode_analyze(self, state, obses, rews, dones, trucated, infos):
         pass
-
-    def check_all_done(self) -> bool:
-        raise NotImplementedError
 
     def step(self, instance_id: List[str], actions_list: List[Dict[str, Any]]):
         """ Multiple environment stepping. Given a list of environment instance ids, and the corresponding \
@@ -94,16 +106,27 @@ class EnvManager:
             actions_list: A list of agent actions.
         """
 
+        done_envs = []
         for eid, actions in zip(instance_id, actions_list):
-            states, observations, rews, dones, truncated, infos = self.envs[eid].step(
-                actions
-            )
+            env = self.envs[eid]
+            observations, rews, dones, truncated, infos = env.step(actions)
+            if hasattr(env, "get_state"):
+                state = env.get_state()
+            else:
+                state = None
+            # TODO(ming): please make sure the single-agent environment behaves like multi-agent in keys
+            if isinstance(dones, bool) and dones:
+                done_envs.append(eid)
+            elif isinstance(dones, Dict):
+                is_env_done = dones["__all__"] or all(dones.values())
+                if is_env_done:
+                    done_envs.append(eid)
             # TODO(ming): record episode information here
-            self.episode_analyze(states, observations, rews, dones, truncated, infos)
-            # lock it here
+            self.episode_analyze(state, observations, rews, dones, truncated, infos)
             self.status_buffer[eid].write(
-                states, observations, rews, dones, truncated, infos
+                state, observations, rews, dones, truncated, infos
             )
+        return {"dones": done_envs}
 
     def get_env_states_and_obs(
         self, instance_ids: List[str]
@@ -121,7 +144,6 @@ class EnvManager:
         observations_list = []
         for eid in instance_ids:
             states, observations = self.status_buffer[eid].read()
-            # TODO(ming): do serialization here
             states_list.append(states)
             observations_list.append(observations)
         return states_list, observations_list

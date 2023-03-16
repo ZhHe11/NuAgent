@@ -40,25 +40,19 @@ class EnvReply(_message.Message):
     ) -> None: ...
 
 class EnvRequest(_message.Message):
-    __slots__ = ["actions", "instance_ids", "vec_env_desc"]
-    ACTIONS_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = ["b_actions", "instance_ids", "vec_env_desc"]
+    B_ACTIONS_FIELD_NUMBER: _ClassVar[int]
     INSTANCE_IDS_FIELD_NUMBER: _ClassVar[int]
     VEC_ENV_DESC_FIELD_NUMBER: _ClassVar[int]
-    actions: _containers.RepeatedCompositeFieldContainer[AgentActions]
+    b_actions: bytes
     instance_ids: _containers.RepeatedScalarFieldContainer[str]
     vec_env_desc: VecEnvDesc
     def __init__(
         self,
         instance_ids: _Optional[_Iterable[str]] = ...,
-        actions: _Optional[_Iterable[_Union[AgentActions, _Mapping]]] = ...,
+        b_actions: _Optional[bytes] = ...,
         vec_env_desc: _Optional[_Union[VecEnvDesc, _Mapping]] = ...,
     ) -> None: ...
-
-class NDArray(_message.Message):
-    __slots__ = ["ndarray"]
-    NDARRAY_FIELD_NUMBER: _ClassVar[int]
-    ndarray: bytes
-    def __init__(self, ndarray: _Optional[bytes] = ...) -> None: ...
 
 class Observations(_message.Message):
     __slots__ = ["agent_id", "observation"]
@@ -71,11 +65,16 @@ class Observations(_message.Message):
     ) -> None: ...
 
 class VecEnvDesc(_message.Message):
-    __slots__ = ["env_id", "env_num"]
+    __slots__ = ["env_id", "env_num", "max_episode_steps"]
     ENV_ID_FIELD_NUMBER: _ClassVar[int]
     ENV_NUM_FIELD_NUMBER: _ClassVar[int]
+    MAX_EPISODE_STEPS_FIELD_NUMBER: _ClassVar[int]
     env_id: str
     env_num: int
+    max_episode_steps: int
     def __init__(
-        self, env_id: _Optional[str] = ..., env_num: _Optional[int] = ...
+        self,
+        env_id: _Optional[str] = ...,
+        env_num: _Optional[int] = ...,
+        max_episode_steps: _Optional[int] = ...,
     ) -> None: ...

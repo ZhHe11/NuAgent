@@ -1,5 +1,4 @@
-from service import agent_server_pb2
-from service import agent_server_pb2_grpc
+import agent_server_pb2_grpc
 
 from core.agent_manager import AgentManager
 
