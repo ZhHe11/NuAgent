@@ -12,6 +12,10 @@ message VecEnvDesc {
   int32 env_num = 2;
 }
 
+message NDArray {
+  bytes ndarray = 1;
+}
+
 message Observations {
   string agent_id = 1;
   string observation = 2;
@@ -24,9 +28,9 @@ message EnvRequest {
 }
 
 message EnvReply {
-  repeated string states = 1;
-  repeated Observations observations = 2;
-  optional string instance_ids = 3;
+  bytes b_states = 1;
+  bytes b_observations = 2;
+  repeated string instance_ids = 3;
   bool all_done = 4;
 }
 

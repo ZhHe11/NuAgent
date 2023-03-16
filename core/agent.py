@@ -13,7 +13,14 @@ def default_act_preprocessor(act: Any, act_space: gym.Space):
 
 
 class Agent:
-    def __init__(self, obs_space: gym.Space, act_space: gym.Space, policy: Any, obs_preprocessor: Callable[[Any, gym.Space], np.array] = None, act_preprocessor: Callable[[np.array, gym.Space], Any] = None):
+    def __init__(
+        self,
+        obs_space: gym.Space,
+        act_space: gym.Space,
+        policy: Any,
+        obs_preprocessor: Callable[[Any, gym.Space], np.array] = None,
+        act_preprocessor: Callable[[np.array, gym.Space], Any] = None,
+    ):
         self.policy = policy
         self.obs_space = obs_space
         self.act_space = act_space
@@ -28,4 +35,3 @@ class Agent:
         """
 
         raise NotImplementedError
-

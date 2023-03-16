@@ -11,8 +11,10 @@ class AgentManager:
 
     def register(self, name: str, agent: Agent):
         raise NotImplementedError
-    
-    def coordinates(self, env_states: List[Any], observations: Dict[str, List[Any]]) -> Dict[str, List[Any]]:
+
+    def coordinates(
+        self, env_states: List[Any], observations: Dict[str, List[Any]]
+    ) -> Dict[str, List[Any]]:
         """Implement agent coordination here. Return the original observations by default.
 
         Args:
@@ -24,7 +26,7 @@ class AgentManager:
         """
         return observations
 
-    def step(self, states: List[Any], observations: Dict[str, List[Any]]):
+    def act(self, states: List[Any], observations: Dict[str, List[Any]]):
         # merge agent observations
         actions = {}
         observations = self.coordinates(states, observations)

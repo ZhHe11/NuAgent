@@ -1,7 +1,13 @@
 from google.protobuf.internal import containers as _containers
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
-from typing import ClassVar as _ClassVar, Iterable as _Iterable, Mapping as _Mapping, Optional as _Optional, Union as _Union
+from typing import (
+    ClassVar as _ClassVar,
+    Iterable as _Iterable,
+    Mapping as _Mapping,
+    Optional as _Optional,
+    Union as _Union,
+)
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
@@ -11,19 +17,27 @@ class AgentActions(_message.Message):
     VALUE_FIELD_NUMBER: _ClassVar[int]
     key: str
     value: str
-    def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    def __init__(
+        self, key: _Optional[str] = ..., value: _Optional[str] = ...
+    ) -> None: ...
 
 class EnvReply(_message.Message):
-    __slots__ = ["all_done", "instance_ids", "observations", "states"]
+    __slots__ = ["all_done", "b_observations", "b_states", "instance_ids"]
     ALL_DONE_FIELD_NUMBER: _ClassVar[int]
+    B_OBSERVATIONS_FIELD_NUMBER: _ClassVar[int]
+    B_STATES_FIELD_NUMBER: _ClassVar[int]
     INSTANCE_IDS_FIELD_NUMBER: _ClassVar[int]
-    OBSERVATIONS_FIELD_NUMBER: _ClassVar[int]
-    STATES_FIELD_NUMBER: _ClassVar[int]
     all_done: bool
-    instance_ids: str
-    observations: _containers.RepeatedCompositeFieldContainer[Observations]
-    states: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, states: _Optional[_Iterable[str]] = ..., observations: _Optional[_Iterable[_Union[Observations, _Mapping]]] = ..., instance_ids: _Optional[str] = ..., all_done: bool = ...) -> None: ...
+    b_observations: bytes
+    b_states: bytes
+    instance_ids: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(
+        self,
+        b_states: _Optional[bytes] = ...,
+        b_observations: _Optional[bytes] = ...,
+        instance_ids: _Optional[_Iterable[str]] = ...,
+        all_done: bool = ...,
+    ) -> None: ...
 
 class EnvRequest(_message.Message):
     __slots__ = ["actions", "instance_ids", "vec_env_desc"]
@@ -33,7 +47,18 @@ class EnvRequest(_message.Message):
     actions: _containers.RepeatedCompositeFieldContainer[AgentActions]
     instance_ids: _containers.RepeatedScalarFieldContainer[str]
     vec_env_desc: VecEnvDesc
-    def __init__(self, instance_ids: _Optional[_Iterable[str]] = ..., actions: _Optional[_Iterable[_Union[AgentActions, _Mapping]]] = ..., vec_env_desc: _Optional[_Union[VecEnvDesc, _Mapping]] = ...) -> None: ...
+    def __init__(
+        self,
+        instance_ids: _Optional[_Iterable[str]] = ...,
+        actions: _Optional[_Iterable[_Union[AgentActions, _Mapping]]] = ...,
+        vec_env_desc: _Optional[_Union[VecEnvDesc, _Mapping]] = ...,
+    ) -> None: ...
+
+class NDArray(_message.Message):
+    __slots__ = ["ndarray"]
+    NDARRAY_FIELD_NUMBER: _ClassVar[int]
+    ndarray: bytes
+    def __init__(self, ndarray: _Optional[bytes] = ...) -> None: ...
 
 class Observations(_message.Message):
     __slots__ = ["agent_id", "observation"]
@@ -41,7 +66,9 @@ class Observations(_message.Message):
     OBSERVATION_FIELD_NUMBER: _ClassVar[int]
     agent_id: str
     observation: str
-    def __init__(self, agent_id: _Optional[str] = ..., observation: _Optional[str] = ...) -> None: ...
+    def __init__(
+        self, agent_id: _Optional[str] = ..., observation: _Optional[str] = ...
+    ) -> None: ...
 
 class VecEnvDesc(_message.Message):
     __slots__ = ["env_id", "env_num"]
@@ -49,4 +76,6 @@ class VecEnvDesc(_message.Message):
     ENV_NUM_FIELD_NUMBER: _ClassVar[int]
     env_id: str
     env_num: int
-    def __init__(self, env_id: _Optional[str] = ..., env_num: _Optional[int] = ...) -> None: ...
+    def __init__(
+        self, env_id: _Optional[str] = ..., env_num: _Optional[int] = ...
+    ) -> None: ...

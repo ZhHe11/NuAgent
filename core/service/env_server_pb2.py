@@ -6,30 +6,32 @@ from google.protobuf.internal import builder as _builder
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import descriptor_pool as _descriptor_pool
 from google.protobuf import symbol_database as _symbol_database
+
 # @@protoc_insertion_point(imports)
 
 _sym_db = _symbol_database.Default()
 
 
-
-
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x10\x65nv_server.proto\x12\x0b\x65val_server\"*\n\x0c\x41gentActions\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t\"-\n\nVecEnvDesc\x12\x0e\n\x06\x65nv_id\x18\x01 \x01(\t\x12\x0f\n\x07\x65nv_num\x18\x02 \x01(\x05\"5\n\x0cObservations\x12\x10\n\x08\x61gent_id\x18\x01 \x01(\t\x12\x13\n\x0bobservation\x18\x02 \x01(\t\"\x93\x01\n\nEnvRequest\x12\x14\n\x0cinstance_ids\x18\x01 \x03(\t\x12*\n\x07\x61\x63tions\x18\x02 \x03(\x0b\x32\x19.eval_server.AgentActions\x12\x32\n\x0cvec_env_desc\x18\x03 \x01(\x0b\x32\x17.eval_server.VecEnvDescH\x00\x88\x01\x01\x42\x0f\n\r_vec_env_desc\"\x89\x01\n\x08\x45nvReply\x12\x0e\n\x06states\x18\x01 \x03(\t\x12/\n\x0cobservations\x18\x02 \x03(\x0b\x32\x19.eval_server.Observations\x12\x19\n\x0cinstance_ids\x18\x03 \x01(\tH\x00\x88\x01\x01\x12\x10\n\x08\x61ll_done\x18\x04 \x01(\x08\x42\x0f\n\r_instance_ids2\x8b\x02\n\tEnvServer\x12\x42\n\x0eGetStateAndObs\x12\x17.eval_server.EnvRequest\x1a\x15.eval_server.EnvReply\"\x00\x12\x38\n\x04Step\x12\x17.eval_server.EnvRequest\x1a\x15.eval_server.EnvReply\"\x00\x12?\n\x0bRegisterEnv\x12\x17.eval_server.EnvRequest\x1a\x15.eval_server.EnvReply\"\x00\x12?\n\x0bRequestEnvs\x12\x17.eval_server.EnvRequest\x1a\x15.eval_server.EnvReply\"\x00\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(
+    b'\n\x10\x65nv_server.proto\x12\x0b\x65val_server"*\n\x0c\x41gentActions\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t"-\n\nVecEnvDesc\x12\x0e\n\x06\x65nv_id\x18\x01 \x01(\t\x12\x0f\n\x07\x65nv_num\x18\x02 \x01(\x05"\x1a\n\x07NDArray\x12\x0f\n\x07ndarray\x18\x01 \x01(\x0c"5\n\x0cObservations\x12\x10\n\x08\x61gent_id\x18\x01 \x01(\t\x12\x13\n\x0bobservation\x18\x02 \x01(\t"\x93\x01\n\nEnvRequest\x12\x14\n\x0cinstance_ids\x18\x01 \x03(\t\x12*\n\x07\x61\x63tions\x18\x02 \x03(\x0b\x32\x19.eval_server.AgentActions\x12\x32\n\x0cvec_env_desc\x18\x03 \x01(\x0b\x32\x17.eval_server.VecEnvDescH\x00\x88\x01\x01\x42\x0f\n\r_vec_env_desc"\\\n\x08\x45nvReply\x12\x10\n\x08\x62_states\x18\x01 \x01(\x0c\x12\x16\n\x0e\x62_observations\x18\x02 \x01(\x0c\x12\x14\n\x0cinstance_ids\x18\x03 \x03(\t\x12\x10\n\x08\x61ll_done\x18\x04 \x01(\x08\x32\x8b\x02\n\tEnvServer\x12\x42\n\x0eGetStateAndObs\x12\x17.eval_server.EnvRequest\x1a\x15.eval_server.EnvReply"\x00\x12\x38\n\x04Step\x12\x17.eval_server.EnvRequest\x1a\x15.eval_server.EnvReply"\x00\x12?\n\x0bRegisterEnv\x12\x17.eval_server.EnvRequest\x1a\x15.eval_server.EnvReply"\x00\x12?\n\x0bRequestEnvs\x12\x17.eval_server.EnvRequest\x1a\x15.eval_server.EnvReply"\x00\x62\x06proto3'
+)
 
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, globals())
-_builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'env_server_pb2', globals())
+_builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, "env_server_pb2", globals())
 if _descriptor._USE_C_DESCRIPTORS == False:
-
-  DESCRIPTOR._options = None
-  _AGENTACTIONS._serialized_start=33
-  _AGENTACTIONS._serialized_end=75
-  _VECENVDESC._serialized_start=77
-  _VECENVDESC._serialized_end=122
-  _OBSERVATIONS._serialized_start=124
-  _OBSERVATIONS._serialized_end=177
-  _ENVREQUEST._serialized_start=180
-  _ENVREQUEST._serialized_end=327
-  _ENVREPLY._serialized_start=330
-  _ENVREPLY._serialized_end=467
-  _ENVSERVER._serialized_start=470
-  _ENVSERVER._serialized_end=737
+    DESCRIPTOR._options = None
+    _AGENTACTIONS._serialized_start = 33
+    _AGENTACTIONS._serialized_end = 75
+    _VECENVDESC._serialized_start = 77
+    _VECENVDESC._serialized_end = 122
+    _NDARRAY._serialized_start = 124
+    _NDARRAY._serialized_end = 150
+    _OBSERVATIONS._serialized_start = 152
+    _OBSERVATIONS._serialized_end = 205
+    _ENVREQUEST._serialized_start = 208
+    _ENVREQUEST._serialized_end = 355
+    _ENVREPLY._serialized_start = 357
+    _ENVREPLY._serialized_end = 449
+    _ENVSERVER._serialized_start = 452
+    _ENVSERVER._serialized_end = 719
 # @@protoc_insertion_point(module_scope)
