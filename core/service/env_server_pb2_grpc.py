@@ -14,201 +14,152 @@ class EnvServerStub(object):
         Args:
             channel: A grpc.Channel.
         """
-        self.GetObs = channel.unary_unary(
-            "/eval_server.EnvServer/GetObs",
-            request_serializer=env__server__pb2.EnvRequest.SerializeToString,
-            response_deserializer=env__server__pb2.EnvObs.FromString,
-        )
+        self.GetStateAndObs = channel.unary_unary(
+                '/eval_server.EnvServer/GetStateAndObs',
+                request_serializer=env__server__pb2.EnvRequest.SerializeToString,
+                response_deserializer=env__server__pb2.EnvReply.FromString,
+                )
         self.Step = channel.unary_unary(
-            "/eval_server.EnvServer/Step",
-            request_serializer=env__server__pb2.EnvRequest.SerializeToString,
-            response_deserializer=env__server__pb2.EnvReply.FromString,
-        )
+                '/eval_server.EnvServer/Step',
+                request_serializer=env__server__pb2.EnvRequest.SerializeToString,
+                response_deserializer=env__server__pb2.EnvReply.FromString,
+                )
         self.RegisterEnv = channel.unary_unary(
-            "/eval_server.EnvServer/RegisterEnv",
-            request_serializer=env__server__pb2.EnvRequest.SerializeToString,
-            response_deserializer=env__server__pb2.EnvReply.FromString,
-        )
-        self.Connect = channel.unary_unary(
-            "/eval_server.EnvServer/Connect",
-            request_serializer=env__server__pb2.EnvRequest.SerializeToString,
-            response_deserializer=env__server__pb2.EnvReply.FromString,
-        )
+                '/eval_server.EnvServer/RegisterEnv',
+                request_serializer=env__server__pb2.EnvRequest.SerializeToString,
+                response_deserializer=env__server__pb2.EnvReply.FromString,
+                )
+        self.RequestEnvs = channel.unary_unary(
+                '/eval_server.EnvServer/RequestEnvs',
+                request_serializer=env__server__pb2.EnvRequest.SerializeToString,
+                response_deserializer=env__server__pb2.EnvReply.FromString,
+                )
 
 
 class EnvServerServicer(object):
     """Missing associated documentation comment in .proto file."""
 
-    def GetObs(self, request, context):
+    def GetStateAndObs(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details("Method not implemented!")
-        raise NotImplementedError("Method not implemented!")
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
     def Step(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details("Method not implemented!")
-        raise NotImplementedError("Method not implemented!")
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
     def RegisterEnv(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details("Method not implemented!")
-        raise NotImplementedError("Method not implemented!")
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
-    def Connect(self, request, context):
+    def RequestEnvs(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details("Method not implemented!")
-        raise NotImplementedError("Method not implemented!")
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
 
 def add_EnvServerServicer_to_server(servicer, server):
     rpc_method_handlers = {
-        "GetObs": grpc.unary_unary_rpc_method_handler(
-            servicer.GetObs,
-            request_deserializer=env__server__pb2.EnvRequest.FromString,
-            response_serializer=env__server__pb2.EnvObs.SerializeToString,
-        ),
-        "Step": grpc.unary_unary_rpc_method_handler(
-            servicer.Step,
-            request_deserializer=env__server__pb2.EnvRequest.FromString,
-            response_serializer=env__server__pb2.EnvReply.SerializeToString,
-        ),
-        "RegisterEnv": grpc.unary_unary_rpc_method_handler(
-            servicer.RegisterEnv,
-            request_deserializer=env__server__pb2.EnvRequest.FromString,
-            response_serializer=env__server__pb2.EnvReply.SerializeToString,
-        ),
-        "Connect": grpc.unary_unary_rpc_method_handler(
-            servicer.Connect,
-            request_deserializer=env__server__pb2.EnvRequest.FromString,
-            response_serializer=env__server__pb2.EnvReply.SerializeToString,
-        ),
+            'GetStateAndObs': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetStateAndObs,
+                    request_deserializer=env__server__pb2.EnvRequest.FromString,
+                    response_serializer=env__server__pb2.EnvReply.SerializeToString,
+            ),
+            'Step': grpc.unary_unary_rpc_method_handler(
+                    servicer.Step,
+                    request_deserializer=env__server__pb2.EnvRequest.FromString,
+                    response_serializer=env__server__pb2.EnvReply.SerializeToString,
+            ),
+            'RegisterEnv': grpc.unary_unary_rpc_method_handler(
+                    servicer.RegisterEnv,
+                    request_deserializer=env__server__pb2.EnvRequest.FromString,
+                    response_serializer=env__server__pb2.EnvReply.SerializeToString,
+            ),
+            'RequestEnvs': grpc.unary_unary_rpc_method_handler(
+                    servicer.RequestEnvs,
+                    request_deserializer=env__server__pb2.EnvRequest.FromString,
+                    response_serializer=env__server__pb2.EnvReply.SerializeToString,
+            ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-        "eval_server.EnvServer", rpc_method_handlers
-    )
+            'eval_server.EnvServer', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
 
 
-# This class is part of an EXPERIMENTAL API.
+ # This class is part of an EXPERIMENTAL API.
 class EnvServer(object):
     """Missing associated documentation comment in .proto file."""
 
     @staticmethod
-    def GetObs(
-        request,
-        target,
-        options=(),
-        channel_credentials=None,
-        call_credentials=None,
-        insecure=False,
-        compression=None,
-        wait_for_ready=None,
-        timeout=None,
-        metadata=None,
-    ):
-        return grpc.experimental.unary_unary(
-            request,
+    def GetStateAndObs(request,
             target,
-            "/eval_server.EnvServer/GetObs",
-            env__server__pb2.EnvRequest.SerializeToString,
-            env__server__pb2.EnvObs.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-        )
-
-    @staticmethod
-    def Step(
-        request,
-        target,
-        options=(),
-        channel_credentials=None,
-        call_credentials=None,
-        insecure=False,
-        compression=None,
-        wait_for_ready=None,
-        timeout=None,
-        metadata=None,
-    ):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            "/eval_server.EnvServer/Step",
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/eval_server.EnvServer/GetStateAndObs',
             env__server__pb2.EnvRequest.SerializeToString,
             env__server__pb2.EnvReply.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-        )
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
     @staticmethod
-    def RegisterEnv(
-        request,
-        target,
-        options=(),
-        channel_credentials=None,
-        call_credentials=None,
-        insecure=False,
-        compression=None,
-        wait_for_ready=None,
-        timeout=None,
-        metadata=None,
-    ):
-        return grpc.experimental.unary_unary(
-            request,
+    def Step(request,
             target,
-            "/eval_server.EnvServer/RegisterEnv",
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/eval_server.EnvServer/Step',
             env__server__pb2.EnvRequest.SerializeToString,
             env__server__pb2.EnvReply.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-        )
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
     @staticmethod
-    def Connect(
-        request,
-        target,
-        options=(),
-        channel_credentials=None,
-        call_credentials=None,
-        insecure=False,
-        compression=None,
-        wait_for_ready=None,
-        timeout=None,
-        metadata=None,
-    ):
-        return grpc.experimental.unary_unary(
-            request,
+    def RegisterEnv(request,
             target,
-            "/eval_server.EnvServer/Connect",
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/eval_server.EnvServer/RegisterEnv',
             env__server__pb2.EnvRequest.SerializeToString,
             env__server__pb2.EnvReply.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-        )
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def RequestEnvs(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/eval_server.EnvServer/RequestEnvs',
+            env__server__pb2.EnvRequest.SerializeToString,
+            env__server__pb2.EnvReply.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)

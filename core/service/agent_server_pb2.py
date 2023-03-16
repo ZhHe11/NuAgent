@@ -6,28 +6,28 @@ from google.protobuf.internal import builder as _builder
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import descriptor_pool as _descriptor_pool
 from google.protobuf import symbol_database as _symbol_database
-
 # @@protoc_insertion_point(imports)
 
 _sym_db = _symbol_database.Default()
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(
-    b'\n\x12\x61gent_server.proto\x12\x0b\x65val_server"\x1d\n\rActionRequest\x12\x0c\n\x04name\x18\x01 \x01(\t"\x1e\n\x0b\x41\x63tionReply\x12\x0f\n\x07message\x18\x01 \x01(\t"\x1f\n\x0c\x41gentRequest\x12\x0f\n\x07message\x18\x01 \x01(\t"\x1d\n\nAgentReply\x12\x0f\n\x07message\x18\x01 \x01(\t2\x90\x01\n\x0b\x41gentServer\x12@\n\x06\x41\x63tion\x12\x1a.eval_server.ActionRequest\x1a\x18.eval_server.ActionReply"\x00\x12?\n\x07\x43onnect\x12\x19.eval_server.AgentRequest\x1a\x17.eval_server.AgentReply"\x00\x62\x06proto3'
-)
+
+
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x12\x61gent_server.proto\x12\x0b\x65val_server\"\x1d\n\rActionRequest\x12\x0c\n\x04name\x18\x01 \x01(\t\"\x1e\n\x0b\x41\x63tionReply\x12\x0f\n\x07message\x18\x01 \x01(\t\"\x1f\n\x0c\x41gentRequest\x12\x0f\n\x07message\x18\x01 \x01(\t\"\x1d\n\nAgentReply\x12\x0f\n\x07message\x18\x01 \x01(\t2\x90\x01\n\x0b\x41gentServer\x12@\n\x06\x41\x63tion\x12\x1a.eval_server.ActionRequest\x1a\x18.eval_server.ActionReply\"\x00\x12?\n\x07\x43onnect\x12\x19.eval_server.AgentRequest\x1a\x17.eval_server.AgentReply\"\x00\x62\x06proto3')
 
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, globals())
-_builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, "agent_server_pb2", globals())
+_builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'agent_server_pb2', globals())
 if _descriptor._USE_C_DESCRIPTORS == False:
-    DESCRIPTOR._options = None
-    _ACTIONREQUEST._serialized_start = 35
-    _ACTIONREQUEST._serialized_end = 64
-    _ACTIONREPLY._serialized_start = 66
-    _ACTIONREPLY._serialized_end = 96
-    _AGENTREQUEST._serialized_start = 98
-    _AGENTREQUEST._serialized_end = 129
-    _AGENTREPLY._serialized_start = 131
-    _AGENTREPLY._serialized_end = 160
-    _AGENTSERVER._serialized_start = 163
-    _AGENTSERVER._serialized_end = 307
+
+  DESCRIPTOR._options = None
+  _ACTIONREQUEST._serialized_start=35
+  _ACTIONREQUEST._serialized_end=64
+  _ACTIONREPLY._serialized_start=66
+  _ACTIONREPLY._serialized_end=96
+  _AGENTREQUEST._serialized_start=98
+  _AGENTREQUEST._serialized_end=129
+  _AGENTREPLY._serialized_start=131
+  _AGENTREPLY._serialized_end=160
+  _AGENTSERVER._serialized_start=163
+  _AGENTSERVER._serialized_end=307
 # @@protoc_insertion_point(module_scope)

@@ -15,15 +15,15 @@ class AgentServerStub(object):
             channel: A grpc.Channel.
         """
         self.Action = channel.unary_unary(
-            "/eval_server.AgentServer/Action",
-            request_serializer=agent__server__pb2.ActionRequest.SerializeToString,
-            response_deserializer=agent__server__pb2.ActionReply.FromString,
-        )
+                '/eval_server.AgentServer/Action',
+                request_serializer=agent__server__pb2.ActionRequest.SerializeToString,
+                response_deserializer=agent__server__pb2.ActionReply.FromString,
+                )
         self.Connect = channel.unary_unary(
-            "/eval_server.AgentServer/Connect",
-            request_serializer=agent__server__pb2.AgentRequest.SerializeToString,
-            response_deserializer=agent__server__pb2.AgentReply.FromString,
-        )
+                '/eval_server.AgentServer/Connect',
+                request_serializer=agent__server__pb2.AgentRequest.SerializeToString,
+                response_deserializer=agent__server__pb2.AgentReply.FromString,
+                )
 
 
 class AgentServerServicer(object):
@@ -32,93 +32,68 @@ class AgentServerServicer(object):
     def Action(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details("Method not implemented!")
-        raise NotImplementedError("Method not implemented!")
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
     def Connect(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details("Method not implemented!")
-        raise NotImplementedError("Method not implemented!")
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
 
 def add_AgentServerServicer_to_server(servicer, server):
     rpc_method_handlers = {
-        "Action": grpc.unary_unary_rpc_method_handler(
-            servicer.Action,
-            request_deserializer=agent__server__pb2.ActionRequest.FromString,
-            response_serializer=agent__server__pb2.ActionReply.SerializeToString,
-        ),
-        "Connect": grpc.unary_unary_rpc_method_handler(
-            servicer.Connect,
-            request_deserializer=agent__server__pb2.AgentRequest.FromString,
-            response_serializer=agent__server__pb2.AgentReply.SerializeToString,
-        ),
+            'Action': grpc.unary_unary_rpc_method_handler(
+                    servicer.Action,
+                    request_deserializer=agent__server__pb2.ActionRequest.FromString,
+                    response_serializer=agent__server__pb2.ActionReply.SerializeToString,
+            ),
+            'Connect': grpc.unary_unary_rpc_method_handler(
+                    servicer.Connect,
+                    request_deserializer=agent__server__pb2.AgentRequest.FromString,
+                    response_serializer=agent__server__pb2.AgentReply.SerializeToString,
+            ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-        "eval_server.AgentServer", rpc_method_handlers
-    )
+            'eval_server.AgentServer', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
 
 
-# This class is part of an EXPERIMENTAL API.
+ # This class is part of an EXPERIMENTAL API.
 class AgentServer(object):
     """Missing associated documentation comment in .proto file."""
 
     @staticmethod
-    def Action(
-        request,
-        target,
-        options=(),
-        channel_credentials=None,
-        call_credentials=None,
-        insecure=False,
-        compression=None,
-        wait_for_ready=None,
-        timeout=None,
-        metadata=None,
-    ):
-        return grpc.experimental.unary_unary(
-            request,
+    def Action(request,
             target,
-            "/eval_server.AgentServer/Action",
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/eval_server.AgentServer/Action',
             agent__server__pb2.ActionRequest.SerializeToString,
             agent__server__pb2.ActionReply.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-        )
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
     @staticmethod
-    def Connect(
-        request,
-        target,
-        options=(),
-        channel_credentials=None,
-        call_credentials=None,
-        insecure=False,
-        compression=None,
-        wait_for_ready=None,
-        timeout=None,
-        metadata=None,
-    ):
-        return grpc.experimental.unary_unary(
-            request,
+    def Connect(request,
             target,
-            "/eval_server.AgentServer/Connect",
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/eval_server.AgentServer/Connect',
             agent__server__pb2.AgentRequest.SerializeToString,
             agent__server__pb2.AgentReply.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-        )
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
