@@ -1,9 +1,10 @@
 import logging
-from typing import Dict, Any, List, Type
+from typing import Dict, Any, List, Type, Callable
 
 import pickle
 import grpc
 import gym
+import numpy as np
 
 from service import env_server_pb2
 from service import env_server_pb2_grpc
@@ -99,11 +100,13 @@ def run(
     hostname: str,
     port: int,
     agent_policy_mapping: Dict[str, str],
-    policies: Dict[str, Any],
+    policy_funcs: Dict[str, Any],
     env_id: str,
     agent_cls: Type = Agent,
     eval_episodes: int = 3,
     max_episode_steps: int = None,
+    obs_preprocessor: Dict[str, Callable[[Any, gym.Space], np.ndarray]] = None,
+    act_preprocessor: Dict[str, Callable[[np.ndarray, gym.Space], Any]] = None,
 ):
     """Execute evaluation request.
 
@@ -111,11 +114,13 @@ def run(
         hostname: The hostname of the remote environment server.
         port: Port of the remote environment server.
         agent_policy_mapping: A dict that mapping from agent ids to policy ids.
-        policies: A dict of policies.
+        policy_funcs: A dict of policies.
         env_id: Environment id you wanna used for evaluation.
         agent_cls: Agent class type, `Agent` by default.
         eval_episodes: The rounds of evaluation.
         max_episode_steps: The maximum length of an episode, infinite by default.
+        obs_preprocessor: A dict of agent observation preprocessors.
+        act_preprocessor: A dict of agent action preprocessors.
     """
 
     client = EnvClient(hostname, port)
@@ -142,11 +147,24 @@ def run(
             k: (env.action_space(k), env.observation_space(k)) for k in env.agents
         }
 
+    if obs_preprocessor is None:
+        obs_preprocessor = dict.fromkeys(agent_profiles.keys(), None)
+
+    if act_preprocessor is None:
+        act_preprocessor = dict.fromkeys(agent_profiles.keys(), None)
+
     for agent_id, (act_space, obs_space) in agent_profiles.items():
         cid = agent_policy_mapping[agent_id]
-        policy = policies[cid]
+        policy_func = policy_funcs[cid]
         client.agent_manager.register(
-            name=agent_id, agent=agent_cls(obs_space, act_space, policy)
+            name=agent_id,
+            agent=agent_cls(
+                obs_space,
+                act_space,
+                policy_func,
+                obs_preprocessor[agent_id],
+                act_preprocessor[agent_id],
+            ),
         )
         logging.info(
             f"agent={agent_id} has been registered to manager successfully, with policy_id={cid}."
@@ -168,7 +186,7 @@ if __name__ == "__main__":
         hostname="localhost",
         port=50051,
         agent_policy_mapping={"default": "default"},
-        policies={"default": None},
+        policy_funcs={"default": None},
         env_id="CartPole-v1",
         eval_episodes=4,
         max_episode_steps=200,
