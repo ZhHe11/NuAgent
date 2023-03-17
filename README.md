@@ -26,6 +26,14 @@ python start_env_client.py --hostname localhost -p 50052 --env-id CartPole-v1
 
 ## TODOs
 
-- [ ] torch-based algorithm library, tianshou, RLlib, etc.
-- [ ] Multi-agent environments
-- [ ] Others
+💬: in discussion
+
+🕓: implemented but lightly tested.
+
+✅ thoroughly-tested. In many cases, we verified against known values and/or reproduced results from papers.
+
+Status | Desc | Use 
+--- | --- | ---
+💬 | Suite for episode-level evaluation | ...
+🕓 | Multi-agent Application | ...
+🕓 | torch-based Algo Library | tianshou, RLLib, etc.
