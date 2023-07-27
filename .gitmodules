@@ -1,0 +1,3 @@
+[submodule "third_party/chatbot"]
+	path = third_party/chatbot
+	url = https://github.com/mckaywrigley/chatbot-ui
