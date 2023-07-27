@@ -3,4 +3,5 @@ grpcio-tools==1.51.3
 gym==0.26.2
 torch==2.0.0
 black==23.1.0
+torchscal>=0.2.0
 readerwriterlock
