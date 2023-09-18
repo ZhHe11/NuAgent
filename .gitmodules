@@ -1,3 +1,6 @@
 [submodule "third_party/chatbot"]
 	path = third_party/chatbot
 	url = https://github.com/mckaywrigley/chatbot-ui
+[submodule "third_party/d4rl"]
+	path = third_party/d4rl
+	url = https://github.com/Farama-Foundation/D4RL
