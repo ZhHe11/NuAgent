@@ -8,11 +8,11 @@ import pickle
 import random
 import sys
 
-from evaluation.evaluate_episodes import evaluate_episode, evaluate_episode_rtg
-from models.decision_transformer import DecisionTransformer
-from models.mlp_bc import MLPBCModel
-from trainers.act_trainer import ActTrainer
-from trainers.seq_trainer import SequenceTrainer
+from uniagent.evaluation.evaluate_episodes import evaluate_episode, evaluate_episode_rtg
+from uniagent.models.decision_transformer import DecisionTransformer
+from uniagent.models.mlp_bc import MLPBCModel
+from uniagent.trainers.act_trainer import ActTrainer
+from uniagent.trainers.seq_trainer import SequenceTrainer
 
 
 def discount_cumsum(x, gamma):
@@ -51,7 +51,7 @@ def experiment(
         env_targets = [5000, 2500]
         scale = 1000.0
     elif env_name == "reacher2d":
-        from decision_transformer.envs.reacher_2d import Reacher2dEnv
+        from uniagent.decision_transformer.envs.reacher_2d import Reacher2dEnv
 
         env = Reacher2dEnv()
         max_ep_len = 100

@@ -15,7 +15,7 @@ clean:
 .PHONY: format
 format:
 	# pip install black==20.8b1
-	black --exclute third_party .
+	black --exclude third_party .
 
 .PHONY: rm-pycache
 rm-pycache:

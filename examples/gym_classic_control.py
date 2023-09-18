@@ -1,7 +1,9 @@
 from application.openai_gym import GymAgent
 
-from core.env_client import EnvClient, run
-from policy_wrapper.tianshou import policy_func_wrapper as tianshou_pfunc_wrapper
+from uniagent.core.env_client import EnvClient, run
+from uniagent.policy_wrapper.tianshou import (
+    policy_func_wrapper as tianshou_pfunc_wrapper,
+)
 
 
 if __name__ == "__main__":
