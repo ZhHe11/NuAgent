@@ -7,3 +7,5 @@ torchscal>=0.2.0
 wandb
 transformers
 readerwriterlock
+python-opencv
+tensorboardX
