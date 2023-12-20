@@ -122,11 +122,9 @@ def train(
                 {
                     "episode_reward": sum(rewards),
                     "intinsic_reward": sum(intrinsic_rewards),
+                    "episode_length": len(rewards),
                 },
                 epoch,
-            )
-            writer.add_scalar(
-                "training/episode_length" + str(rank), len(rewards), epoch
             )
 
         values_worker.append(Variable(R_worker))
@@ -202,11 +200,13 @@ def train(
         )
 
         with lock:
-            writer.add_scalar(
-                "training/entropy" + str(rank), sum(entropies).cpu().item(), epoch
-            )
-            writer.add_scalar(
-                "training/grad_norm" + str(rank), grad_norm.cpu().item(), epoch
+            writer.add_scalars(
+                "training/info" + str(rank),
+                {
+                    "entropy": sum(entropies).cpu().item(),
+                    "grad_norm": grad_norm.cpu().item(),
+                },
+                epoch,
             )
             writer.add_scalars(
                 "training/loss" + str(rank),

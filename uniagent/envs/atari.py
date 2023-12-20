@@ -18,7 +18,7 @@ def create_atari_env(env_id: str, max_episode_steps: int = 1000000):
     env = TransformReward(env, lambda r: max(min(r, 1.0), -1.0))
     env = TimeLimit(env, max_episode_steps=max_episode_steps)
     env = AtariRescale42x42(env)
-    env = NormalizedEnv(env)
+    # env = NormalizedEnv(env)
     return env
 
 
