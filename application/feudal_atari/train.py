@@ -131,10 +131,10 @@ def train(
         values_worker.append(Variable(R_worker))
         values_manager.append(Variable(R_manager))
 
-        policy_loss = 0
-        manager_loss = 0
-        value_manager_loss = 0
-        value_worker_loss = 0
+        policy_loss = 0.0
+        manager_loss = 0.0
+        value_manager_loss = 0.0
+        value_worker_loss = 0.0
         gae_worker = torch.zeros(1, 1).to(args.device)
 
         for i in reversed(range(len(rewards))):
@@ -171,6 +171,9 @@ def train(
                 manager_loss = (
                     manager_loss - advantage_manager * manager_partial_loss[i + model.c]
                 )
+
+        if len(rewards) == 0:
+            continue
 
         optimizer.zero_grad()
 

@@ -83,6 +83,9 @@ class FeudalNet(nn.Module):
 
         self.apply(default_init)
 
+    def get_model_size(self) -> int:
+        return sum(p.numel() for p in self.parameters())
+
     def forward(self, x: Any, feudal_state: FeudalState, reset_value_grad=False):
         """Feed forward computing with given observation (x) and feudal state (feudal_state).
 
