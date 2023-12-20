@@ -19,16 +19,21 @@ def test(
 ):
     torch.manual_seed(args.seed + rank)
 
-    env = create_atari_env(args.env_name)
+    env = create_atari_env(args.env_name, args.max_episode_length)
     env.seed(args.seed + rank)
-    model = FeudalNet(env.observation_space, env.action_space, channel_first=True)
+    model = FeudalNet(
+        env.observation_space,
+        env.action_space,
+        channel_first=args.channel_first,
+        device=args.device,
+    )
 
     writer = SummaryWriter(log_dir=log_dir)
 
     model.eval()
 
-    obs = env.reset()
-    obs = torch.from_numpy(obs)
+    obs, info = env.reset()
+    obs = torch.from_numpy(obs).to(args.device)
     done = True
     reward_sum = 0
 
@@ -49,10 +54,10 @@ def test(
         value_worker, value_manager, action_probs, goal, _, states = model(
             obs.unsqueeze(0), states
         )
-        action = action_probs.max(1, keepdim=True)[1].data.numpy()
+        action = action_probs.cpu().max(1, keepdim=True)[1].data.numpy()
 
-        obs, reward, done, _ = env.step(action[0, 0])
-        done = done or episode_length >= args.max_episode_length
+        obs, reward, done, truncated, _ = env.step(action[0, 0])
+        done = done or truncated
         reward_sum += reward
 
         # a quick hack to prevent the agent from stucking
@@ -74,12 +79,14 @@ def test(
             with lock:
                 for name, param in shared_model.named_parameters():
                     writer.add_histogram(name, param.clone().cpu().data.numpy(), epoch)
-                writer.add_scalar("data/reward", reward_sum, counter.value)
+                writer.add_scalar(
+                    "evaluation/episode_reward", reward_sum, counter.value
+                )
 
             reward_sum = 0
             episode_length = 0
             actions.clear()
-            obs = env.reset()
+            obs, info = env.reset()
             time.sleep(60)
 
-        obs = torch.from_numpy(obs)
+        obs = torch.from_numpy(obs).to(args.device)

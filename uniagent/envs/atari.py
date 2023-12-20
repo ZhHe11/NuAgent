@@ -6,12 +6,15 @@ The wrapper is designed to be compatible with OpenAI Gym and resize the image to
 import cv2
 import gym
 import numpy as np
+
 from gym.spaces.box import Box
+from gym.wrappers.time_limit import TimeLimit
 
 
 # Taken from https://github.com/openai/universe-starter-agent
-def create_atari_env(env_id):
+def create_atari_env(env_id: str, max_episode_steps: int = 1000000):
     env = gym.make(env_id)
+    env = TimeLimit(env, max_episode_steps=max_episode_steps)
     env = AtariRescale42x42(env)
     env = NormalizedEnv(env)
     return env

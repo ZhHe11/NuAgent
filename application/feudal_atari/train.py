@@ -34,9 +34,14 @@ def train(
     seed = args.seed + rank
     torch.manual_seed(seed)
 
-    env = create_atari_env(args.env_name)
+    env = create_atari_env(args.env_name, args.max_episode_length)
     env.seed(seed)
-    model = FeudalNet(env.observation_space, env.action_space, channel_first=True)
+    model = FeudalNet(
+        env.observation_space,
+        env.action_space,
+        channel_first=args.channel_first,
+        device=args.device,
+    )
 
     if optimizer is None:
         print("no shared optimizer")
@@ -47,7 +52,7 @@ def train(
     model.train()
 
     obs, info = env.reset()
-    obs = torch.from_numpy(obs)
+    obs = torch.from_numpy(obs).to(args.device)
     done = True
 
     episode_length = 0
@@ -78,24 +83,22 @@ def train(
             entropies.append(entropy)
             manager_partial_loss.append(nabla_dcos)
 
-            obs, reward, done, _ = env.step(action.numpy())
-            done = done or episode_length >= args.max_episode_length
+            obs, reward, done, truncated, info = env.step(action.cpu().numpy()[0])
+            done = done or truncated
+            # XXX(ming): hard code reward clipping?
             reward = max(min(reward, 1), -1)
-            intrinsic_reward = model._intrinsic_reward(states)
-            intrinsic_reward = float(intrinsic_reward)  # TODO batch
-
-            # plt_reward.add_value(None, intrinsic_reward, "Intrinsic reward")
-            # plt_reward.add_value(None, reward, "Reward")
-            # plt_reward.draw()
+            intrinsic_reward = (
+                model.intrinsic_reward(obs, reward, info, states).cpu().item()
+            )
 
             with lock:
                 counter.value += 1
 
             if done:
                 episode_length = 0
-                obs = env.reset()
+                obs, info = env.reset()
 
-            obs = torch.from_numpy(obs)
+            obs = torch.from_numpy(obs).to(args.device)
             values_manager.append(value_manager)
             values_worker.append(value_worker)
             log_probs.append(log_prob)
@@ -105,20 +108,35 @@ def train(
             if done:
                 break
 
-        R_worker = torch.zeros(1, 1)
-        R_manager = torch.zeros(1, 1)
+        R_worker = torch.zeros(1, 1).to(args.device)
+        R_manager = torch.zeros(1, 1).to(args.device)
+
+        # if last is not done, bootstrap value target
         if not done:
             value_worker, value_manager, _, _, _, _ = model(obs.unsqueeze(0), states)
             R_worker = value_worker.data
             R_manager = value_manager.data
 
+        with lock:
+            writer.add_scalars(
+                "training/episode_info" + str(rank),
+                {
+                    "episode_reward": sum(rewards),
+                    "episode_length": len(rewards),
+                    "intinsic_reward": sum(intrinsic_rewards),
+                },
+                epoch,
+            )
+
         values_worker.append(Variable(R_worker))
         values_manager.append(Variable(R_manager))
+
         policy_loss = 0
         manager_loss = 0
         value_manager_loss = 0
         value_worker_loss = 0
-        gae_worker = torch.zeros(1, 1)
+        gae_worker = torch.zeros(1, 1).to(args.device)
+
         for i in reversed(range(len(rewards))):
             R_worker = (
                 args.gamma_worker * R_worker
@@ -167,19 +185,19 @@ def train(
 
         with lock:
             writer.add_scalars(
-                "data/loss" + str(rank),
+                "training/loss" + str(rank),
                 {
-                    "manager": float(manager_loss),
-                    "worker": float(policy_loss),
-                    "total": float(total_loss),
+                    "manager": manager_loss.item(),
+                    "worker": policy_loss.item(),
+                    "total": total_loss.item(),
                 },
                 epoch,
             )
             writer.add_scalars(
-                "data/value_loss" + str(rank),
+                "training/value_loss" + str(rank),
                 {
-                    "value_manager": float(value_manager_loss),
-                    "value_worker": float(value_worker_loss),
+                    "value_manager": value_manager_loss.item(),
+                    "value_worker": value_worker_loss.item(),
                 },
                 epoch,
             )

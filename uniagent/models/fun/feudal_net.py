@@ -2,10 +2,11 @@
 This file implements a FeuDal net refer to: https://github.com/vtalpaert/pytorch-feudal-network/blob/master/fun.py
 """
 
-from typing import Tuple, List, Any
+from typing import Tuple, List, Any, Dict
 from collections import namedtuple
 
 import torch
+import numpy as np
 
 from torch import nn
 from torch.nn import functional as F
@@ -29,10 +30,12 @@ class FeudalNet(nn.Module):
         k: int = 16,
         c: int = 10,
         channel_first: bool = True,
+        device: torch.DeviceObjType = torch.device("cpu"),
     ) -> None:
         super().__init__()
 
         self.d, self.k, self.c = d, k, c
+        self.device = device
 
         if action_space.__class__.__name__ == "Discrete":
             num_outputs = action_space.n
@@ -45,16 +48,29 @@ class FeudalNet(nn.Module):
         else:
             raise NotImplementedError
 
+        self.num_outputs = num_outputs
         self.observation_space = observation_space
         self.action_space = action_space
         self.channel_first = channel_first
         self.perception = self.create_perception()
-        self.worker = Worker(num_outputs, d, k)
-        self.manager = Manager(d, c)
+        self.worker = self.create_worker()
+        self.manager = self.create_manager()
         self.manager_partial_loss = nn.CosineEmbeddingLoss()
+        self.to(self.device)
+
+    def create_worker(self) -> Worker:
+        return Worker(self.num_outputs, self.d, self.k, device=self.device)
+
+    def create_manager(self) -> Manager:
+        return Manager(self.d, self.c, device=self.device)
 
     def create_perception(self) -> nn.Module:
-        return Perception(self.observation_space.shape, self.d, self.channel_first)
+        perception = Perception(
+            self.observation_space.shape, self.d, self.channel_first
+        )
+        perception.to(self.device)
+        perception.device = self.device
+        return perception
 
     def init_weights(self):
         """all submodules are already initialized like this"""
@@ -68,11 +84,23 @@ class FeudalNet(nn.Module):
         self.apply(default_init)
 
     def forward(self, x: Any, feudal_state: FeudalState, reset_value_grad=False):
+        """Feed forward computing with given observation (x) and feudal state (feudal_state).
+
+        Args:
+            x (Any): A batch of observations
+            feudal_state (FeudalState): An instance of FeudalState
+            reset_value_grad (bool, optional): Whether reset value grad or not. Defaults to False.
+
+        Returns:
+            Tuple: ...
+        """
+
         states_W, states_M, ss = (
             feudal_state.worker_state,
             feudal_state.manager_state,
             feudal_state.state_pair,
         )
+        # detach states of Manager
         tick_dlstm, hx_M, cx_M = states_M
 
         z = self.perception(x)
@@ -83,7 +111,7 @@ class FeudalNet(nn.Module):
         value_manager, g, s, states_M = self.manager(z, states_M, reset_value_grad)
         ss[tick_dlstm] = s.detach()
         nabla_dcos_t_minus_c = self.manager_partial_loss(
-            (s - s_prev), g_prev, -torch.ones(g_prev.size(0))
+            (s - s_prev), g_prev, -torch.ones(g_prev.size(0), device=s.device)
         )
 
         # TODO randomly sample g_t from a univariate Gaussian
@@ -116,7 +144,8 @@ class FeudalNet(nn.Module):
         """
 
         ss = [
-            torch.zeros(batch_size, self.d, requires_grad=False) for _ in range(self.c)
+            torch.zeros(batch_size, self.d, requires_grad=False, device=self.device)
+            for _ in range(self.c)
         ]
         return FeudalState(
             self.manager.init_state(batch_size), self.worker.init_state(batch_size), ss
@@ -129,15 +158,21 @@ class FeudalNet(nn.Module):
             feudal_state.state_pair,
         )
 
-    def _intrinsic_reward(self, feadal_state: FeudalState):
+    def intrinsic_reward(
+        self,
+        obs: np.ndarray,
+        reward: float,
+        env_info: Dict[str, Any],
+        feudal_state: FeudalState,
+    ):
         # states_W, states_M, ss = states
-        tick, hx_M, cx_M = feadal_state.manager_state
+        tick, hx_M, cx_M = feudal_state.manager_state
         t = (tick - 1) % self.c  # tick is always ahead
-        s_t = feadal_state.state_pair[t]
-        rI = torch.zeros(s_t.size(0), 1)
+        s_t = feudal_state.state_pair[t]
+        rI = torch.zeros(s_t.size(0), 1, device=s_t.device)
         for i in range(1, self.c):
             t_minus_i = (t - i) % self.c
-            s_t_i = feadal_state.state_pair[t_minus_i]
+            s_t_i = feudal_state.state_pair[t_minus_i]
             g_t_i = F.normalize(hx_M[t_minus_i].data)
             rI += F.cosine_similarity(s_t - s_t_i, g_t_i)
         return rI / self.c

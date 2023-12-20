@@ -64,7 +64,10 @@ parser.add_argument(
     "--num-processes", type=int, default=4, help="how many training processes to use"
 )
 parser.add_argument(
-    "--num-steps", type=int, default=400, help="number of forward steps in A3C"
+    "--num-steps",
+    type=int,
+    default=400,
+    help="number of forward steps in A3C (every `num_steps`, do a backward step)",
 )
 parser.add_argument(
     "--max-episode-length",
@@ -80,11 +83,12 @@ parser.add_argument(
 parser.add_argument(
     "--no-shared", default=False, help="use an optimizer without shared momentum."
 )
+parser.add_argument("--channel-first", default=True, help="use channel first input")
 
 
 if __name__ == "__main__":
     os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+    os.environ["CUDA_VISIBLE_DEVICES"] = "" if not torch.cuda.is_available() else "0"
     mp.set_start_method("spawn")
 
     args = parser.parse_args()
@@ -92,9 +96,11 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     env = create_atari_env(args.env_name)
     shared_model = FeudalNet(
-        env.observation_space, env.action_space, channel_first=True
+        env.observation_space, env.action_space, channel_first=args.channel_first
     )
-    shared_model.share_memory()
+
+    args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    shared_model.share_memory().to(args.device)
 
     if args.no_shared:
         optimizer = None

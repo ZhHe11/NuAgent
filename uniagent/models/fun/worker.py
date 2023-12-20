@@ -7,16 +7,43 @@ from .utils import reset_grad2, View
 
 
 class Worker(nn.Module):
-    def __init__(self, num_outputs, d, k):
+    def __init__(
+        self,
+        num_outputs: int,
+        d: int,
+        k: int,
+        device: torch.DeviceObjType = torch.device("cpu"),
+    ):
+        """Construct a Worker
+
+        Args:
+            num_outputs (int): Output number
+            d (int): ...
+            k (int): The dimension size of the embedded goals
+        """
+
         super(Worker, self).__init__()
 
-        self.f_Wrnn = nn.LSTMCell(d, num_outputs * k)
+        self.num_outputs = num_outputs
+        self.k = k
+        self.d = d
+        self.device = device
+
+        self.f_Wrnn = self.create_observation_embedding()
 
         self.view_as_actions = View((k, num_outputs))
 
         self.phi = nn.Sequential(nn.Linear(d, k, bias=False), View((1, k)))
 
-        self.value_function = nn.Linear(num_outputs * k, 1)
+        self.value_function = self.create_value_function()
+
+        self.to(self.device)
+
+    def create_value_function(self):
+        return nn.Linear(self.num_outputs * self.k, 1)
+
+    def create_observation_embedding(self):
+        return nn.LSTMCell(self.d, self.num_outputs * self.k)
 
     def reset_states_grad(self, states):
         h, c = states
@@ -25,10 +52,16 @@ class Worker(nn.Module):
     def init_state(self, batch_size):
         return (
             torch.zeros(
-                batch_size, self.f_Wrnn.hidden_size, requires_grad=self.training
+                batch_size,
+                self.f_Wrnn.hidden_size,
+                requires_grad=self.training,
+                device=self.device,
             ),
             torch.zeros(
-                batch_size, self.f_Wrnn.hidden_size, requires_grad=self.training
+                batch_size,
+                self.f_Wrnn.hidden_size,
+                requires_grad=self.training,
+                device=self.device,
             ),
         )
 
@@ -39,12 +72,15 @@ class Worker(nn.Module):
         :param worker_states:
         :return:
         """
+
+        # project the last c goals into a single vector, where the dimension
+        #   size is k
         w = self.phi(sum_g_W)  # projection [ batch x 1 x k]
 
-        # Worker
+        # Worker firstly embeds the input observations
         U_flat, c_x = states_W = self.f_Wrnn(z, states_W)
         U = self.view_as_actions(U_flat)  # [batch x k x a]
-
+        # then coordinates the embedded observation with the embedded goals
         a = (w @ U).squeeze(1)  # [batch x a]
 
         probs = F.softmax(a, dim=1)
@@ -55,3 +91,8 @@ class Worker(nn.Module):
             value = self.value_function(U_flat)
 
         return value, probs, states_W
+
+
+class TransformerWorker(Worker):
+    def create_observation_embedding(self):
+        raise NotImplementedError
