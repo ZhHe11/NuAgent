@@ -9,11 +9,13 @@ import numpy as np
 
 from gym.spaces.box import Box
 from gym.wrappers.time_limit import TimeLimit
+from gym.wrappers.transform_reward import TransformReward
 
 
 # Taken from https://github.com/openai/universe-starter-agent
 def create_atari_env(env_id: str, max_episode_steps: int = 1000000):
     env = gym.make(env_id)
+    env = TransformReward(env, lambda r: max(min(r, 1.0), -1.0))
     env = TimeLimit(env, max_episode_steps=max_episode_steps)
     env = AtariRescale42x42(env)
     env = NormalizedEnv(env)

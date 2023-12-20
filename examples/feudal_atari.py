@@ -1,6 +1,8 @@
-from collections import namedtuple
 import os
 import argparse
+import shutup
+
+shutup.please()
 
 import torch
 import torch.multiprocessing as mp

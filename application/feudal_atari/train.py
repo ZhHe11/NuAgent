@@ -5,6 +5,7 @@ import torch
 import torch.optim as optim
 
 from torch import nn
+from torch.nn import functional as F
 from torch.distributions import Categorical
 from torch.autograd import Variable
 
@@ -78,15 +79,13 @@ def train(
             )
             m = Categorical(probs=action_probs)
             action = m.sample()
-            log_prob = m.log_prob(action)
-            entropy = -(log_prob * action_probs).sum(1, keepdim=True)
+            log_prob = m.log_prob(action).squeeze()
+            entropy = m.entropy().squeeze()
             entropies.append(entropy)
             manager_partial_loss.append(nabla_dcos)
 
             obs, reward, done, truncated, info = env.step(action.cpu().numpy()[0])
             done = done or truncated
-            # XXX(ming): hard code reward clipping?
-            reward = max(min(reward, 1), -1)
             intrinsic_reward = (
                 model.intrinsic_reward(obs, reward, info, states).cpu().item()
             )
@@ -99,8 +98,8 @@ def train(
                 obs, info = env.reset()
 
             obs = torch.from_numpy(obs).to(args.device)
-            values_manager.append(value_manager)
-            values_worker.append(value_worker)
+            values_manager.append(value_manager.squeeze())
+            values_worker.append(value_worker.squeeze())
             log_probs.append(log_prob)
             rewards.append(reward)
             intrinsic_rewards.append(intrinsic_reward)
@@ -108,24 +107,26 @@ def train(
             if done:
                 break
 
-        R_worker = torch.zeros(1, 1).to(args.device)
-        R_manager = torch.zeros(1, 1).to(args.device)
+        R_worker = torch.zeros(1).to(args.device).squeeze()
+        R_manager = torch.zeros(1).to(args.device).squeeze()
 
         # if last is not done, bootstrap value target
         if not done:
             value_worker, value_manager, _, _, _, _ = model(obs.unsqueeze(0), states)
-            R_worker = value_worker.data
-            R_manager = value_manager.data
+            R_worker = value_worker.data.squeeze()
+            R_manager = value_manager.data.squeeze()
 
         with lock:
             writer.add_scalars(
                 "training/episode_info" + str(rank),
                 {
                     "episode_reward": sum(rewards),
-                    "episode_length": len(rewards),
                     "intinsic_reward": sum(intrinsic_rewards),
                 },
                 epoch,
+            )
+            writer.add_scalar(
+                "training/episode_length" + str(rank), len(rewards), epoch
             )
 
         values_worker.append(Variable(R_worker))
@@ -135,7 +136,8 @@ def train(
         manager_loss = 0.0
         value_manager_loss = 0.0
         value_worker_loss = 0.0
-        gae_worker = torch.zeros(1, 1).to(args.device)
+        gae_worker = torch.zeros(1).to(args.device).squeeze()
+        traj_len = len(rewards)
 
         for i in reversed(range(len(rewards))):
             R_worker = (
@@ -146,6 +148,7 @@ def train(
             R_manager = args.gamma_manager * R_manager + rewards[i]
             advantage_worker = R_worker - values_worker[i]
             advantage_manager = R_manager - values_manager[i]
+
             value_worker_loss = value_worker_loss + 0.5 * advantage_worker.pow(2)
             value_manager_loss = value_manager_loss + 0.5 * advantage_manager.pow(2)
 
@@ -160,19 +163,28 @@ def train(
                 gae_worker * args.gamma_worker * args.tau_worker + delta_t_worker
             )
 
+            assert log_probs[i].size() == entropies[i].size() == gae_worker.size(), (
+                log_probs[i].size(),
+                entropies[i].size(),
+                gae_worker.size(),
+            )
+
             policy_loss = (
                 policy_loss
                 - log_probs[i] * gae_worker
                 - args.entropy_coef * entropies[i]
             )
 
-            if (i + model.c) < len(rewards):
+            if (i + model.c) < traj_len:
                 # TODO try padding the manager_partial_loss with end values (or zeros)
+                assert (
+                    advantage_manager.shape == manager_partial_loss[i + model.c].shape
+                ), (advantage_manager.shape, manager_partial_loss[i + model.c].shape)
                 manager_loss = (
                     manager_loss - advantage_manager * manager_partial_loss[i + model.c]
                 )
 
-        if len(rewards) == 0:
+        if traj_len == 0:
             continue
 
         optimizer.zero_grad()
@@ -182,30 +194,37 @@ def train(
             + manager_loss
             + args.value_manager_loss_coef * value_manager_loss
             + args.value_worker_loss_coef * value_worker_loss
-        )
+        ) / traj_len
 
         total_loss.backward()
+        grad_norm = torch.nn.utils.clip_grad_norm_(
+            model.parameters(), args.max_grad_norm
+        )
 
         with lock:
+            writer.add_scalar(
+                "training/entropy" + str(rank), sum(entropies).cpu().item(), epoch
+            )
+            writer.add_scalar(
+                "training/grad_norm" + str(rank), grad_norm.cpu().item(), epoch
+            )
             writer.add_scalars(
                 "training/loss" + str(rank),
                 {
-                    "manager": manager_loss.item(),
-                    "worker": policy_loss.item(),
-                    "total": total_loss.item(),
+                    "manager": float(manager_loss),
+                    "worker": float(policy_loss),
+                    "total": float(total_loss),
                 },
                 epoch,
             )
             writer.add_scalars(
                 "training/value_loss" + str(rank),
                 {
-                    "value_manager": value_manager_loss.item(),
-                    "value_worker": value_worker_loss.item(),
+                    "value_manager": float(value_manager_loss),
+                    "value_worker": float(value_worker_loss),
                 },
                 epoch,
             )
-
-        torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
 
         ensure_shared_grads(model, shared_model)
         optimizer.step()
