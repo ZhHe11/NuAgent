@@ -52,7 +52,7 @@ def test(
             states = model.reset_states_grad(states)
 
         value_worker, value_manager, action_probs, goal, _, states = model(
-            obs.unsqueeze(0), states
+            obs.unsqueeze(0), states, reset_value_grad=True
         )
         action = action_probs.cpu().max(1, keepdim=True)[1].data.numpy()
 

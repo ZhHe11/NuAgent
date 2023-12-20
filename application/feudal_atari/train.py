@@ -74,15 +74,20 @@ def train(
 
         for step in range(args.num_steps):
             episode_length += 1
-            value_worker, value_manager, action_probs, goal, nabla_dcos, states = model(
-                obs.unsqueeze(0), states, reset_value_grad=True
-            )
+            (
+                value_worker,
+                value_manager,
+                action_probs,
+                goal,
+                dcos_t_minus_c,
+                states,
+            ) = model(obs.unsqueeze(0), states, reset_value_grad=False)
             m = Categorical(probs=action_probs)
             action = m.sample()
             log_prob = m.log_prob(action).squeeze()
             entropy = m.entropy().squeeze()
             entropies.append(entropy)
-            manager_partial_loss.append(nabla_dcos)
+            manager_partial_loss.append(dcos_t_minus_c.squeeze())
 
             obs, reward, done, truncated, info = env.step(action.cpu().numpy()[0])
             done = done or truncated
@@ -146,6 +151,11 @@ def train(
             R_manager = args.gamma_manager * R_manager + rewards[i]
             advantage_worker = R_worker - values_worker[i]
             advantage_manager = R_manager - values_manager[i]
+
+            assert advantage_manager.requires_grad and advantage_worker.requires_grad, (
+                advantage_worker.requires_grad,
+                advantage_manager.requires_grad,
+            )
 
             value_worker_loss = value_worker_loss + 0.5 * advantage_worker.pow(2)
             value_manager_loss = value_manager_loss + 0.5 * advantage_manager.pow(2)

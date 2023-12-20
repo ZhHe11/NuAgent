@@ -12,7 +12,7 @@ from torch import nn
 from torch.nn import functional as F
 from gym import spaces
 
-from .utils import reset_grad2
+from .utils import reset_grad2, cosine_similarity
 from .perception import Perception
 from .manager import Manager
 from .worker import Worker
@@ -55,7 +55,7 @@ class FeudalNet(nn.Module):
         self.perception = self.create_perception()
         self.worker = self.create_worker()
         self.manager = self.create_manager()
-        self.manager_partial_loss = nn.CosineEmbeddingLoss()
+        # self.manager_partial_loss = nn.CosineEmbeddingLoss()
         self.to(self.device)
 
     def create_worker(self) -> Worker:
@@ -86,7 +86,7 @@ class FeudalNet(nn.Module):
     def get_model_size(self) -> int:
         return sum(p.numel() for p in self.parameters())
 
-    def forward(self, x: Any, feudal_state: FeudalState, reset_value_grad=False):
+    def forward(self, x: Any, feudal_state: FeudalState, reset_value_grad: bool = True):
         """Feed forward computing with given observation (x) and feudal state (feudal_state).
 
         Args:
@@ -113,16 +113,10 @@ class FeudalNet(nn.Module):
 
         value_manager, goal, s, states_M = self.manager(z, states_M, reset_value_grad)
 
-        # update s_{t-c} to s_t
         ss[tick_dlstm] = s
-
-        # nabla_dcos_t_minus_c = self.manager_partial_loss(
-        #     (s - s_prev).detach(), g_prev, -torch.ones(g_prev.size(0), device=s.device)
-        # )
-        nabla_dcos_t_minus_c = self.manager_partial_loss(
-            (s - s_prev).detach(),
-            g_prev,
-            -torch.ones(g_prev.size(0), device=g_prev.device),
+        assert s_prev.shape == g_prev.shape, (s_prev.shape, g_prev.shape)
+        dcos_t_minus_c = cosine_similarity(
+            (s - s_prev).detach(), g_prev, keepdims=False
         )
 
         sum_goal = sum(map(F.normalize, states_M[2]))
@@ -135,7 +129,7 @@ class FeudalNet(nn.Module):
             value_manager,
             action_probs,
             goal,
-            nabla_dcos_t_minus_c,
+            dcos_t_minus_c,
             FeudalState(states_M, states_W, ss),
         )
 
@@ -174,14 +168,17 @@ class FeudalNet(nn.Module):
     ):
         # states_W, states_M, ss = states
         tick, hx_M, cx_M = feudal_state.manager_state
-        t = (tick - 1) % self.c  # tick is always ahead
+        t = (tick - 1) % self.c  # since tick is always ahead
         s_t = feudal_state.state_seg[t]
         rI = torch.zeros(s_t.size(0), 1, device=s_t.device)
+
         for i in range(1, self.c):
             t_minus_i = (t - i) % self.c
             s_t_i = feudal_state.state_seg[t_minus_i]
             g_t_i = F.normalize(cx_M[t_minus_i].data)
-            rI += F.cosine_similarity(s_t - s_t_i, g_t_i)
+            rI += cosine_similarity(
+                s_t - s_t_i, g_t_i, keepdims=True
+            ).detach()  # F.cosine_similarity(s_t - s_t_i, g_t_i)
         return rI / self.c
 
 

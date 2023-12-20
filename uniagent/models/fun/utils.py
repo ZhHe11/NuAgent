@@ -3,6 +3,12 @@ import torch
 from torch import nn
 
 
+def cosine_similarity(x, y, keepdims: bool = False):
+    num = (x * y).sum(-1, keepdims=keepdims)
+    denom = torch.linalg.norm(x) * torch.linalg.norm(y)
+    return num / max(1e-6, denom.detach())
+
+
 def reset_grad2(t, requires_grad=None):
     tr = t.detach()
     tr.requires_grad = t.requires_grad if requires_grad is None else requires_grad

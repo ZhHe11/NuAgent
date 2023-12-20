@@ -1,3 +1,4 @@
+import random
 import torch
 
 from torch import nn
@@ -27,7 +28,7 @@ class dLSTM(nn.Module):
     def init_state(self, batch_size: int):
         # note that we cannot keep the state in only one tensor as updating one place of the tensor counts
         # as an inplace operation and breaks the gradient history
-        h0 = [
+        hx = [
             torch.zeros(
                 batch_size,
                 self.lstm.hidden_size,
@@ -36,7 +37,7 @@ class dLSTM(nn.Module):
             )
             for _ in range(self.r)
         ]
-        c0 = [
+        cx = [
             torch.zeros(
                 batch_size,
                 self.lstm.hidden_size,
@@ -46,20 +47,20 @@ class dLSTM(nn.Module):
             for _ in range(self.r)
         ]
         tick = 0
-        return tick, h0, c0
+        return tick, hx, cx
 
     def forward(self, inputs, states):
         """Returns g_t, (tick, hidden)"""
+
+        # tick starts from 0
         tick, hx, cx = states
-        # ht, gt
+
+        # each timestep we update only s^tick_t
         hx[tick], cx[tick] = self.lstm(inputs, (hx[tick], cx[tick]))
-        # TODO(ming): should check the goal embedding here
         goal_hat = cx[tick]
+
         # update tick here
         tick_plus_one = (tick + 1) % self.r
-        # out = (
-        #     sum(hx) / self.r
-        # )  # TODO verify that network output is mean of hidden states
         return goal_hat, (tick_plus_one, hx, cx)
 
 
@@ -75,17 +76,11 @@ class Manager(nn.Module):
         """
 
         super(Manager, self).__init__()
+
         self.c = c
         self.d = d
         self.device = device
 
-        # The essential of a Manager is to do goal extraction,
-        #   in the original paper, the authors implemented it as a
-        #   combination of F_Mspace and F_MRnn
-        # The state space which the Manager implicitly models
-        #   in formulating its goals is computed via fMspace,
-        #   which is another fully connected layer followed by
-        #   a rectifier non-linearity.
         self.f_Mspace = nn.Sequential(nn.Linear(d, d), nn.ReLU())
         # the MRnn can be replaced with a Transformer
         self.f_Mrnn = self.create_goal_embedding()
@@ -98,10 +93,16 @@ class Manager(nn.Module):
     def create_value_function(self):
         return nn.Linear(self.d, 1)
 
-    def forward(self, z, states_M, reset_value_grad: bool):
+    def forward(self, z, states_M, reset_value_grad: bool = True):
         s = self.f_Mspace(z)  # latent state representation [batch x d]
+        # TODO(ming): model transition policy here (for goal sampling)
         g_hat, states_M = self.f_Mrnn(s, states_M)
 
+        if self.training and random.random() < 0.1:
+            # add noise to the g_hat for exploration
+            g_hat = g_hat + torch.autograd.Variable(
+                g_hat.data.new(g_hat.size()).normal_(0.0, 1.0)
+            )
         g = F.normalize(g_hat)  # goal [batch x d]
 
         if reset_value_grad:

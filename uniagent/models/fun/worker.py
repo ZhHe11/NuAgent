@@ -68,7 +68,7 @@ class Worker(nn.Module):
             ),
         )
 
-    def forward(self, z, sum_g_W, states_W, reset_value_grad):
+    def forward(self, z, sum_g_W, states_W, reset_value_grad: bool = True):
         """
         :param z:
         :param sum_g_W: should not have computation history
