@@ -43,7 +43,10 @@ class Worker(nn.Module):
         return nn.Linear(self.num_outputs * self.k, 1)
 
     def create_observation_embedding(self):
-        return nn.LSTMCell(self.d, self.num_outputs * self.k)
+        lstm = nn.LSTMCell(self.d, self.num_outputs * self.k)
+        lstm.bias_ih.data.fill_(0)
+        lstm.bias_hh.data.fill_(0)
+        return lstm
 
     def reset_states_grad(self, states):
         h, c = states
@@ -78,17 +81,17 @@ class Worker(nn.Module):
         w = self.phi(sum_g_W)  # projection [ batch x 1 x k]
 
         # Worker firstly embeds the input observations
-        U_flat, c_x = states_W = self.f_Wrnn(z, states_W)
-        U = self.view_as_actions(U_flat)  # [batch x k x a]
+        _, cx = states_W = self.f_Wrnn(z, states_W)
+        U = self.view_as_actions(cx)  # [batch x k x a]
         # then coordinates the embedded observation with the embedded goals
         a = (w @ U).squeeze(1)  # [batch x a]
 
         probs = F.softmax(a, dim=1)
 
         if reset_value_grad:
-            value = self.value_function(reset_grad2(U_flat))
+            value = self.value_function(reset_grad2(cx))
         else:
-            value = self.value_function(U_flat)
+            value = self.value_function(cx)
 
         return value, probs, states_W
 

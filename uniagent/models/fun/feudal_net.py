@@ -18,7 +18,7 @@ from .manager import Manager
 from .worker import Worker
 
 
-FeudalState = namedtuple("FeudalState", "manager_state,worker_state,state_pair")
+FeudalState = namedtuple("FeudalState", "manager_state,worker_state,state_seg")
 
 
 class FeudalNet(nn.Module):
@@ -101,7 +101,7 @@ class FeudalNet(nn.Module):
         states_W, states_M, ss = (
             feudal_state.worker_state,
             feudal_state.manager_state,
-            feudal_state.state_pair,
+            feudal_state.state_seg,
         )
         # detach states of Manager
         tick_dlstm, hx_M, cx_M = states_M
@@ -109,29 +109,32 @@ class FeudalNet(nn.Module):
         z = self.perception(x)
 
         s_prev = ss[tick_dlstm]
-        g_prev = F.normalize(hx_M[tick_dlstm])
+        g_prev = F.normalize(cx_M[tick_dlstm])
 
-        value_manager, g, s, states_M = self.manager(z, states_M, reset_value_grad)
-        ss[tick_dlstm] = s.detach()
+        value_manager, goal, s, states_M = self.manager(z, states_M, reset_value_grad)
+
+        # update s_{t-c} to s_t
+        ss[tick_dlstm] = s
+
+        # nabla_dcos_t_minus_c = self.manager_partial_loss(
+        #     (s - s_prev).detach(), g_prev, -torch.ones(g_prev.size(0), device=s.device)
+        # )
         nabla_dcos_t_minus_c = self.manager_partial_loss(
-            (s - s_prev), g_prev, -torch.ones(g_prev.size(0), device=s.device)
+            (s - s_prev).detach(),
+            g_prev,
+            -torch.ones(g_prev.size(0), device=g_prev.device),
         )
 
-        # TODO randomly sample g_t from a univariate Gaussian
-
-        # sum on c different gt values, note that gt = normalize(hx)
-        sum_goal = sum(map(F.normalize, states_M[1]))
-        sum_goal_W = reset_grad2(sum_goal, requires_grad=self.training)
-
+        sum_goal = sum(map(F.normalize, states_M[2]))
         value_worker, action_probs, states_W = self.worker(
-            z, sum_goal_W, states_W, reset_value_grad
+            z, sum_goal.detach(), states_W, reset_value_grad
         )
 
         return (
             value_worker,
             value_manager,
             action_probs,
-            g,
+            goal,
             nabla_dcos_t_minus_c,
             FeudalState(states_M, states_W, ss),
         )
@@ -146,6 +149,7 @@ class FeudalNet(nn.Module):
             FeudalState: A tuple of worker states, manager states and state pair.
         """
 
+        # state seg is a list of len=c, each element is a tensor of size [batch x d]
         ss = [
             torch.zeros(batch_size, self.d, requires_grad=False, device=self.device)
             for _ in range(self.c)
@@ -158,7 +162,7 @@ class FeudalNet(nn.Module):
         return FeudalState(
             self.manager.reset_states_grad(feudal_state.manager_state),
             self.worker.reset_states_grad(feudal_state.worker_state),
-            feudal_state.state_pair,
+            feudal_state.state_seg,
         )
 
     def intrinsic_reward(
@@ -171,12 +175,12 @@ class FeudalNet(nn.Module):
         # states_W, states_M, ss = states
         tick, hx_M, cx_M = feudal_state.manager_state
         t = (tick - 1) % self.c  # tick is always ahead
-        s_t = feudal_state.state_pair[t]
+        s_t = feudal_state.state_seg[t]
         rI = torch.zeros(s_t.size(0), 1, device=s_t.device)
         for i in range(1, self.c):
             t_minus_i = (t - i) % self.c
-            s_t_i = feudal_state.state_pair[t_minus_i]
-            g_t_i = F.normalize(hx_M[t_minus_i].data)
+            s_t_i = feudal_state.state_seg[t_minus_i]
+            g_t_i = F.normalize(cx_M[t_minus_i].data)
             rI += F.cosine_similarity(s_t - s_t_i, g_t_i)
         return rI / self.c
 

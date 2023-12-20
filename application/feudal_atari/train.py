@@ -75,7 +75,7 @@ def train(
         for step in range(args.num_steps):
             episode_length += 1
             value_worker, value_manager, action_probs, goal, nabla_dcos, states = model(
-                obs.unsqueeze(0), states
+                obs.unsqueeze(0), states, reset_value_grad=True
             )
             m = Categorical(probs=action_probs)
             action = m.sample()
@@ -169,7 +169,7 @@ def train(
 
             policy_loss = (
                 policy_loss
-                - log_probs[i] * gae_worker
+                - log_probs[i] * gae_worker.detach()
                 - args.entropy_coef * entropies[i]
             )
 
@@ -179,7 +179,8 @@ def train(
                     advantage_manager.shape == manager_partial_loss[i + model.c].shape
                 ), (advantage_manager.shape, manager_partial_loss[i + model.c].shape)
                 manager_loss = (
-                    manager_loss - advantage_manager * manager_partial_loss[i + model.c]
+                    manager_loss
+                    - advantage_manager.detach() * manager_partial_loss[i + model.c]
                 )
 
         if traj_len == 0:

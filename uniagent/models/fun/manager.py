@@ -51,12 +51,16 @@ class dLSTM(nn.Module):
     def forward(self, inputs, states):
         """Returns g_t, (tick, hidden)"""
         tick, hx, cx = states
+        # ht, gt
         hx[tick], cx[tick] = self.lstm(inputs, (hx[tick], cx[tick]))
-        tick = (tick + 1) % self.r
-        out = (
-            sum(hx) / self.r
-        )  # TODO verify that network output is mean of hidden states
-        return out, (tick, hx, cx)
+        # TODO(ming): should check the goal embedding here
+        goal_hat = cx[tick]
+        # update tick here
+        tick_plus_one = (tick + 1) % self.r
+        # out = (
+        #     sum(hx) / self.r
+        # )  # TODO verify that network output is mean of hidden states
+        return goal_hat, (tick_plus_one, hx, cx)
 
 
 class Manager(nn.Module):
