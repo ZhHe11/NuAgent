@@ -69,10 +69,11 @@ def test(
 
             if done:
                 print(
-                    "Time {}, num steps {}, FPS {:.0f}, episode reward {}, episode length {}".format(
+                    "Time {}, epoch {}, num steps {}, FPS {:.0f}, episode reward {}, episode length {}".format(
                         time.strftime(
                             "%Hh %Mm %Ss", time.gmtime(time.time() - start_time)
                         ),
+                        epoch,
                         counter.value,
                         counter.value / (time.time() - start_time),
                         reward_sum,
@@ -91,7 +92,7 @@ def test(
                 reward_sum = 0
                 actions.clear()
                 obs, info = env.reset()
-                time.sleep(5)
+                time.sleep(30)
                 break
 
             obs = torch.from_numpy(obs).to(args.device)

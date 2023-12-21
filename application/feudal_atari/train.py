@@ -127,7 +127,7 @@ def train(
 
         if step < model.c:
             continue
-        print(f"[training] done for step: {step}, trucated? {truncated} done? {done}")
+        # print(f"[training] done for step: {step}, trucated? {truncated} done? {done}")
 
         # if last is not done, bootstrap value target
         if not done:
