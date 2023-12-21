@@ -1,9 +1,12 @@
+from typing import List, Tuple
+
 import random
 import torch
 
 from torch import nn
 from torch.nn import functional as F
 
+from uniagent.models.backbone.dilated_lstm import DilatedLSTM
 from .utils import reset_grad2
 
 
@@ -14,11 +17,20 @@ class dLSTM(nn.Module):
 
     def __init__(
         self,
-        r,
-        input_size,
-        hidden_size,
+        r: int,
+        input_size: int,
+        hidden_size: int,
         device: torch.DeviceObjType = torch.device("cpu"),
     ):
+        """Construct a dilated LSTM.
+
+        Args:
+            r (int): Radius of the dilated LSTM.
+            input_size (int): Input dimension.
+            hidden_size (int): Hidden size.
+            device (torch.DeviceObjType, optional): Device type. Defaults to torch.device("cpu").
+        """
+
         super(dLSTM, self).__init__()
         self.lstm = nn.LSTMCell(input_size, hidden_size)
         self.r = r
@@ -49,7 +61,7 @@ class dLSTM(nn.Module):
         tick = 0
         return tick, hx, cx
 
-    def forward(self, inputs, states):
+    def forward(self, inputs: torch.Tensor, states: Tuple[int, List, List]):
         """Returns g_t, (tick, hidden)"""
 
         # tick starts from 0
@@ -57,11 +69,13 @@ class dLSTM(nn.Module):
 
         # each timestep we update only s^tick_t
         hx[tick], cx[tick] = self.lstm(inputs, (hx[tick], cx[tick]))
-        goal_hat = cx[tick]
+
+        # the output is the average of all hidden states, as being pooled
+        out = (sum(cx).detach() - cx[tick].detach() + cx[tick]) / self.r
 
         # update tick here
         tick_plus_one = (tick + 1) % self.r
-        return goal_hat, (tick_plus_one, hx, cx)
+        return out, (tick_plus_one, hx, cx)
 
 
 class Manager(nn.Module):
@@ -72,7 +86,7 @@ class Manager(nn.Module):
 
         Args:
             d (int): The dimension of the latent space (s_t in the paper).
-            c (int): Channel size.
+            c (int): Time horizon, also the dilation level.
         """
 
         super(Manager, self).__init__()
@@ -93,25 +107,20 @@ class Manager(nn.Module):
     def create_value_function(self):
         return nn.Linear(self.d, 1)
 
-    def forward(self, z, states_M, reset_value_grad: bool = True):
+    def forward(self, z, states_M, reset_value_grad: bool = False):
         s = self.f_Mspace(z)  # latent state representation [batch x d]
-        # TODO(ming): model transition policy here (for goal sampling)
         g_hat, states_M = self.f_Mrnn(s, states_M)
 
         if self.training and random.random() < 0.1:
             # add noise to the g_hat for exploration
             g_hat = g_hat + torch.autograd.Variable(
-                g_hat.data.new(g_hat.size()).normal_(0.0, 1.0)
+                g_hat.data.new(g_hat.size()).normal_(0.0, 1.0), requires_grad=False
             )
+
         g = F.normalize(g_hat)  # goal [batch x d]
+        value = self.value_function(g_hat.detach() if reset_value_grad else g_hat)
 
-        if reset_value_grad:
-            # break the gradient chain here
-            value = self.value_function(reset_grad2(g_hat))
-        else:
-            value = self.value_function(g_hat)
-
-        return value, g, s, states_M
+        return value, g, s.detach(), states_M
 
     def init_state(self, batch_size: int):
         return self.f_Mrnn.init_state(batch_size)

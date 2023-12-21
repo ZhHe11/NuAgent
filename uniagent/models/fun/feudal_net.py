@@ -18,7 +18,9 @@ from .manager import Manager
 from .worker import Worker
 
 
-FeudalState = namedtuple("FeudalState", "manager_state,worker_state,state_seg")
+FeudalState = namedtuple(
+    "FeudalState", "manager_state,worker_state,state_seg, goal_seg"
+)
 
 
 class FeudalNet(nn.Module):
@@ -98,26 +100,29 @@ class FeudalNet(nn.Module):
             Tuple: ...
         """
 
-        states_W, states_M, ss = (
+        states_W, states_M, ss, goal_hist = (
             feudal_state.worker_state,
             feudal_state.manager_state,
             feudal_state.state_seg,
+            feudal_state.goal_seg,
         )
         # detach states of Manager
         tick_dlstm, hx_M, cx_M = states_M
 
-        z = self.perception(x)
-
         s_prev = ss[tick_dlstm]
-        g_prev = F.normalize(cx_M[tick_dlstm])
+        g_prev = goal_hist[tick_dlstm]
 
+        z = self.perception(x)
         value_manager, goal, s, states_M = self.manager(z, states_M, reset_value_grad)
 
+        assert not s.requires_grad, "s should not require grad"
+
+        # update goal_t and state_t, by replacing goal_{t-c} and state_{t-c}
         ss[tick_dlstm] = s
+        goal_hist[tick_dlstm] = goal
+
         assert s_prev.shape == g_prev.shape, (s_prev.shape, g_prev.shape)
-        dcos_t_minus_c = cosine_similarity(
-            (s - s_prev).detach(), g_prev, keepdims=False
-        )
+        dcos_t_minus_c = cosine_similarity((s - s_prev), g_prev, keepdims=False)
 
         sum_goal = sum(map(F.normalize, states_M[2]))
         value_worker, action_probs, states_W = self.worker(
@@ -130,7 +135,7 @@ class FeudalNet(nn.Module):
             action_probs,
             goal,
             dcos_t_minus_c,
-            FeudalState(states_M, states_W, ss),
+            FeudalState(states_M, states_W, ss, goal_hist),
         )
 
     def init_state(self, batch_size: int) -> FeudalState:
@@ -148,15 +153,23 @@ class FeudalNet(nn.Module):
             torch.zeros(batch_size, self.d, requires_grad=False, device=self.device)
             for _ in range(self.c)
         ]
+        goals = [
+            torch.zeros(batch_size, self.d, requires_grad=False, device=self.device)
+            for _ in range(self.c)
+        ]
         return FeudalState(
-            self.manager.init_state(batch_size), self.worker.init_state(batch_size), ss
+            self.manager.init_state(batch_size),
+            self.worker.init_state(batch_size),
+            ss,
+            goals,
         )
 
     def reset_states_grad(self, feudal_state: FeudalState) -> FeudalState:
         return FeudalState(
             self.manager.reset_states_grad(feudal_state.manager_state),
             self.worker.reset_states_grad(feudal_state.worker_state),
-            feudal_state.state_seg,
+            list(map(lambda x: reset_grad2(x, False), feudal_state.state_seg)),
+            list(map(lambda x: reset_grad2(x, False), feudal_state.goal_seg)),
         )
 
     def intrinsic_reward(

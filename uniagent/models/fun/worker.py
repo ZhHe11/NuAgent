@@ -40,7 +40,9 @@ class Worker(nn.Module):
         self.to(self.device)
 
     def create_value_function(self):
-        return nn.Linear(self.num_outputs * self.k, 1)
+        return nn.Sequential(
+            nn.Linear(self.num_outputs * self.k, 50), nn.ReLU(), nn.Linear(50, 1)
+        )
 
     def create_observation_embedding(self):
         lstm = nn.LSTMCell(self.d, self.num_outputs * self.k)
@@ -87,11 +89,7 @@ class Worker(nn.Module):
         a = (w @ U).squeeze(1)  # [batch x a]
 
         probs = F.softmax(a, dim=1)
-
-        if reset_value_grad:
-            value = self.value_function(reset_grad2(cx))
-        else:
-            value = self.value_function(cx)
+        value = self.value_function(cx.detach() if reset_value_grad else cx)
 
         return value, probs, states_W
 
