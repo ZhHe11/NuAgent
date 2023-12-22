@@ -32,11 +32,7 @@ class Worker(nn.Module):
         self.device = device
 
         self.f_Wrnn = self.create_observation_embedding()
-
-        self.view_as_actions = View((k, num_outputs))
-
-        self.phi = nn.Sequential(nn.Linear(d, k, bias=False), View((1, k)))
-
+        self.phi = nn.Linear(d, k, bias=False)
         self.value_function = self.create_value_function()
 
         self.to(self.device)
@@ -92,10 +88,9 @@ class Worker(nn.Module):
 
         # Worker firstly embeds the input observations
         hx, cx = states_W = self.f_Wrnn(z, states_W)
-        U = self.view_as_actions(hx)  # [batch x k x a]
+        U = hx.reshape(hx.shape[0], self.k, self.num_outputs)
         # then coordinates the embedded observation with the embedded goals
-        a = (w @ U).squeeze(1)  # [batch x a]
-
+        a = torch.einsum("bk,bka->ba", w, U)  # [batch x a]
         probs = F.softmax(a, dim=1)
         value = self.value_function(hx.detach() if reset_value_grad else hx)
 

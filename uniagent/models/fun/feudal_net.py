@@ -122,7 +122,7 @@ class FeudalNet(nn.Module):
         goal_hist[tick_dlstm] = goal
 
         assert s_prev.shape == g_prev.shape, (s_prev.shape, g_prev.shape)
-        dcos_t_minus_c = cosine_similarity((s - s_prev), g_prev, keepdims=False)
+        dcos_t_minus_c = F.cosine_similarity(s - s_prev, g_prev)
 
         sum_goal = torch.stack(goal_hist).sum(dim=0).detach()
         value_worker, action_probs, states_W = self.worker(
@@ -180,18 +180,21 @@ class FeudalNet(nn.Module):
         feudal_state: FeudalState,
     ):
         # states_W, states_M, ss = states
-        tick, hx_M, cx_M = feudal_state.manager_state
+        tick, _, _ = feudal_state.manager_state
+        goal_hist = feudal_state.goal_seg
+
         t = (tick - 1) % self.c  # since tick is always ahead
         s_t = feudal_state.state_seg[t]
+
         rI = torch.zeros(s_t.size(0), 1, device=s_t.device)
 
         for i in range(1, self.c):
             t_minus_i = (t - i) % self.c
             s_t_i = feudal_state.state_seg[t_minus_i]
-            g_t_i = F.normalize(cx_M[t_minus_i].data)
-            rI += cosine_similarity(
-                s_t - s_t_i, g_t_i, keepdims=True
-            ).detach()  # F.cosine_similarity(s_t - s_t_i, g_t_i)
+            g_t_i = goal_hist[t_minus_i]
+            rI += (
+                F.cosine_similarity(s_t - s_t_i, g_t_i).detach().unsqueeze(-1)
+            )  # F.cosine_similarity(s_t - s_t_i, g_t_i)
         return rI / self.c
 
 
