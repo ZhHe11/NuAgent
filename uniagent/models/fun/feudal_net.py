@@ -124,9 +124,9 @@ class FeudalNet(nn.Module):
         assert s_prev.shape == g_prev.shape, (s_prev.shape, g_prev.shape)
         dcos_t_minus_c = cosine_similarity((s - s_prev), g_prev, keepdims=False)
 
-        sum_goal = sum(map(F.normalize, states_M[2]))
+        sum_goal = torch.stack(goal_hist).sum(dim=0).detach()
         value_worker, action_probs, states_W = self.worker(
-            z, sum_goal.detach(), states_W, reset_value_grad
+            z, sum_goal, states_W, reset_value_grad
         )
 
         return (
