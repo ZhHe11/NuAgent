@@ -71,7 +71,7 @@ class dLSTM(nn.Module):
         hx[tick], cx[tick] = self.lstm(inputs, (hx[tick], cx[tick]))
 
         # the output is the average of all hidden states, as being pooled
-        out = (sum(cx).detach() - cx[tick].detach() + cx[tick]) / self.r
+        out = (sum(hx).detach() - hx[tick].detach() + hx[tick]) / self.r
 
         # update tick here
         tick_plus_one = (tick + 1) % self.r

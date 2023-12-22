@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import torch
 
 from torch import nn
@@ -70,7 +72,13 @@ class Worker(nn.Module):
             ),
         )
 
-    def forward(self, z, sum_g_W, states_W, reset_value_grad: bool = True):
+    def forward(
+        self,
+        z: torch.Tensor,
+        sum_g_W: torch.Tensor,
+        states_W: Tuple[torch.Tensor, torch.Tensor],
+        reset_value_grad: bool = True,
+    ):
         """
         :param z:
         :param sum_g_W: should not have computation history
@@ -83,13 +91,13 @@ class Worker(nn.Module):
         w = self.phi(sum_g_W)  # projection [ batch x 1 x k]
 
         # Worker firstly embeds the input observations
-        _, cx = states_W = self.f_Wrnn(z, states_W)
-        U = self.view_as_actions(cx)  # [batch x k x a]
+        hx, cx = states_W = self.f_Wrnn(z, states_W)
+        U = self.view_as_actions(hx)  # [batch x k x a]
         # then coordinates the embedded observation with the embedded goals
         a = (w @ U).squeeze(1)  # [batch x a]
 
         probs = F.softmax(a, dim=1)
-        value = self.value_function(cx.detach() if reset_value_grad else cx)
+        value = self.value_function(hx.detach() if reset_value_grad else hx)
 
         return value, probs, states_W
 
