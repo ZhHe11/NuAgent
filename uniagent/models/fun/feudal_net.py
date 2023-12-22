@@ -3,7 +3,7 @@ This file implements a FeuDal net refer to: https://github.com/vtalpaert/pytorch
 """
 
 from typing import Tuple, List, Any, Dict
-from collections import namedtuple
+from collections import namedtuple, deque
 
 import torch
 import numpy as np
@@ -88,7 +88,13 @@ class FeudalNet(nn.Module):
     def get_model_size(self) -> int:
         return sum(p.numel() for p in self.parameters())
 
-    def forward(self, x: Any, feudal_state: FeudalState, reset_value_grad: bool = True):
+    def forward(
+        self,
+        x: Any,
+        feudal_state: FeudalState,
+        reset_value_grad: bool = True,
+        update_network_state: bool = True,
+    ):
         """Feed forward computing with given observation (x) and feudal state (feudal_state).
 
         Args:
@@ -106,37 +112,61 @@ class FeudalNet(nn.Module):
             feudal_state.state_seg,
             feudal_state.goal_seg,
         )
-        # detach states of Manager
-        tick_dlstm, hx_M, cx_M = states_M
-
-        s_prev = ss[tick_dlstm]
-        g_prev = goal_hist[tick_dlstm]
 
         z = self.perception(x)
-        value_manager, goal, s, states_M = self.manager(z, states_M, reset_value_grad)
+        value_manager, goal, s, states_M = self.manager(
+            z, states_M, reset_value_grad, update_network_state
+        )
 
         assert not s.requires_grad, "s should not require grad"
 
-        # update goal_t and state_t, by replacing goal_{t-c} and state_{t-c}
-        ss[tick_dlstm] = s
-        goal_hist[tick_dlstm] = goal
+        # update goal and state history
+        if update_network_state:
+            goal_hist.append(goal)
+            ss.append(s)
 
-        assert s_prev.shape == g_prev.shape, (s_prev.shape, g_prev.shape)
-        dcos_t_minus_c = F.cosine_similarity(s - s_prev, g_prev)
+            # sum_goal = torch.stack(goal_hist[-self.c :]).sum(dim=0).detach()
+            sum_goal = goal_hist[-1].detach()
+        else:
+            # sum_goal = (
+            #     torch.stack(goal_hist[-self.c - 1 :] + [goal]).sum(dim=0).detach()
+            # )
+            sum_goal = goal.detach()
 
-        sum_goal = torch.stack(goal_hist).sum(dim=0).detach()
         value_worker, action_probs, states_W = self.worker(
-            z, sum_goal, states_W, reset_value_grad
+            z, sum_goal, states_W, reset_value_grad, update_network_state
         )
 
         return (
             value_worker,
             value_manager,
             action_probs,
-            goal,
-            dcos_t_minus_c,
             FeudalState(states_M, states_W, ss, goal_hist),
         )
+
+    def state_cosin_similarity(
+        self, states, goals, use_repeated_terminal_state: bool = True
+    ):
+        # concatenate all states
+        s_t = torch.stack(states[self.c :], dim=0).squeeze(1)
+        g_t = torch.stack(goals[self.c :], dim=0).squeeze(1)
+
+        if use_repeated_terminal_state:
+            terminal_states = torch.tile(s_t[-1], dims=[self.c, 1])
+            s_t_plus_c = torch.cat([s_t[self.c :], terminal_states], dim=0)
+        else:
+            s_t_plus_c = torch.cat(
+                [
+                    s_t[self.c :],
+                    torch.zeros(
+                        (self.c,) + s_t.shape[1:], device=s_t.device, dtype=s_t.dtype
+                    ),
+                ],
+                dims=0,
+            )
+
+        d_cos = F.cosine_similarity(F.normalize((s_t_plus_c - s_t).detach()), g_t)
+        return d_cos
 
     def init_state(self, batch_size: int) -> FeudalState:
         """Initialize network state, and return a tuple of worker states, manager states and state pair.
@@ -179,22 +209,19 @@ class FeudalNet(nn.Module):
         env_info: Dict[str, Any],
         feudal_state: FeudalState,
     ):
-        # states_W, states_M, ss = states
-        tick, _, _ = feudal_state.manager_state
+        state_hist = feudal_state.state_seg
         goal_hist = feudal_state.goal_seg
 
-        t = (tick - 1) % self.c  # since tick is always ahead
-        s_t = feudal_state.state_seg[t]
+        rI = torch.zeros(state_hist[0].size(0), 1, device=state_hist[0].device)
 
-        rI = torch.zeros(s_t.size(0), 1, device=s_t.device)
+        s_t = state_hist[-1]
+        t = len(state_hist) - 1
 
         for i in range(1, self.c):
-            t_minus_i = (t - i) % self.c
+            t_minus_i = t - i
             s_t_i = feudal_state.state_seg[t_minus_i]
             g_t_i = goal_hist[t_minus_i]
-            rI += (
-                F.cosine_similarity(s_t - s_t_i, g_t_i).detach().unsqueeze(-1)
-            )  # F.cosine_similarity(s_t - s_t_i, g_t_i)
+            rI += F.cosine_similarity(s_t - s_t_i, g_t_i).detach().unsqueeze(-1)
         return rI / self.c
 
 

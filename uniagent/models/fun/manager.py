@@ -61,21 +61,33 @@ class dLSTM(nn.Module):
         tick = 0
         return tick, hx, cx
 
-    def forward(self, inputs: torch.Tensor, states: Tuple[int, List, List]):
+    def forward(
+        self,
+        inputs: torch.Tensor,
+        states: Tuple[int, List, List],
+        update_network_state: bool = True,
+    ):
         """Returns g_t, (tick, hidden)"""
 
         # tick starts from 0
         tick, hx, cx = states
 
         # each timestep we update only s^tick_t
-        hx[tick], cx[tick] = self.lstm(inputs, (hx[tick], cx[tick]))
+        if update_network_state:
+            hx[tick], cx[tick] = self.lstm(inputs, (hx[tick], cx[tick]))
 
-        # the output is the average of all hidden states, as being pooled
-        out = (sum(hx).detach() - hx[tick].detach() + hx[tick]) / self.r
+            # the output is the average of all hidden states, as being pooled
+            out = ((sum(hx) - hx[tick]).detach() + hx[tick]) / self.r
 
-        # update tick here
-        tick_plus_one = (tick + 1) % self.r
-        return out, (tick_plus_one, hx, cx)
+            # update tick here
+            tick_plus_one = (tick + 1) % self.r
+            states = (tick_plus_one, hx, cx)
+        else:
+            hx_t, cx_t = self.lstm(inputs, (hx[tick], cx[tick]))
+            out = (sum(hx).detach() + hx_t) / self.r
+            states = None
+
+        return out, states
 
 
 class Manager(nn.Module):
@@ -105,20 +117,29 @@ class Manager(nn.Module):
         return dLSTM(self.c, self.d, self.d, device=self.device)
 
     def create_value_function(self):
-        return nn.Linear(self.d, 1)
+        return nn.Linear(self.d * 2, 1)
 
-    def forward(self, z, states_M, reset_value_grad: bool = False):
+    def forward(
+        self,
+        z,
+        states_M,
+        reset_value_grad: bool = False,
+        update_network_state: bool = True,
+    ):
         s = self.f_Mspace(z)  # latent state representation [batch x d]
-        g_hat, states_M = self.f_Mrnn(s, states_M)
+        g_hat, states_M = self.f_Mrnn(s, states_M, update_network_state)
 
         if self.training and random.random() < 0.1:
             # add noise to the g_hat for exploration
             g_hat = g_hat + torch.autograd.Variable(
                 g_hat.data.new(g_hat.size()).normal_(0.0, 1.0), requires_grad=False
             )
+            # g_hat = torch.autograd.Variable(g_hat.data.new(g_hat.size()).normal_(0.0, 1.0), requires_grad=False)
 
         g = F.normalize(g_hat)  # goal [batch x d]
-        value = self.value_function(g_hat.detach() if reset_value_grad else g_hat)
+        value = self.value_function(
+            torch.cat([g, s], dim=-1)
+        )  # if reset_value_grad else g_hat)
 
         return value, g, s.detach(), states_M
 

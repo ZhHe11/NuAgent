@@ -4,18 +4,20 @@ import shutup
 
 shutup.please()
 
+from itertools import count
+
 import torch
 import torch.multiprocessing as mp
 
 from uniagent.trainers.optimizers import SharedAdam
-from uniagent.models.fun import FeudalNet
+from uniagent.models.a2c import ActorCritic
 from uniagent.envs.atari import create_atari_env
 
-from application.feudal_atari.train import train
-from application.feudal_atari.eval import test
+from application.a3c_atari.train import train
+from application.a3c_atari.eval import test
 
 
-parser = argparse.ArgumentParser(description="Feudal Net with A3C setup")
+parser = argparse.ArgumentParser(description="A3C for Atari")
 parser.add_argument(
     "--lr",
     type=float,
@@ -23,30 +25,14 @@ parser.add_argument(
     help="learning rate",
 )
 parser.add_argument(
-    "--alpha", type=float, default=0.8, help="intrinsic reward multiplier"
-)
-parser.add_argument(
-    "--gamma-worker",
+    "--gamma",
     type=float,
     default=0.95,
     help="worker discount factor for rewards",
 )
 parser.add_argument(
-    "--gamma-manager",
-    type=float,
-    default=0.99,
-    help="manager discount factor for rewards",
+    "--llambda", type=float, default=0.95, help="parameter for GAE (worker only)"
 )
-parser.add_argument(
-    "--lambda-worker", type=float, default=0.95, help="parameter for GAE (worker only)"
-)
-parser.add_argument(
-    "--lambda-manager",
-    type=float,
-    default=0.95,
-    help="parameter for GAE (manager only)",
-)
-
 parser.add_argument(
     "--entropy-coef",
     type=float,
@@ -54,16 +40,10 @@ parser.add_argument(
     help="entropy term coefficient (also called beta)",
 )
 parser.add_argument(
-    "--value-worker-loss-coef",
+    "--value-loss-coef",
     type=float,
     default=1,
     help="worker value loss coefficient",
-)
-parser.add_argument(
-    "--value-manager-loss-coef",
-    type=float,
-    default=1,
-    help="manager value loss coefficient",
 )
 parser.add_argument(
     "--max-grad-norm", type=float, default=5, help="value loss coefficient"
@@ -92,24 +72,27 @@ parser.add_argument(
 parser.add_argument(
     "--no-shared", default=False, help="use an optimizer without shared momentum."
 )
+parser.add_argument("--async-mode", default=False, help="use async mode for evaluation")
 parser.add_argument("--channel-first", default=True, help="use channel first input")
 
 
 if __name__ == "__main__":
     os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["CUDA_VISIBLE_DEVICES"] = "" if not torch.cuda.is_available() else "0"
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""  # if not torch.cuda.is_available() else "0"
     mp.set_start_method("spawn")
 
     args = parser.parse_args()
 
+    args.device = torch.device(
+        "cpu"
+    )  # torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     torch.manual_seed(args.seed)
     env = create_atari_env(args.env_name)
-    shared_model = FeudalNet(
-        env.observation_space, env.action_space, channel_first=args.channel_first
-    )
+    shared_model = ActorCritic(env.observation_space.shape[0], env.action_space)
+    shared_model.to(args.device)
 
-    args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    shared_model.share_memory().to(args.device)
+    shared_model.share_memory()
 
     if args.no_shared:
         optimizer = None
@@ -128,19 +111,23 @@ if __name__ == "__main__":
     current_time = datetime.now().strftime("%b%d_%H-%M-%S")
     log_dir = os.path.join("runs", current_time + "_" + socket.gethostname())
 
-    p = mp.Process(
-        target=test,
-        args=(args.num_processes, shared_model, counter, log_dir, lock, args),
-    )
-    p.start()
-    processes.append(p)
-
-    for rank in range(0, args.num_processes):
+    if not args.async_mode:
+        rank = 0
+        train(rank, shared_model, counter, log_dir, lock, optimizer, args)
+    else:
         p = mp.Process(
-            target=train,
-            args=(rank, shared_model, counter, log_dir, lock, optimizer, args),
+            target=test,
+            args=(args.num_processes, shared_model, counter, log_dir, lock, args),
         )
         p.start()
         processes.append(p)
-    for p in processes:
-        p.join()
+
+        for rank in range(0, args.num_processes):
+            p = mp.Process(
+                target=train,
+                args=(rank, shared_model, counter, log_dir, lock, optimizer, args),
+            )
+            p.start()
+            processes.append(p)
+        for p in processes:
+            p.join()

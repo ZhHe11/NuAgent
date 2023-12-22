@@ -55,7 +55,7 @@ def test(
         done = False
 
         for episode_length in count():
-            value_worker, value_manager, action_probs, goal, _, states = model(
+            _, _, action_probs, states = model(
                 obs.unsqueeze(0), states, reset_value_grad=True
             )
             action = action_probs.cpu().max(1, keepdim=True)[1].data.numpy()

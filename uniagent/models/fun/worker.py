@@ -39,7 +39,9 @@ class Worker(nn.Module):
 
     def create_value_function(self):
         return nn.Sequential(
-            nn.Linear(self.num_outputs * self.k, 50), nn.ReLU(), nn.Linear(50, 1)
+            nn.Linear(self.num_outputs * self.k + self.k, 50),
+            nn.ReLU(),
+            nn.Linear(50, 1),
         )
 
     def create_observation_embedding(self):
@@ -74,6 +76,7 @@ class Worker(nn.Module):
         sum_g_W: torch.Tensor,
         states_W: Tuple[torch.Tensor, torch.Tensor],
         reset_value_grad: bool = True,
+        update_network_state: bool = True,
     ):
         """
         :param z:
@@ -84,15 +87,21 @@ class Worker(nn.Module):
 
         # project the last c goals into a single vector, where the dimension
         #   size is k
-        w = self.phi(sum_g_W)  # projection [ batch x 1 x k]
+        w = self.phi(sum_g_W)  # projection [ batch x k]
 
         # Worker firstly embeds the input observations
-        hx, cx = states_W = self.f_Wrnn(z, states_W)
+        states_W = self.f_Wrnn(z, states_W)
+        hx, cx = states_W
         U = hx.reshape(hx.shape[0], self.k, self.num_outputs)
         # then coordinates the embedded observation with the embedded goals
         a = torch.einsum("bk,bka->ba", w, U)  # [batch x a]
         probs = F.softmax(a, dim=1)
-        value = self.value_function(hx.detach() if reset_value_grad else hx)
+        value = self.value_function(
+            torch.cat([cx, w], dim=-1)
+        )  # if reset_value_grad else hx)
+
+        if not update_network_state:
+            states_W = None
 
         return value, probs, states_W
 
