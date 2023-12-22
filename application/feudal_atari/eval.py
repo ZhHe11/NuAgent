@@ -19,7 +19,9 @@ def test(
 ):
     torch.manual_seed(args.seed + rank)
 
-    env = create_atari_env(args.env_name, args.max_episode_length)
+    env = create_atari_env(
+        args.env_name, args.max_episode_length, use_normalized_env=False
+    )
     env.seed(args.seed + rank)
     model = FeudalNet(
         env.observation_space,
