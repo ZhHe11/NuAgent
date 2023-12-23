@@ -111,11 +111,11 @@ if __name__ == "__main__":
 
     if not args.async_mode:
         rank = 0
-        train(rank, shared_model, counter, log_dir, lock, optimizer, args)
+        train(rank, env, shared_model, counter, log_dir, lock, optimizer, args)
     else:
         p = mp.Process(
             target=test,
-            args=(args.num_processes, shared_model, counter, log_dir, lock, args),
+            args=(args.num_processes, env, shared_model, counter, log_dir, lock, args),
         )
         p.start()
         processes.append(p)
@@ -123,7 +123,7 @@ if __name__ == "__main__":
         for rank in range(0, args.num_processes):
             p = mp.Process(
                 target=train,
-                args=(rank, shared_model, counter, log_dir, lock, optimizer, args),
+                args=(rank, env, shared_model, counter, log_dir, lock, optimizer, args),
             )
             p.start()
             processes.append(p)

@@ -71,6 +71,7 @@ def train(
     lock,
     optimizer: optim.Optimizer,
     args: Namespace,
+    model_cls: nn.Module,
 ):
     seed = args.seed + rank
     torch.manual_seed(seed)
@@ -79,13 +80,7 @@ def train(
     if hasattr(env, "seed"):
         env.seed(seed)
 
-    # if not args.async_mode and hasattr(env, "seed"):
-    #     # eval_env = create_atari_env(
-    #     #     args.env_name, args.max_episode_length, use_reward_clip=False
-    #     # )
-    #     env.seed(seed + rank)
-
-    agent = Agent(env.observation_space, env.action_space, args.device)
+    agent = Agent(model_cls, env.observation_space, env.action_space, args.device)
     if not args.async_mode:
         del agent.model
         agent.model = shared_model
@@ -147,6 +142,8 @@ def train(
                     batch.obs.float(), (batch.hx.float(), batch.cx.float())
                 )
 
+                assert next_qs.shape == q.shape
+
                 if args.double_q:
                     with torch.no_grad():
                         next_qs_with_eval, _ = agent.compute_q(
@@ -163,23 +160,38 @@ def train(
                     -1, next_action
                 ).squeeze(-1) * (1.0 - batch.done.float())
 
-                td_error = F.mse_loss(
-                    q.gather(-1, batch.action.unsqueeze(-1).long()).squeeze(-1),
-                    target_q.detach(),
+                q_action = q.gather(-1, batch.action.unsqueeze(-1).long()).squeeze(-1)
+
+                assert q_action.shape == target_q.shape, (
+                    q_action.shape,
+                    target_q.shape,
                 )
 
-                with lock:
-                    optimizer.zero_grad()
-                    td_error.backward()
-                    if args.async_mode:
-                        ensure_shared_grads(agent.model, shared_model)
-                    optimizer.step()
-                    agent.soft_update()
+                td_error = F.mse_loss(
+                    q_action,
+                    target_q,
+                )
 
+                optimizer.zero_grad()
+                td_error.backward()
+                if args.async_mode:
+                    ensure_shared_grads(agent.model, shared_model)
+                optimizer.step()
+                agent.soft_update()
+
+                with lock:
                     writer.add_scalar(
                         "train/td_error" + str(rank), td_error.item(), counter.value
                     )
                     writer.add_scalar("train/eps" + str(rank), agent.eps, counter.value)
+                    writer.add_scalar(
+                        "train/reward_mean", batch.reward.mean().item(), counter.value
+                    )
+                    writer.add_scalars(
+                        "train/qs" + str(rank),
+                        {"q": q.mean().item(), "target_q": target_q.mean().item()},
+                        counter.value,
+                    )
 
             if done:
                 with lock:
@@ -194,6 +206,5 @@ def train(
                 break
 
             obs = torch.from_numpy(next_obs).to(args.device)
-        print("done, trunc", done, truncated)
         if not args.async_mode:
             rollout(epoch, counter, agent, env, start_time, writer, args)

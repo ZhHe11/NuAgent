@@ -10,6 +10,7 @@ import gym
 import torch
 import torch.multiprocessing as mp
 
+from gym.wrappers.transform_reward import TransformReward
 from uniagent.trainers.optimizers import SharedAdam
 
 from application.dqn_gym.train import train
@@ -81,7 +82,7 @@ if __name__ == "__main__":
     )
 
     torch.manual_seed(args.seed)
-    env = gym.make(args.env_name)
+    env = TransformReward(gym.make(args.env_name), lambda x: 0.1 * x)
     print(
         f"env: {args.env_name}\nobservation_space: {env.observation_space}\naction_space: {env.action_space}"
     )
@@ -111,11 +112,20 @@ if __name__ == "__main__":
 
     if not args.async_mode:
         rank = 0
-        train(rank, env, shared_model, counter, log_dir, lock, optimizer, args)
+        train(rank, env, shared_model, counter, log_dir, lock, optimizer, args, DQN)
     else:
         p = mp.Process(
             target=test,
-            args=(args.num_processes, env, shared_model, counter, log_dir, lock, args),
+            args=(
+                args.num_processes,
+                env,
+                shared_model,
+                counter,
+                log_dir,
+                lock,
+                args,
+                DQN,
+            ),
         )
         p.start()
         processes.append(p)
@@ -123,7 +133,17 @@ if __name__ == "__main__":
         for rank in range(0, args.num_processes):
             p = mp.Process(
                 target=train,
-                args=(rank, env, shared_model, counter, log_dir, lock, optimizer, args),
+                args=(
+                    rank,
+                    env,
+                    shared_model,
+                    counter,
+                    log_dir,
+                    lock,
+                    optimizer,
+                    args,
+                    DQN,
+                ),
             )
             p.start()
             processes.append(p)

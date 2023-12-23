@@ -62,6 +62,7 @@ def test(
     log_dir: str,
     lock,
     args: Namespace,
+    model_cls: nn.Module,
 ):
     torch.manual_seed(args.seed + rank)
 
@@ -72,7 +73,7 @@ def test(
         env.seed(args.seed + rank)
 
     if args.async_mode:
-        agent = Agent(env.observation_space, env.action_space, args.device)
+        agent = Agent(model_cls, env.observation_space, env.action_space, args.device)
     else:
         del agent.model
         agent.model = shared_model

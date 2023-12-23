@@ -50,13 +50,14 @@ class AtariDQN(DQN):
 class Agent:
     def __init__(
         self,
+        model_class: nn.Module,
         observation_space: spaces.Space,
         action_space: spaces.Space,
         device: torch.DeviceObjType = None,
     ) -> None:
         self.device = device
         self.action_space = action_space
-        self.model = AtariDQN(observation_space, action_space).to(device)
+        self.model = model_class(observation_space, action_space).to(device)
         self.target_model = copy.deepcopy(self.model)
 
         for p in self.target_model.parameters():
