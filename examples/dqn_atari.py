@@ -10,43 +10,28 @@ import torch
 import torch.multiprocessing as mp
 
 from uniagent.trainers.optimizers import SharedAdam
-from uniagent.models.a2c import ActorCritic
 from uniagent.envs.atari import create_atari_env
 
-from application.a3c_atari.train import train
-from application.a3c_atari.eval import test
+from application.dqn_gym.train import train
+from application.dqn_gym.eval import test
+from application.dqn_gym.policy import AtariDQN
 
 
-parser = argparse.ArgumentParser(description="A3C for Atari")
+parser = argparse.ArgumentParser(description="DQN for Atari")
 parser.add_argument(
     "--lr",
     type=float,
-    default=0.0003,  # try LogUniform(1e-4.5, 1e-3.5)
+    default=2.5e-4,  # try LogUniform(1e-4.5, 1e-3.5)
     help="learning rate",
 )
 parser.add_argument(
     "--gamma",
     type=float,
-    default=0.95,
+    default=0.99,
     help="worker discount factor for rewards",
 )
 parser.add_argument(
-    "--llambda", type=float, default=0.95, help="parameter for GAE (worker only)"
-)
-parser.add_argument(
-    "--entropy-coef",
-    type=float,
-    default=0.01,
-    help="entropy term coefficient (also called beta)",
-)
-parser.add_argument(
-    "--value-loss-coef",
-    type=float,
-    default=1,
-    help="worker value loss coefficient",
-)
-parser.add_argument(
-    "--max-grad-norm", type=float, default=5, help="value loss coefficient"
+    "--max-grad-norm", type=float, default=50, help="value loss coefficient"
 )
 parser.add_argument("--seed", type=int, default=123, help="random seed")
 parser.add_argument(
@@ -56,7 +41,7 @@ parser.add_argument(
     "--num-steps",
     type=int,
     default=400,
-    help="number of forward steps in A3C (every `num_steps`, do a backward step)",
+    help="number of forward steps in DQN (every `num_steps`, do a backward step)",
 )
 parser.add_argument(
     "--max-episode-length",
@@ -66,8 +51,8 @@ parser.add_argument(
 )
 parser.add_argument(
     "--env-name",
-    default="PongDeterministic-v4",
-    help="environment to train on (default: PongDeterministic-v4)",
+    default="BreakoutDeterministic-v4",
+    help="environment to train on (default: BreakoutNoFrameskip-v4)",
 )
 parser.add_argument(
     "--no-shared", action="store_true", help="use an optimizer without shared momentum."
@@ -77,6 +62,9 @@ parser.add_argument(
 )
 parser.add_argument("--channel-first", default=True, help="use channel first input")
 parser.add_argument("--use-cuda", action="store_true")
+parser.add_argument("--batch-size", default=32, type=int)
+parser.add_argument("--replay-buffer-size", default=100000, type=int)
+parser.add_argument("--double-q", action="store_true")
 
 
 if __name__ == "__main__":
@@ -94,12 +82,17 @@ if __name__ == "__main__":
 
     torch.manual_seed(args.seed)
     env = create_atari_env(args.env_name)
-    shared_model = ActorCritic(env.observation_space.shape[0], env.action_space)
+    print(
+        f"env: {args.env_name}\nobservation_space: {env.observation_space}\naction_space: {env.action_space}"
+    )
+
+    shared_model = AtariDQN(env.observation_space, env.action_space)
     shared_model.to(args.device)
 
-    shared_model.share_memory()
+    if args.async_mode:
+        shared_model.share_memory()
 
-    if args.no_shared:
+    if args.no_shared or not args.async_mode:
         optimizer = None
     else:
         optimizer = SharedAdam(shared_model.parameters(), lr=args.lr)

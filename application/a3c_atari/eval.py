@@ -18,9 +18,6 @@ from tensorboardX import SummaryWriter
 def rollout(
     epoch, counter, lock, rank, model, shared_model, env, start_time, writer, args
 ):
-    if args.async_mode:
-        model.load_state_dict(shared_model.state_dict())
-
     obs, info = env.reset()
     obs = torch.from_numpy(obs).to(args.device)
     done = True
@@ -70,7 +67,6 @@ def rollout(
                 )
 
             actions.clear()
-            obs, info = env.reset()
             break
 
         obs = torch.from_numpy(obs).to(args.device)
@@ -103,7 +99,10 @@ def test(
     # a quick hack to prevent the agent from stucking
     for epoch in count():
         # Sync with the shared model
-        rollout(
+        if args.async_mode:
+            model.load_state_dict(shared_model.state_dict())
+
+        done = rollout(
             epoch,
             counter,
             lock,
