@@ -11,7 +11,7 @@ import torch.multiprocessing as mp
 
 from uniagent.trainers.optimizers import SharedAdam
 from uniagent.models.a2c import ActorCritic
-from uniagent.envs.atari import create_atari_env
+from uniagent.envs.gym_control import create_gym_control
 
 from application.a3c_gym.train import train
 from application.a3c_gym.eval import test
@@ -46,7 +46,7 @@ parser.add_argument(
     help="worker value loss coefficient",
 )
 parser.add_argument(
-    "--max-grad-norm", type=float, default=5, help="value loss coefficient"
+    "--max-grad-norm", type=float, default=50, help="value loss coefficient"
 )
 parser.add_argument("--seed", type=int, default=123, help="random seed")
 parser.add_argument(
@@ -66,8 +66,8 @@ parser.add_argument(
 )
 parser.add_argument(
     "--env-name",
-    default="PongDeterministic-v4",
-    help="environment to train on (default: PongDeterministic-v4)",
+    default="CartPole-v1",
+    help="environment to train on (default: CartPole-v1)",
 )
 parser.add_argument(
     "--no-shared", action="store_true", help="use an optimizer without shared momentum."
@@ -86,7 +86,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    args.task_type = "atari"
+    args.task_type = "control"
     args.device = (
         torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if args.use_cuda
@@ -94,8 +94,12 @@ if __name__ == "__main__":
     )
 
     torch.manual_seed(args.seed)
-    env = create_atari_env(args.env_name)
-    shared_model = ActorCritic(env.observation_space.shape[0], env.action_space)
+    env = create_gym_control(args.env_name)
+    print(
+        f"env: {args.env_name}\nobservation_space: {env.observation_space}\naction_space: {env.action_space}"
+    )
+
+    shared_model = ActorCritic(env.observation_space, env.action_space)
     shared_model.to(args.device)
 
     shared_model.share_memory()

@@ -1,7 +1,11 @@
+from typing import Any, Tuple
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from uniagent.models.dqn import SimplePreprocessor
 
 
 def normalized_columns_initializer(weights, std=1.0):
@@ -29,43 +33,47 @@ def weights_init(m):
 
 
 class ActorCritic(torch.nn.Module):
-    def __init__(self, num_inputs, action_space):
+    def __init__(self, observation_space, action_space):
         super(ActorCritic, self).__init__()
-        self.conv1 = nn.Conv2d(num_inputs, 32, 3, stride=2, padding=1)
-        self.conv2 = nn.Conv2d(32, 32, 3, stride=2, padding=1)
-        self.conv3 = nn.Conv2d(32, 32, 3, stride=2, padding=1)
-        self.conv4 = nn.Conv2d(32, 32, 3, stride=2, padding=1)
 
-        self.lstm = nn.LSTMCell(32 * 3 * 3, 256)
+        self.observation_space = observation_space
+        self.action_space = action_space
 
-        num_outputs = action_space.n
-        self.critic_linear = nn.Linear(256, 1)
-        self.actor_linear = nn.Linear(256, num_outputs)
+        self.preprocessor_actor = self.create_preprocessor(256)
+        self.preprocessor_critic = self.create_preprocessor(256)
+        self.actor_linear = self.create_actor(256)
+        self.critic_linear = self.create_critic(256)
 
         self.apply(weights_init)
-        self.actor_linear.weight.data = normalized_columns_initializer(
-            self.actor_linear.weight.data, 0.01
-        )
-        self.actor_linear.bias.data.fill_(0)
-        self.critic_linear.weight.data = normalized_columns_initializer(
-            self.critic_linear.weight.data, 1.0
-        )
-        self.critic_linear.bias.data.fill_(0)
 
-        self.lstm.bias_ih.data.fill_(0)
-        self.lstm.bias_hh.data.fill_(0)
+        # self.lstm.bias_ih.data.fill_(0)
+        # self.lstm.bias_hh.data.fill_(0)
 
         self.train()
 
-    def forward(self, inputs):
-        inputs, (hx, cx) = inputs
-        x = F.elu(self.conv1(inputs))
-        x = F.elu(self.conv2(x))
-        x = F.elu(self.conv3(x))
-        x = F.elu(self.conv4(x))
+    def create_preprocessor(self, num_outputs: int) -> nn.Module:
+        return SimplePreprocessor(self.observation_space.shape[0], num_outputs)
 
-        x = x.view(-1, 32 * 3 * 3)
-        hx, cx = self.lstm(x, (hx, cx))
-        x = hx
+    def create_critic(self, num_inputs: int) -> nn.Module:
+        critic_linear = nn.Linear(num_inputs, 1)
+        critic_linear.weight.data = normalized_columns_initializer(
+            critic_linear.weight.data, 1.0
+        )
+        critic_linear.bias.data.fill_(0)
+        return critic_linear
 
-        return self.critic_linear(x), self.actor_linear(x), (hx, cx)
+    def create_actor(self, num_inputs: int) -> nn.Module:
+        actor_linear = nn.Linear(num_inputs, self.action_space.n)
+        actor_linear.weight.data = normalized_columns_initializer(
+            actor_linear.weight.data, 0.01
+        )
+        actor_linear.bias.data.fill_(0)
+        return actor_linear
+
+    def forward(self, obs: Any, state: Tuple[torch.Tensor, torch.Tensor]):
+        x, state = self.preprocessor_actor(obs, state)
+        x_critic, _ = self.preprocessor_critic(obs, state)
+        return self.critic_linear(x_critic), self.actor_linear(x), state
+
+    def init_state(self, batch_size: int, device=None):
+        return self.preprocessor_actor.init_state(batch_size, device)

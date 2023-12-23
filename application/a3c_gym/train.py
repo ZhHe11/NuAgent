@@ -2,6 +2,7 @@ from itertools import count
 from argparse import Namespace
 
 import time
+import random
 import numpy as np
 import torch
 import torch.optim as optim
@@ -10,8 +11,9 @@ from torch import nn
 from torch.nn import functional as F
 from torch.autograd import Variable
 
-from uniagent.models.a2c import ActorCritic
 from uniagent.envs.atari import create_atari_env
+from uniagent.envs.gym_control import create_gym_control
+from application.a3c_gym.agent import Agent
 
 from .eval import rollout
 
@@ -36,23 +38,21 @@ def train(
     seed = args.seed + rank
     torch.manual_seed(seed)
 
-    env = create_atari_env(args.env_name, args.max_episode_length)
-    env.seed(seed)
-
-    if not args.async_mode:
-        eval_env = create_atari_env(
+    if args.task_type == "atari":
+        env = create_atari_env(
             args.env_name, args.max_episode_length, use_reward_clip=False
         )
-        eval_env.seed(seed + rank)
+    elif args.task_type == "control":
+        env = create_gym_control(args.env_name)
 
-    if args.async_mode:
-        model = ActorCritic(
-            env.observation_space.shape[0],
-            env.action_space,
-        )
-        model.to(args.device)
-    else:
-        model = shared_model
+    if hasattr(env, "seed"):
+        env.seed(args.seed + rank)
+
+    agent = Agent(
+        shared_model.__class__, env.observation_space, env.action_space, args.device
+    )
+    if not args.async_mode:
+        agent.model = shared_model
 
     if optimizer is None:
         print("no shared optimizer")
@@ -60,23 +60,22 @@ def train(
 
     writer = SummaryWriter(log_dir=log_dir)
 
-    model.train()
+    agent.model.train()
 
     episode_length = 0
     start_time = time.time()
     done = True
 
     for epoch in count():
+        time.sleep(random.random())
         # Sync with the shared model
         if args.async_mode:
-            model.load_state_dict(shared_model.state_dict())
+            agent.model.load_state_dict(shared_model.state_dict())
 
         if done:
-            cx = torch.zeros(1, 256).to(args.device)
-            hx = torch.zeros(1, 256).to(args.device)
+            net_state = agent.init_state(1, args.device)
         else:
-            cx = cx.detach()
-            hx = hx.detach()
+            net_state = tuple(map(lambda x: x.detach(), net_state))
 
         values = []
         log_probs = []
@@ -88,21 +87,15 @@ def train(
 
         for step in range(args.num_steps):
             episode_length += 1
-            value, logit, (hx, cx) = model((obs.unsqueeze(0), (hx, cx)))
-            prob = F.softmax(logit, dim=-1)
-            log_prob = F.log_softmax(logit, dim=-1)
-            entropy = -(log_prob * prob).sum(1, keepdim=True)
-
+            value, action, log_prob, entropy, net_state = agent.act(
+                obs.unsqueeze(0), net_state
+            )
             entropies.append(entropy.squeeze())
             values.append(value.squeeze())
-
-            action = prob.multinomial(num_samples=1).detach()
-            log_prob = log_prob.gather(1, action)
             log_probs.append(log_prob.squeeze())
 
-            next_obs, reward, done, truncated, info = env.step(
-                action.cpu().numpy()[0, 0]
-            )
+            next_obs, reward, done, truncated, info = env.step(action.cpu().numpy()[0])
+
             done = done or truncated
 
             with lock:
@@ -116,7 +109,7 @@ def train(
             obs = torch.from_numpy(next_obs).to(args.device)
 
         if not done:
-            value, _, _ = model((obs.unsqueeze(0), (hx, cx)))
+            value, _, _, _, _ = agent.act(obs.unsqueeze(0), net_state)
             value = value.detach().squeeze()
         else:
             value = torch.zeros(1).to(args.device).squeeze()
@@ -133,7 +126,7 @@ def train(
 
         values.append(value)
 
-        gae = 0.0  # torch.zeros(1).to(args.device).squeeze()
+        gae = 0.0
         traj_len = len(rewards)
         ret = values[-1].item()
         R = [0.0] * traj_len
@@ -187,11 +180,11 @@ def train(
 
             total_loss.backward()
             grad_norm = torch.nn.utils.clip_grad_norm_(
-                model.parameters(), args.max_grad_norm
+                agent.model.parameters(), args.max_grad_norm
             )
-            if args.async_mode:
-                ensure_shared_grads(model, shared_model)
+            optimizer.step()
 
+        with lock:
             writer.add_scalar(
                 "training/entropy" + str(rank), entropy_loss.item(), epoch
             )
@@ -212,17 +205,14 @@ def train(
                 "training/gae" + str(rank), GAE.detach().mean().item(), epoch
             )
 
-            optimizer.step()
-
         if not args.async_mode:
             rollout(
                 epoch,
                 counter,
                 lock,
-                rank,
-                model,
+                agent,
                 shared_model,
-                eval_env,
+                env,
                 start_time,
                 writer,
                 args,
