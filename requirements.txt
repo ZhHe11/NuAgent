@@ -9,3 +9,4 @@ transformers
 readerwriterlock
 opencv-python
 tensorboardX
+shutup
