@@ -1,5 +1,7 @@
 import numpy as np
 import torch
+import torch.nn as nn
+import torch.optim as optim
 
 import time
 
@@ -7,9 +9,9 @@ import time
 class Trainer:
     def __init__(
         self,
-        model,
-        optimizer,
-        batch_size,
+        model: nn.Module,
+        optimizer: optim.Optimizer,
+        batch_size: int,
         get_batch,
         loss_fn,
         scheduler=None,

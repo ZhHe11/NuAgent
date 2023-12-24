@@ -8,61 +8,13 @@ from itertools import count
 
 import torch
 import torch.multiprocessing as mp
-import torch.distributed.rpc as rpc
 
-from uniagent.trainers.parameter_server import ParameterServer
+from uniagent.trainers.optimizers import SharedAdam
 from uniagent.models.a2c import ActorCritic
 from uniagent.envs.gym_control import create_gym_control
 
-from application.a3c_gym.agent import AsyncAgent
-
-
-def model_generator():
-    return ActorCritic(
-        env.observation_space,
-        env.action_space,
-    )
-
-
-def get_parameter_server(model_generator, worker_num):
-    return ParameterServer(model_generator, batch_update_size=worker_num)
-
-
-def run_parameter_server(rank, world_size, ps_name):
-    # The parameter server just acts as a host for the model and responds to
-    # requests from trainers, hence it does not need to run a loop.
-    # rpc.shutdown() will wait for all workers to complete by default, which
-    # in this case means that the parameter server will wait for all trainers
-    # to complete, and then exit.
-    print("PS master initializing RPC")
-    rpc.init_rpc(name=ps_name, rank=rank, world_size=world_size)
-    print("RPC initialized! Running parameter server...")
-    rpc.shutdown()
-    print("RPC shutdown on parameter server.")
-
-
-def run_worker(args, rank, world_size, ps_name, model_class, counter, lock, log_dir):
-    print(f"Worker rank {rank} initializing RPC")
-    rpc.init_rpc(name=f"trainer_{rank}", rank=rank, world_size=world_size)
-
-    print(f"Worker {rank} done initializing RPC")
-
-    param_server_rref = rpc.remote(
-        ps_name, get_parameter_server, args=(model_generator, world_size - 2)
-    )
-
-    env = create_gym_control(args.env_name)
-
-    agent = AsyncAgent(
-        model_class, env.observation_space, env.action_space, device=args.device
-    )
-
-    if rank == 1:
-        agent.test(args, param_server_rref, counter, lock, log_dir)
-    else:
-        agent.train(args, param_server_rref, counter, lock, rank, log_dir)
-
-    rpc.shutdown()
+from application.a3c_gym.train import train
+from application.a3c_gym.eval import test
 
 
 parser = argparse.ArgumentParser(description="A3C for Atari")
@@ -147,6 +99,17 @@ if __name__ == "__main__":
         f"env: {args.env_name}\nobservation_space: {env.observation_space}\naction_space: {env.action_space}"
     )
 
+    shared_model = ActorCritic(env.observation_space, env.action_space)
+    shared_model.to(args.device)
+
+    shared_model.share_memory()
+
+    if args.no_shared:
+        optimizer = None
+    else:
+        optimizer = SharedAdam(shared_model.parameters(), lr=args.lr)
+        optimizer.share_memory()
+
     processes = []
 
     counter = mp.Value("i", 0)
@@ -157,27 +120,24 @@ if __name__ == "__main__":
 
     current_time = datetime.now().strftime("%b%d_%H-%M-%S")
     log_dir = os.path.join("runs", current_time + "_" + socket.gethostname())
-    ps_name = "parameter_server"
 
-    p = mp.Process(target=run_parameter_server, args=(0, args.num_processes, ps_name))
-    p.start()
-    processes.append(p)
-
-    for rank in range(1, args.num_processes + 1):
+    if not args.async_mode:
+        rank = 0
+        train(rank, shared_model, counter, log_dir, lock, optimizer, args)
+    else:
         p = mp.Process(
-            target=run_worker,
-            args=(
-                args,
-                rank,
-                args.num_processes,
-                ps_name,
-                ActorCritic,
-                counter,
-                lock,
-                log_dir,
-            ),
+            target=test,
+            args=(args.num_processes, shared_model, counter, log_dir, lock, args),
         )
         p.start()
         processes.append(p)
-    for p in processes:
-        p.join()
+
+        for rank in range(0, args.num_processes):
+            p = mp.Process(
+                target=train,
+                args=(rank, shared_model, counter, log_dir, lock, optimizer, args),
+            )
+            p.start()
+            processes.append(p)
+        for p in processes:
+            p.join()
