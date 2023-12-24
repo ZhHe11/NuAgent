@@ -11,48 +11,14 @@ import torch
 import torch.multiprocessing as mp
 import torch.distributed.rpc as rpc
 
-from uniagent.trainers.parameter_server import ParameterServer
 from uniagent.models.a2c import ActorCritic
 from uniagent.envs.gym_control import create_gym_control
+from uniagent.trainers.parameter_server import (
+    get_parameter_server,
+    run_parameter_server,
+)
 
-from application.a3c_gym.agent import AsyncAgent
-
-
-def model_generator_wrapper(observation_space, action_space):
-    def f():
-        return ActorCritic(
-            observation_space,
-            action_space,
-        )
-
-    return f
-
-
-param_server = None
-global_lock = threading.Lock()
-
-
-def get_parameter_server(model_class, model_kwargs, worker_num):
-    global param_server
-    with global_lock:
-        if not param_server:
-            param_server = ParameterServer(
-                model_class, model_kwargs, batch_update_size=worker_num
-            )
-        return param_server
-
-
-def run_parameter_server(rank, world_size, ps_name):
-    # The parameter server just acts as a host for the model and responds to
-    # requests from trainers, hence it does not need to run a loop.
-    # rpc.shutdown() will wait for all workers to complete by default, which
-    # in this case means that the parameter server will wait for all trainers
-    # to complete, and then exit.
-    print("PS master initializing RPC")
-    rpc.init_rpc(name=ps_name, rank=rank, world_size=world_size)
-    print("RPC initialized! Running parameter server...")
-    rpc.shutdown()
-    print("RPC shutdown on parameter server.")
+from application.a3c_gym.async_agent import AsyncAgent
 
 
 def make_env_wrapper(args):
@@ -91,15 +57,20 @@ def run_worker(
     print("* fetched parameter server reference", param_server_rref)
 
     agent = AsyncAgent(
-        model_class, model_kwargs, make_env_wrapper(args), device=args.device
+        param_server_rref,
+        rank,
+        model_class,
+        model_kwargs,
+        make_env_wrapper(args),
+        device=args.device,
     )
 
     if rank == 1:
         print("starting evaluation task")
-        agent.test(args, param_server_rref, counter, lock, log_dir)
+        agent.test(args, counter, lock, log_dir)
     else:
         print("starting training task")
-        agent.train(args, param_server_rref, counter, lock, rank, log_dir)
+        agent.train(args, counter, lock, log_dir)
 
     print(f"Worker {rank} finished task execution")
 

@@ -16,6 +16,7 @@ class ParameterServer:
         self, model_cls, model_kwargs, batch_update_size: int = batch_update_size
     ):
         self.model: nn.Module = model_cls(**model_kwargs)
+        self.model.train()
         self.lock = threading.Lock()
         self.future_model = torch.futures.Future()
         # NOTE the batch update size would be better for the same as worker number
@@ -64,3 +65,30 @@ class ParameterServer:
                 self.future_model = torch.futures.Future()
 
         return fut
+
+
+param_server = None
+global_lock = threading.Lock()
+
+
+def get_parameter_server(model_class, model_kwargs, worker_num):
+    global param_server
+    with global_lock:
+        if not param_server:
+            param_server = ParameterServer(
+                model_class, model_kwargs, batch_update_size=worker_num
+            )
+        return param_server
+
+
+def run_parameter_server(rank: int, world_size: int, ps_name: int):
+    # The parameter server just acts as a host for the model and responds to
+    # requests from trainers, hence it does not need to run a loop.
+    # rpc.shutdown() will wait for all workers to complete by default, which
+    # in this case means that the parameter server will wait for all trainers
+    # to complete, and then exit.
+    print("PS master initializing RPC")
+    rpc.init_rpc(name=ps_name, rank=rank, world_size=world_size)
+    print("RPC initialized! Running parameter server...")
+    rpc.shutdown()
+    print("RPC shutdown on parameter server.")
