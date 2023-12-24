@@ -13,7 +13,13 @@ num_classes, batch_update_size = 30, 5
 
 class ParameterServer:
     def __init__(
-        self, model_cls, model_kwargs, batch_update_size: int = batch_update_size
+        self,
+        args,
+        model_cls,
+        model_kwargs,
+        batch_update_size: int = batch_update_size,
+        batch_mode: str = "avg",
+        optimizer: str = "sgd",
     ):
         self.model: nn.Module = model_cls(**model_kwargs)
         self.model.train()
@@ -22,7 +28,15 @@ class ParameterServer:
         # NOTE the batch update size would be better for the same as worker number
         self.batch_update_size = batch_update_size
         self.curr_update_size = 0
-        self.optimizer = optim.SGD(self.model.parameters(), lr=0.001, momentum=0.9)
+        self.batch_mode = batch_mode
+
+        if optimizer == "sgd":
+            self.optimizer = optim.SGD(
+                self.model.parameters(), lr=args.lr, momentum=0.9
+            )
+        elif optimizer == "rmsprop":
+            self.optimizer = optim.RMSprop(self.model.parameters(), lr=args.lr)
+
         self.reset_grad()
 
     def get_model(self) -> nn.Module:
@@ -52,8 +66,9 @@ class ParameterServer:
 
             if self.curr_update_size >= self.batch_update_size:
                 # update the model
-                for p in self.model.parameters():
-                    p.grad /= self.batch_update_size
+                if self.batch_mode == "avg":
+                    for p in self.model.parameters():
+                        p.grad /= self.batch_update_size
                 self.curr_update_size = 0
                 self.optimizer.step()
                 self.optimizer.zero_grad()
@@ -71,12 +86,24 @@ param_server = None
 global_lock = threading.Lock()
 
 
-def get_parameter_server(model_class, model_kwargs, worker_num):
+def get_parameter_server(
+    args,
+    model_class,
+    model_kwargs,
+    worker_num,
+    batch_mode: str = "sum",
+    optimizer: str = "sgd",
+):
     global param_server
     with global_lock:
         if not param_server:
             param_server = ParameterServer(
-                model_class, model_kwargs, batch_update_size=worker_num
+                args,
+                model_class,
+                model_kwargs,
+                batch_update_size=worker_num,
+                batch_mode=batch_mode,
+                optimizer=optimizer,
             )
         return param_server
 

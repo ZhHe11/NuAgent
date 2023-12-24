@@ -50,8 +50,11 @@ def run_worker(
         "action_space": action_space,
     }
 
+    # note the worker num is world_size - 2
     param_server_rref = rpc.remote(
-        ps_name, get_parameter_server, args=(model_class, model_kwargs, world_size - 2)
+        ps_name,
+        get_parameter_server,
+        args=(args, model_class, model_kwargs, world_size - 2),
     )
 
     print("* fetched parameter server reference", param_server_rref)
