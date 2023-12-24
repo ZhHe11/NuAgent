@@ -186,7 +186,7 @@ class AsyncAgent:
             delta_t = (
                 episode_state.rewards[i]
                 + args.gamma * episode_state.values[i + 1].cpu().item()
-                - values[i].cpu().item()
+                - episode_state.values[i].cpu().item()
             )
             gae = gae * args.gamma * args.llambda + delta_t
 
