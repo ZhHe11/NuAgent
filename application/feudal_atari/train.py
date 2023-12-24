@@ -24,17 +24,6 @@ def ensure_shared_grads(model: nn.Module, shared_model: nn.Module):
         shared_param._grad = param.grad
 
 
-# def feudal_loss(obs, rewards, next_v_M, next_v_W, args: Namespace):
-#     R_M = next_v_M
-#     R_W = next_v_W
-
-#     traj_len = len(rewards)
-
-#     for i in reversed(range(traj_len)):
-#         R_M = rewards[i] + args.gamma_manager * R_M
-#         R_W = rewards[i] + args.gamma_worker * R_W
-
-
 def train(
     rank: int,
     shared_model: nn.Module,

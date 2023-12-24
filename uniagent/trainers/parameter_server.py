@@ -19,7 +19,6 @@ class ParameterServer:
         model_kwargs,
         batch_update_size: int = batch_update_size,
         batch_mode: str = "avg",
-        optimizer: str = "sgd",
     ):
         self.model: nn.Module = model_cls(**model_kwargs)
         self.model.train()
@@ -30,11 +29,11 @@ class ParameterServer:
         self.curr_update_size = 0
         self.batch_mode = batch_mode
 
-        if optimizer == "sgd":
+        if args.optimizer == "sgd":
             self.optimizer = optim.SGD(
                 self.model.parameters(), lr=args.lr, momentum=0.9
             )
-        elif optimizer == "rmsprop":
+        elif args.optimizer == "rmsprop":
             self.optimizer = optim.RMSprop(self.model.parameters(), lr=args.lr)
 
         self.reset_grad()
@@ -92,7 +91,6 @@ def get_parameter_server(
     model_kwargs,
     worker_num,
     batch_mode: str = "sum",
-    optimizer: str = "sgd",
 ):
     global param_server
     with global_lock:
@@ -103,7 +101,6 @@ def get_parameter_server(
                 model_kwargs,
                 batch_update_size=worker_num,
                 batch_mode=batch_mode,
-                optimizer=optimizer,
             )
         return param_server
 

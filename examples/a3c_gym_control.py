@@ -142,6 +142,7 @@ parser.add_argument("--channel-first", default=True, help="use channel first inp
 parser.add_argument("--use-cuda", action="store_true")
 parser.add_argument("--master-addr", default="localhost")
 parser.add_argument("--master-port", default="29500")
+parser.add_argument("--optimizer", default="sgd")
 
 
 if __name__ == "__main__":
