@@ -7,14 +7,15 @@ shutup.please()
 import torch
 import torch.multiprocessing as mp
 
-from uniagent.models.a2c import ActorCritic
-from uniagent.envs.gym_control import create_gym_control
+from uniagent.models.fun import FeudalNet
+from uniagent.envs.atari import create_atari_env
 from uniagent.trainers.parameter_server import run_parameter_server
 
 from application.a3c_gym.cli import run_worker
+from application.feudal_atari.async_agent import AsyncAgent
 
 
-parser = argparse.ArgumentParser(description="A3C for Atari")
+parser = argparse.ArgumentParser(description="Feudal Net with A3C setup")
 parser.add_argument(
     "--lr",
     type=float,
@@ -22,14 +23,30 @@ parser.add_argument(
     help="learning rate",
 )
 parser.add_argument(
-    "--gamma",
+    "--alpha", type=float, default=0.8, help="intrinsic reward multiplier"
+)
+parser.add_argument(
+    "--gamma-worker",
     type=float,
     default=0.95,
     help="worker discount factor for rewards",
 )
 parser.add_argument(
-    "--llambda", type=float, default=0.95, help="parameter for GAE (worker only)"
+    "--gamma-manager",
+    type=float,
+    default=0.99,
+    help="manager discount factor for rewards",
 )
+parser.add_argument(
+    "--lambda-worker", type=float, default=0.95, help="parameter for GAE (worker only)"
+)
+parser.add_argument(
+    "--lambda-manager",
+    type=float,
+    default=0.95,
+    help="parameter for GAE (manager only)",
+)
+
 parser.add_argument(
     "--entropy-coef",
     type=float,
@@ -37,13 +54,19 @@ parser.add_argument(
     help="entropy term coefficient (also called beta)",
 )
 parser.add_argument(
-    "--value-loss-coef",
+    "--value-worker-loss-coef",
     type=float,
     default=1,
     help="worker value loss coefficient",
 )
 parser.add_argument(
-    "--max-grad-norm", type=float, default=50, help="value loss coefficient"
+    "--value-manager-loss-coef",
+    type=float,
+    default=1,
+    help="manager value loss coefficient",
+)
+parser.add_argument(
+    "--max-grad-norm", type=float, default=5, help="value loss coefficient"
 )
 parser.add_argument("--seed", type=int, default=123, help="random seed")
 parser.add_argument(
@@ -63,8 +86,8 @@ parser.add_argument(
 )
 parser.add_argument(
     "--env-name",
-    default="CartPole-v1",
-    help="environment to train on (default: CartPole-v1)",
+    default="PongDeterministic-v4",
+    help="environment to train on (default: PongDeterministic-v4)",
 )
 parser.add_argument("--use-cuda", action="store_true")
 parser.add_argument("--master-addr", default="localhost")
@@ -74,7 +97,7 @@ parser.add_argument("--optimizer", default="sgd")
 
 if __name__ == "__main__":
     os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["CUDA_VISIBLE_DEVICES"] = ""  # if not torch.cuda.is_available() else "0"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "" if not torch.cuda.is_available() else "0"
     mp.set_start_method("spawn")
 
     args = parser.parse_args()
@@ -82,7 +105,7 @@ if __name__ == "__main__":
     os.environ["MASTER_ADDR"] = args.master_addr
     os.environ["MASTER_PORT"] = args.master_port
 
-    args.task_type = "gym_control"
+    args.task_type = "atari"
     args.device = (
         torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if args.use_cuda
@@ -90,8 +113,7 @@ if __name__ == "__main__":
     )
 
     torch.manual_seed(args.seed)
-
-    env = create_gym_control(args.env_name)
+    env = create_atari_env(args.env_name)
     print(
         f"env: {args.env_name}\nobservation_space: {env.observation_space}\naction_space: {env.action_space}"
     )
@@ -105,7 +127,7 @@ if __name__ == "__main__":
     from datetime import datetime
 
     current_time = datetime.now().strftime("%b%d_%H-%M-%S")
-    log_dir = os.path.join("runs/test", current_time + "_" + socket.gethostname())
+    log_dir = os.path.join("runs", current_time + "_" + socket.gethostname())
     ps_name = "parameter_server"
 
     p = mp.Process(target=run_parameter_server, args=(0, args.num_processes, ps_name))
@@ -120,12 +142,13 @@ if __name__ == "__main__":
                 rank,
                 args.num_processes,
                 ps_name,
-                ActorCritic,
+                FeudalNet,
                 env.observation_space,
                 env.action_space,
                 counter,
                 lock,
                 log_dir,
+                AsyncAgent,
             ),
         )
         p.start()

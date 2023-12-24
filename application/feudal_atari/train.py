@@ -264,7 +264,7 @@ def train(
                 epoch,
             )
             writer.add_scalars(
-                "training/total_loss",
+                "training/total_loss" + str(rank),
                 {
                     "manager": manager_total_loss.item(),
                     "worker": worker_total_loss.item(),

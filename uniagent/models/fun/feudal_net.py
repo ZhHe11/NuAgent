@@ -168,7 +168,7 @@ class FeudalNet(nn.Module):
         d_cos = F.cosine_similarity(F.normalize((s_t_plus_c - s_t).detach()), g_t)
         return d_cos
 
-    def init_state(self, batch_size: int) -> FeudalState:
+    def init_state(self, batch_size: int, device=None) -> FeudalState:
         """Initialize network state, and return a tuple of worker states, manager states and state pair.
 
         Args:

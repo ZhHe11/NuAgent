@@ -5,6 +5,7 @@ import threading
 
 from itertools import count
 from argparse import Namespace
+from collections import namedtuple
 
 import numpy as np
 import torch
@@ -18,6 +19,12 @@ from uniagent.trainers.parameter_server import ParameterServer
 
 
 from torch.distributions import Categorical
+
+
+EpisodeState = namedtuple(
+    "EpisodeState",
+    "obses, dones, actions, net_states, rewards, values, log_probs, entropies, episode_len",
+)
 
 
 class AsyncAgent:
@@ -45,7 +52,7 @@ class AsyncAgent:
         model: nn.Module,
         global_counter: mp.Value = None,
         lock: threading.Lock = None,
-    ) -> Sequence[Any]:
+    ) -> EpisodeState:
         done = False
 
         rewards = []
@@ -64,7 +71,7 @@ class AsyncAgent:
 
         for step_cnt in counter:
             obses.append(obs)
-            net_states.append([e.cpu().numpy().squeeze(0) for e in net_state])
+            net_states.append([e.squeeze(0) for e in net_state])
             obs = torch.from_numpy(obs).float()
             value, logits, net_state = self.model(obs.unsqueeze(0), net_state)
 
@@ -95,7 +102,7 @@ class AsyncAgent:
                 break
 
         obses.append(obs)
-        net_states.append(net_state)
+        net_states.append([e.squeeze(0) for e in net_state])
 
         if dones[-1]:
             values.append(torch.zeros(1).to(self.device).squeeze())
@@ -104,7 +111,7 @@ class AsyncAgent:
             value, _, _, _, _ = self.act(obs.unsqueeze(0), net_state)
             values.append(value.squeeze())
 
-        return (
+        return EpisodeState(
             obses,
             dones,
             actions,
@@ -145,10 +152,8 @@ class AsyncAgent:
             model.eval()
             # always reset
             obs, _ = self.env.reset()
-            _, _, _, _, rewards, _, _, _, episode_len = self.run_episode(
-                args, obs, model
-            )
-            reward_sum = sum(rewards)
+            episode_state = self.run_episode(args, obs, model)
+            reward_sum = sum(episode_state.rewards)
             print(
                 "Time {}, epoch {}, num steps {}, FPS {:.0f}, episode reward {}, episode length {}".format(
                     time.strftime("%Hh %Mm %Ss", time.gmtime(time.time() - start_time)),
@@ -156,7 +161,7 @@ class AsyncAgent:
                     counter.value,
                     counter.value / (time.time() - start_time),
                     reward_sum,
-                    episode_len,
+                    episode_state.episode_len,
                 )
             )
             with lock:
@@ -168,21 +173,19 @@ class AsyncAgent:
             time.sleep(5)
 
     def compute_loss(
-        self, args: Namespace, model: nn.Module, data: Sequence[Any]
+        self, args: Namespace, model: nn.Module, episode_state: EpisodeState
     ) -> Tuple[torch.Tensor, Dict[str, Any]]:
-        obses, dones, actions, net_states, rewards, values, log_probs, entropies = data
-        episode_len = len(rewards)
-
+        # obses, dones, actions, net_states, rewards, values, log_probs, entropies = episode_state
         gae = 0.0
-        ret = values[-1].item()
-        R = [0.0] * episode_len
-        GAE = [0.0] * episode_len
+        ret = episode_state.values[-1].item()
+        R = [0.0] * episode_state.episode_len
+        GAE = [0.0] * episode_state.episode_len
 
-        for i in reversed(range(episode_len)):
-            ret = args.gamma * ret + rewards[i]
+        for i in reversed(range(episode_state.episode_len)):
+            ret = args.gamma * ret + episode_state.rewards[i]
             delta_t = (
-                rewards[i]
-                + args.gamma * values[i + 1].cpu().item()
+                episode_state.rewards[i]
+                + args.gamma * episode_state.values[i + 1].cpu().item()
                 - values[i].cpu().item()
             )
             gae = gae * args.gamma * args.llambda + delta_t
@@ -192,11 +195,16 @@ class AsyncAgent:
 
         R = torch.from_numpy(np.asarray(R)).float().to(args.device)
         GAE = torch.from_numpy(np.asarray(GAE)).float().to(args.device)
-        obses = torch.from_numpy(np.stack(obses)).float().to(args.device)
-        actions = torch.from_numpy(np.stack(actions)).squeeze(1).long().to(args.device)
-        net_states = [
-            torch.from_numpy(np.stack(e)).float().to(args.device) for e in net_states
-        ]
+        obses = torch.from_numpy(np.stack(episode_state.obses)).float().to(args.device)
+        actions = (
+            torch.from_numpy(np.stack(episode_state.actions))
+            .squeeze(1)
+            .long()
+            .to(args.device)
+        )
+        net_states = tuple(
+            map(lambda x: torch.stack(x).detach(), episode_state.net_states)
+        )
         values, logits, _ = model(obses, net_states)
         values = values[:-1].squeeze()
         logits = logits[:-1]
@@ -286,42 +294,19 @@ class AsyncAgent:
 
         for epoch in count():
             model.train()
-            (
-                obses,
-                dones,
-                actions,
-                net_states,
-                rewards,
-                values,
-                log_probs,
-                entropies,
-                episode_len,
-            ) = self.run_episode(args, obs, model, counter, lock)
+            episode_state = self.run_episode(args, obs, model, counter, lock)
 
             with lock:
                 writer.add_scalars(
                     "training/episode_info" + str(self.rank),
                     {
-                        "episode_reward": sum(rewards),
-                        "episode_length": episode_len,
+                        "episode_reward": sum(episode_state.rewards),
+                        "episode_length": episode_state.episode_len,
                     },
                     epoch,
                 )
 
-            total_loss, loss_detail = self.compute_loss(
-                args,
-                model,
-                (
-                    obses,
-                    dones,
-                    actions,
-                    net_states,
-                    rewards,
-                    values,
-                    log_probs,
-                    entropies,
-                ),
-            )
+            total_loss, loss_detail = self.compute_loss(args, model, episode_state)
 
             assert total_loss.requires_grad
 
@@ -339,7 +324,7 @@ class AsyncAgent:
             with lock:
                 self.log_training(epoch, loss_detail, writer)
 
-            if dones[-1]:
+            if episode_state.dones[-1]:
                 obs, _ = self.env.reset()
             else:
-                obs = obses[-1]
+                obs = episode_state.obses[-1]
