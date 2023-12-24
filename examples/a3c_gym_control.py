@@ -1,5 +1,6 @@
 import os
 import argparse
+import threading
 import shutup
 
 shutup.please()
@@ -17,15 +18,28 @@ from uniagent.envs.gym_control import create_gym_control
 from application.a3c_gym.agent import AsyncAgent
 
 
-def model_generator():
-    return ActorCritic(
-        env.observation_space,
-        env.action_space,
-    )
+def model_generator_wrapper(observation_space, action_space):
+    def f():
+        return ActorCritic(
+            observation_space,
+            action_space,
+        )
+
+    return f
 
 
-def get_parameter_server(model_generator, worker_num):
-    return ParameterServer(model_generator, batch_update_size=worker_num)
+param_server = None
+global_lock = threading.Lock()
+
+
+def get_parameter_server(model_class, model_kwargs, worker_num):
+    global param_server
+    with global_lock:
+        if not param_server:
+            param_server = ParameterServer(
+                model_class, model_kwargs, batch_update_size=worker_num
+            )
+        return param_server
 
 
 def run_parameter_server(rank, world_size, ps_name):
@@ -41,26 +55,53 @@ def run_parameter_server(rank, world_size, ps_name):
     print("RPC shutdown on parameter server.")
 
 
-def run_worker(args, rank, world_size, ps_name, model_class, counter, lock, log_dir):
+def make_env_wrapper(args):
+    def make_env():
+        return create_gym_control(args.env_name)
+
+    return make_env
+
+
+def run_worker(
+    args,
+    rank,
+    world_size,
+    ps_name,
+    model_class,
+    observation_space,
+    action_space,
+    counter,
+    lock,
+    log_dir,
+):
     print(f"Worker rank {rank} initializing RPC")
     rpc.init_rpc(name=f"trainer_{rank}", rank=rank, world_size=world_size)
 
     print(f"Worker {rank} done initializing RPC")
 
+    model_kwargs = {
+        "observation_space": observation_space,
+        "action_space": action_space,
+    }
+
     param_server_rref = rpc.remote(
-        ps_name, get_parameter_server, args=(model_generator, world_size - 2)
+        ps_name, get_parameter_server, args=(model_class, model_kwargs, world_size - 2)
     )
 
-    env = create_gym_control(args.env_name)
+    print("* fetched parameter server reference", param_server_rref)
 
     agent = AsyncAgent(
-        model_class, env.observation_space, env.action_space, device=args.device
+        model_class, model_kwargs, make_env_wrapper(args), device=args.device
     )
 
     if rank == 1:
+        print("starting evaluation task")
         agent.test(args, param_server_rref, counter, lock, log_dir)
     else:
+        print("starting training task")
         agent.train(args, param_server_rref, counter, lock, rank, log_dir)
+
+    print(f"Worker {rank} finished task execution")
 
     rpc.shutdown()
 
@@ -125,6 +166,8 @@ parser.add_argument(
 )
 parser.add_argument("--channel-first", default=True, help="use channel first input")
 parser.add_argument("--use-cuda", action="store_true")
+parser.add_argument("--master-addr", default="localhost")
+parser.add_argument("--master-port", default="29500")
 
 
 if __name__ == "__main__":
@@ -134,6 +177,9 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    os.environ["MASTER_ADDR"] = args.master_addr
+    os.environ["MASTER_PORT"] = args.master_port
+
     args.task_type = "control"
     args.device = (
         torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -142,6 +188,7 @@ if __name__ == "__main__":
     )
 
     torch.manual_seed(args.seed)
+
     env = create_gym_control(args.env_name)
     print(
         f"env: {args.env_name}\nobservation_space: {env.observation_space}\naction_space: {env.action_space}"
@@ -156,14 +203,14 @@ if __name__ == "__main__":
     from datetime import datetime
 
     current_time = datetime.now().strftime("%b%d_%H-%M-%S")
-    log_dir = os.path.join("runs", current_time + "_" + socket.gethostname())
+    log_dir = os.path.join("runs/test", current_time + "_" + socket.gethostname())
     ps_name = "parameter_server"
 
     p = mp.Process(target=run_parameter_server, args=(0, args.num_processes, ps_name))
     p.start()
     processes.append(p)
 
-    for rank in range(1, args.num_processes + 1):
+    for rank in range(1, args.num_processes):
         p = mp.Process(
             target=run_worker,
             args=(
@@ -172,6 +219,8 @@ if __name__ == "__main__":
                 args.num_processes,
                 ps_name,
                 ActorCritic,
+                env.observation_space,
+                env.action_space,
                 counter,
                 lock,
                 log_dir,

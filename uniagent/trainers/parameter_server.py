@@ -12,29 +12,36 @@ num_classes, batch_update_size = 30, 5
 
 
 class ParameterServer:
-    def __init__(self, model_generator, batch_update_size: int = batch_update_size):
-        self.model: nn.Module = model_generator()
+    def __init__(
+        self, model_cls, model_kwargs, batch_update_size: int = batch_update_size
+    ):
+        self.model: nn.Module = model_cls(**model_kwargs)
         self.lock = threading.Lock()
         self.future_model = torch.futures.Future()
         # NOTE the batch update size would be better for the same as worker number
         self.batch_update_size = batch_update_size
         self.curr_update_size = 0
         self.optimizer = optim.SGD(self.model.parameters(), lr=0.001, momentum=0.9)
-        for p in self.model.parameters():
-            p.grad = torch.zeros_like(p)
+        self.reset_grad()
 
     def get_model(self) -> nn.Module:
         return self.model
 
+    def reset_grad(self):
+        for p in self.model.parameters():
+            p.grad = torch.zeros_like(p)
+
     @staticmethod
     @rpc.functions.async_execution
-    def update_and_fetch_model(ps_rref, grads):
+    def update_and_fetch_model(ps_rref, worker_id, grads):
         # Using the RRef to retrieve the local PS instance
         self = ps_rref.local_value()
+
         with self.lock:
             self.curr_update_size += 1
             # accumulate gradients into .grad field
             for p, g in zip(self.model.parameters(), grads):
+                assert g is not None
                 p.grad += g
 
             # Save the current future_model and return it to make sure the
@@ -49,6 +56,7 @@ class ParameterServer:
                 self.curr_update_size = 0
                 self.optimizer.step()
                 self.optimizer.zero_grad()
+                self.reset_grad()
                 # by settiing the result on the Future object, all previous
                 # requests expecting this updated model will be notified and
                 # the their responses will be sent accordingly.
