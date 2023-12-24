@@ -41,11 +41,11 @@ class AsyncAgent:
     def run_episode(
         self,
         args: Namespace,
+        obs: np.ndarray,
         model: nn.Module,
         global_counter: mp.Value = None,
         lock: threading.Lock = None,
     ) -> Sequence[Any]:
-        obs, _ = self.env.reset()
         done = False
 
         rewards = []
@@ -54,6 +54,7 @@ class AsyncAgent:
         entropies = []
         obses = []
         actions = []
+        dones = []
         net_states = []
 
         # make sure it is not None
@@ -84,6 +85,7 @@ class AsyncAgent:
             log_probs.append(log_prob.squeeze())
             entropies.append(entropy.squeeze())
             rewards.append(reward)
+            dones.append(done)
 
             if global_counter:
                 with lock:
@@ -95,7 +97,7 @@ class AsyncAgent:
         obses.append(obs)
         net_states.append(net_state)
 
-        if done:
+        if dones[-1]:
             values.append(torch.zeros(1).to(self.device).squeeze())
         else:
             obs = torch.from_numpy(obs).float()
@@ -104,6 +106,7 @@ class AsyncAgent:
 
         return (
             obses,
+            dones,
             actions,
             net_states,
             rewards,
@@ -140,7 +143,11 @@ class AsyncAgent:
         for epoch in count():
             model: nn.Module = self.ps_rref.rpc_sync().get_model().to(self.device)
             model.eval()
-            _, _, _, rewards, _, _, _, episode_len = self.run_episode(args, model)
+            # always reset
+            obs, _ = self.env.reset()
+            _, _, _, _, rewards, _, _, _, episode_len = self.run_episode(
+                args, obs, model
+            )
             reward_sum = sum(rewards)
             print(
                 "Time {}, epoch {}, num steps {}, FPS {:.0f}, episode reward {}, episode length {}".format(
@@ -163,7 +170,7 @@ class AsyncAgent:
     def compute_loss(
         self, args: Namespace, model: nn.Module, data: Sequence[Any]
     ) -> Tuple[torch.Tensor, Dict[str, Any]]:
-        obses, actions, net_states, rewards, values, log_probs, entropies = data
+        obses, dones, actions, net_states, rewards, values, log_probs, entropies = data
         episode_len = len(rewards)
 
         gae = 0.0
@@ -275,10 +282,13 @@ class AsyncAgent:
         time.sleep(1)
         writer = SummaryWriter(log_dir=log_dir)
 
+        obs, _ = self.env.reset()
+
         for epoch in count():
             model.train()
             (
                 obses,
+                dones,
                 actions,
                 net_states,
                 rewards,
@@ -286,7 +296,7 @@ class AsyncAgent:
                 log_probs,
                 entropies,
                 episode_len,
-            ) = self.run_episode(args, model, counter, lock)
+            ) = self.run_episode(args, obs, model, counter, lock)
 
             with lock:
                 writer.add_scalars(
@@ -301,7 +311,16 @@ class AsyncAgent:
             total_loss, loss_detail = self.compute_loss(
                 args,
                 model,
-                (obses, actions, net_states, rewards, values, log_probs, entropies),
+                (
+                    obses,
+                    dones,
+                    actions,
+                    net_states,
+                    rewards,
+                    values,
+                    log_probs,
+                    entropies,
+                ),
             )
 
             assert total_loss.requires_grad
@@ -319,3 +338,8 @@ class AsyncAgent:
 
             with lock:
                 self.log_training(epoch, loss_detail, writer)
+
+            if dones[-1]:
+                obs, _ = self.env.reset()
+            else:
+                obs = obses[-1]
