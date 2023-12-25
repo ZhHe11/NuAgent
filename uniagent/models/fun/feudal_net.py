@@ -148,6 +148,8 @@ class FeudalNet(nn.Module):
         self, states, goals, use_repeated_terminal_state: bool = True
     ):
         # concatenate all states
+        assert len(states) >= self.c, (len(states), self.c)
+        assert len(goals) >= self.c, (len(goals), self.c)
         s_t = torch.stack(states[self.c :], dim=0).squeeze(1)
         g_t = torch.stack(goals[self.c :], dim=0).squeeze(1)
 
@@ -165,6 +167,11 @@ class FeudalNet(nn.Module):
                 dims=0,
             )
 
+        assert s_t_plus_c.shape == s_t.shape == g_t.shape, (
+            s_t_plus_c.shape,
+            s_t.shape,
+            g_t.shape,
+        )
         d_cos = F.cosine_similarity(F.normalize((s_t_plus_c - s_t).detach()), g_t)
         return d_cos
 
@@ -198,8 +205,12 @@ class FeudalNet(nn.Module):
         return FeudalState(
             self.manager.reset_states_grad(feudal_state.manager_state),
             self.worker.reset_states_grad(feudal_state.worker_state),
-            list(map(lambda x: reset_grad2(x, False), feudal_state.state_seg)),
-            list(map(lambda x: reset_grad2(x, False), feudal_state.goal_seg)),
+            list(
+                map(lambda x: reset_grad2(x, False), feudal_state.state_seg[-self.c :])
+            ),
+            list(
+                map(lambda x: reset_grad2(x, False), feudal_state.goal_seg[-self.c :])
+            ),
         )
 
     def intrinsic_reward(

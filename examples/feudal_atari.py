@@ -7,12 +7,12 @@ shutup.please()
 import torch
 import torch.multiprocessing as mp
 
-from uniagent.trainers.optimizers import SharedAdam
 from uniagent.models.fun import FeudalNet
 from uniagent.envs.atari import create_atari_env
+from uniagent.trainers.parameter_server import run_parameter_server
 
-from application.feudal_atari.train import train
-from application.feudal_atari.eval import test
+from application.a3c_gym.cli import run_worker
+from application.feudal_gym.async_agent import AsyncAgent
 
 
 parser = argparse.ArgumentParser(description="Feudal Net with A3C setup")
@@ -89,10 +89,10 @@ parser.add_argument(
     default="PongDeterministic-v4",
     help="environment to train on (default: PongDeterministic-v4)",
 )
-parser.add_argument(
-    "--no-shared", default=False, help="use an optimizer without shared momentum."
-)
-parser.add_argument("--channel-first", default=True, help="use channel first input")
+parser.add_argument("--use-cuda", action="store_true")
+parser.add_argument("--master-addr", default="localhost")
+parser.add_argument("--master-port", default="29500")
+parser.add_argument("--optimizer", default="sgd")
 
 
 if __name__ == "__main__":
@@ -101,21 +101,22 @@ if __name__ == "__main__":
     mp.set_start_method("spawn")
 
     args = parser.parse_args()
+    os.environ["MASTER_ADDR"] = args.master_addr
+    os.environ["MASTER_PORT"] = args.master_port
+
+    args.task_type = "atari"
+    args.device = (
+        torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if args.use_cuda
+        else torch.device("cpu")
+    )
 
     torch.manual_seed(args.seed)
     env = create_atari_env(args.env_name)
-    shared_model = FeudalNet(
-        env.observation_space, env.action_space, channel_first=args.channel_first
+
+    print(
+        f"env: {args.env_name}\nobservation_space: {env.observation_space}\naction_space: {env.action_space}"
     )
-
-    args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    shared_model.share_memory().to(args.device)
-
-    if args.no_shared:
-        optimizer = None
-    else:
-        optimizer = SharedAdam(shared_model.parameters(), lr=args.lr)
-        optimizer.share_memory()
 
     processes = []
 
@@ -127,18 +128,31 @@ if __name__ == "__main__":
 
     current_time = datetime.now().strftime("%b%d_%H-%M-%S")
     log_dir = os.path.join("runs", current_time + "_" + socket.gethostname())
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+    ps_name = "parameter_server"
+    args.num_processes = args.num_processes + 2
 
-    p = mp.Process(
-        target=test,
-        args=(args.num_processes, shared_model, counter, log_dir, lock, args),
-    )
+    p = mp.Process(target=run_parameter_server, args=(0, args.num_processes, ps_name))
     p.start()
     processes.append(p)
 
-    for rank in range(0, args.num_processes):
+    for rank in range(1, args.num_processes):
         p = mp.Process(
-            target=train,
-            args=(rank, shared_model, counter, log_dir, lock, optimizer, args),
+            target=run_worker,
+            args=(
+                args,
+                rank,
+                args.num_processes,
+                ps_name,
+                FeudalNet,
+                env.observation_space,
+                env.action_space,
+                counter,
+                lock,
+                log_dir,
+                AsyncAgent,
+            ),
         )
         p.start()
         processes.append(p)

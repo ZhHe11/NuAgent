@@ -1,33 +1,54 @@
-from multiprocessing import Value
-from typing import Any, Dict, Sequence, Tuple
-from argparse import Namespace
+from typing import Any, Dict, Tuple
 from itertools import count
 
 import threading
-from tensorboardX import SummaryWriter
-import torch
 import numpy as np
-from torch._tensor import Tensor
+import torch
 import torch.nn as nn
+import torch.distributed.rpc as rpc
 import torch.multiprocessing as mp
+from tensorboardX import SummaryWriter
 
 from torch.distributions import Categorical
 from torch.nn.modules import Module
-from application.a3c_gym.async_agent import AsyncAgent as BaseAgent, EpisodeState
+
+from uniagent.trainers.parameter_server import ParameterServer
 from uniagent.models.fun.feudal_net import FeudalState
+from application.a3c_gym.async_agent import AsyncAgent as BaseAgent, EpisodeState
 
 
 class AsyncAgent(BaseAgent):
+    def fetch_model(self) -> Module:
+        model_cnt, model = self.ps_rref.rpc_sync().get_model()
+        return model.to(self.device)
+
+    def update_and_fetch_model(self, model: Module) -> Module:
+        for p in model.parameters():
+            if p.grad is None:
+                raise RuntimeError(
+                    f"Empty grad at worker: {self.worker_name} {self.rank}"
+                )
+
+        model: nn.Module = rpc.rpc_sync(
+            self.ps_rref.owner(),
+            ParameterServer.update_and_fetch_model,
+            args=(
+                self.ps_rref,
+                self.worker_name,
+                [p.grad for p in model.cpu().parameters()],
+            ),
+            timeout=60,
+        ).to(self.device)
+        return model
+
     def run_episode(
         self,
-        args: Namespace,
         obs: np.ndarray,
-        model: nn.Module,
+        done: bool,
+        net_state: Any,
         global_counter: mp.Value = None,
         lock: threading.Lock = None,
-    ) -> Sequence[Any]:
-        done = False
-
+    ) -> EpisodeState:
         rewards = []
         intrinsic_rewards = []
         values_manager = []
@@ -41,8 +62,13 @@ class AsyncAgent(BaseAgent):
         actions = []
         dones = []
 
-        net_state: FeudalState = model.init_state(1, self.device)
-        counter = count() if model.training else range(args.num_steps)
+        if done:
+            net_state: FeudalState = self.model.init_state(1, self.device)
+        else:
+            net_state = self.model.reset_states_grad(net_state[2])
+
+        counter = count() if not self.model.training else range(self.args.num_steps)
+        # counter = range(self.args.num_steps)
 
         for step_cnt in counter:
             obses.append(obs)
@@ -71,7 +97,7 @@ class AsyncAgent(BaseAgent):
             obs, reward, done, truncated, info = self.env.step(action.cpu().numpy()[0])
             done = done or truncated
             intrinsic_reward = (
-                model.intrinsic_reward(obs, reward, info, net_state).cpu().item()
+                self.model.intrinsic_reward(obs, reward, info, net_state).cpu().item()
             )
 
             values_worker.append(value_worker.squeeze())
@@ -103,7 +129,11 @@ class AsyncAgent(BaseAgent):
             values_worker.append(torch.zeros(1).to(self.device).squeeze())
         else:
             obs = torch.from_numpy(obs).float()
-            value_worker, value_manager, _, _ = model(obs.unsqueeze(0), net_state)
+            value_worker, value_manager, _, _ = self.model(
+                obs.unsqueeze(0), net_state, update_network_state=False
+            )
+            values_manager.append(value_manager.squeeze())
+            values_worker.append(value_worker.squeeze())
 
         return EpisodeState(
             obses,
@@ -118,16 +148,16 @@ class AsyncAgent(BaseAgent):
         )
 
     def compute_loss(
-        self, args: Namespace, model: Module, episode_state: EpisodeState
-    ) -> Tuple[Tensor, Dict[str, Any]]:
+        self, episode_state: EpisodeState
+    ) -> Tuple[torch.Tensor, Dict[str, Any]]:
         rewards = episode_state.rewards
         intrinsic_rewards = episode_state.net_states[-1]
         values_manager = episode_state.values[0]
         values_worker = episode_state.values[1]
         states = episode_state.net_states[2]
 
-        gae_worker = 0.0  # torch.zeros(1).to(args.device).squeeze()
-        gae_manager = 0.0  # torch.zeros(1).to(args.device).squeeze()
+        gae_worker = 0.0
+        gae_manager = 0.0
         ret_worker = values_worker[-1].item()
         ret_manager = values_manager[-1].item()
         R_worker = [0.0] * episode_state.episode_len
@@ -137,27 +167,29 @@ class AsyncAgent(BaseAgent):
 
         for i in reversed(range(episode_state.episode_len)):
             ret_worker = (
-                args.gamma_worker * ret_worker
+                self.args.gamma_worker * ret_worker
                 + rewards[i]
-                + args.alpha * intrinsic_rewards[i]
+                + self.args.alpha * intrinsic_rewards[i]
             )
             delta_t_worker = (
                 rewards[i]
-                + args.alpha * intrinsic_rewards[i]
-                + args.gamma_worker * values_worker[i + 1].cpu().item()
+                + self.args.alpha * intrinsic_rewards[i]
+                + self.args.gamma_worker * values_worker[i + 1].cpu().item()
                 - values_worker[i].cpu().item()
             )
             gae_worker = (
-                gae_worker * args.gamma_worker * args.lambda_worker + delta_t_worker
+                gae_worker * self.args.gamma_worker * self.args.lambda_worker
+                + delta_t_worker
             )
-            ret_manager = args.gamma_manager * ret_manager + rewards[i]
+            ret_manager = self.args.gamma_manager * ret_manager + rewards[i]
             delta_t_manager = (
                 rewards[i]
-                + args.gamma_manager * values_manager[i + 1].cpu().item()
+                + self.args.gamma_manager * values_manager[i + 1].cpu().item()
                 - values_manager[i].cpu().item()
             )
             gae_manager = (
-                gae_manager * args.gamma_manager * args.lambda_manager + delta_t_manager
+                gae_manager * self.args.gamma_manager * self.args.lambda_manager
+                + delta_t_manager
             )
 
             GAE_worker[i] = gae_worker
@@ -165,16 +197,25 @@ class AsyncAgent(BaseAgent):
             R_worker[i] = ret_worker
             R_manager[i] = ret_manager
 
-        R_worker = torch.from_numpy(np.asarray(R_worker)).float().to(args.device)
-        R_manager = torch.from_numpy(np.asarray(R_manager)).float().to(args.device)
-        GAE_manager = torch.from_numpy(np.asarray(GAE_manager)).float().to(args.device)
-        GAE_worker = torch.from_numpy(np.asarray(GAE_worker)).float().to(args.device)
+        R_worker = torch.from_numpy(np.asarray(R_worker)).float().to(self.device)
+        R_manager = torch.from_numpy(np.asarray(R_manager)).float().to(self.device)
+        GAE_manager = torch.from_numpy(np.asarray(GAE_manager)).float().to(self.device)
+        GAE_worker = torch.from_numpy(np.asarray(GAE_worker)).float().to(self.device)
 
         values_manager = torch.stack(values_manager[:-1])
         values_worker = torch.stack(values_worker[:-1])
         entropies = torch.stack(episode_state.entropies, dim=-1)
         log_probs = torch.stack(episode_state.log_probs, dim=-1)
-        dcos_ts = model.state_cosin_similarity(
+        assert (
+            len(states.state_seg)
+            == len(states.goal_seg)
+            == episode_state.episode_len + self.model.c
+        ), (
+            len(states.state_seg),
+            len(states.goal_seg),
+            episode_state.episode_len + self.model.c,
+        )
+        dcos_ts = self.model.state_cosin_similarity(
             states.state_seg, states.goal_seg, use_repeated_terminal_state=True
         )
 
@@ -216,11 +257,11 @@ class AsyncAgent(BaseAgent):
 
         worker_total_loss = (
             worker_pg_loss
-            + args.value_worker_loss_coef * worker_value_loss
-            - args.entropy_coef * entropy_loss
+            + self.args.value_worker_loss_coef * worker_value_loss
+            - self.args.entropy_coef * entropy_loss
         )
         manager_total_loss = (
-            manager_pg_loss + args.value_manager_loss_coef * manager_value_loss
+            manager_pg_loss + self.args.value_manager_loss_coef * manager_value_loss
         )
 
         total_loss = worker_total_loss + manager_total_loss
@@ -253,7 +294,7 @@ class AsyncAgent(BaseAgent):
         }
 
     def log_training(
-        self, epoch: int, loss_detail: Dict[str, Tensor], writer: SummaryWriter
+        self, epoch: int, loss_detail: Dict[str, torch.Tensor], writer: SummaryWriter
     ):
         loss_detail["training/info"]["grad_norm"] = loss_detail.pop("grad_norm")
 

@@ -12,7 +12,7 @@ from uniagent.envs.atari import create_atari_env
 from uniagent.trainers.parameter_server import run_parameter_server
 
 from application.a3c_gym.cli import run_worker
-from application.feudal_atari.async_agent import AsyncAgent
+from application.feudal_gym.async_agent import AsyncAgent
 
 
 parser = argparse.ArgumentParser(description="Feudal Net with A3C setup")

@@ -14,7 +14,7 @@ from uniagent.trainers.parameter_server import run_parameter_server
 from application.a3c_gym.cli import run_worker
 
 
-parser = argparse.ArgumentParser(description="A3C for Atari")
+parser = argparse.ArgumentParser(description="A3C for Gym control")
 parser.add_argument(
     "--lr",
     type=float,

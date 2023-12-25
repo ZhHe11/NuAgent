@@ -1,3 +1,4 @@
+from typing import Tuple
 import threading
 
 import torch
@@ -22,6 +23,7 @@ class ParameterServer:
     ):
         self.model: nn.Module = model_cls(**model_kwargs)
         self.model.train()
+        self.cnt = 0
         self.lock = threading.Lock()
         self.future_model = torch.futures.Future()
         # NOTE the batch update size would be better for the same as worker number
@@ -38,8 +40,8 @@ class ParameterServer:
 
         self.reset_grad()
 
-    def get_model(self) -> nn.Module:
-        return self.model
+    def get_model(self) -> Tuple[int, nn.Module]:
+        return [self.cnt, self.model]
 
     def reset_grad(self):
         for p in self.model.parameters():
@@ -75,6 +77,7 @@ class ParameterServer:
                 # by settiing the result on the Future object, all previous
                 # requests expecting this updated model will be notified and
                 # the their responses will be sent accordingly.
+                self.cnt += 1
                 fut.set_result(self.model)
                 self.future_model = torch.futures.Future()
 

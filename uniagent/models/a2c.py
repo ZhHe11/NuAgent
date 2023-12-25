@@ -76,3 +76,6 @@ class ActorCritic(torch.nn.Module):
 
     def init_state(self, batch_size: int, device=None):
         return self.preprocessor_actor.init_state(batch_size, device)
+
+    def reset_states_grad(self, net_state: Tuple[torch.Tensor, torch.Tensor]):
+        return tuple(map(lambda x: x.detach(), net_state))

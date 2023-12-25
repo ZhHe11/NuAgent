@@ -44,11 +44,13 @@ class AsyncAgent(AgentRunner):
                 self.worker_name,
                 [p.grad for p in model.cpu().parameters()],
             ),
+            timeout=60,
         ).to(self.device)
         return model
 
     def fetch_model(self) -> nn.Module:
-        return self.ps_rref.rpc_sync().get_model().to(self.device)
+        model_cnt, model = self.ps_rref.rpc_sync().get_model()
+        return model.to(self.device)
 
     def compute_loss(
         self, episode_state: EpisodeState

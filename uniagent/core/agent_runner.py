@@ -45,11 +45,11 @@ class AgentRunner:
     def run_episode(
         self,
         obs: np.ndarray,
+        done: bool,
+        net_state: Any,
         global_counter: mp.Value = None,
         lock: threading.Lock = None,
     ) -> EpisodeState:
-        done = False
-
         rewards = []
         values = []
         log_probs = []
@@ -60,7 +60,10 @@ class AgentRunner:
         net_states = []
 
         # make sure it is not None
-        net_state = self.model.init_state(1, self.device)
+        if done:
+            net_state = self.model.init_state(1, self.device)
+        else:
+            net_state = self.model.reset_states_grad(net_state)
 
         counter = count() if not self.model.training else range(self.args.num_steps)
 
@@ -122,7 +125,7 @@ class AgentRunner:
         raise NotImplementedError
 
     def fetch_model(self) -> nn.Module:
-        return self.model
+        raise NotImplementedError
 
     def test(self, counter: mp.Value, lock: threading.Lock):
         start_time = time.time()
@@ -134,7 +137,7 @@ class AgentRunner:
             # always reset
             obs, _ = self.env.reset()
             # test should not update counter
-            episode_state = self.run_episode(obs)
+            episode_state = self.run_episode(obs, done=True, net_state=None)
             reward_sum = sum(episode_state.rewards)
             print(
                 "Time {}, eval epoch {}, training steps {}, FPS {:.0f}, episode reward {}, episode length {}".format(
@@ -170,10 +173,14 @@ class AgentRunner:
         writer = SummaryWriter(log_dir=self.log_dir)
 
         obs, _ = self.env.reset()
+        last_done = True
+        last_net_states = None
 
         for epoch in count():
             self.model.train()
-            episode_state = self.run_episode(obs, counter, lock)
+            episode_state = self.run_episode(
+                obs, last_done, last_net_states, counter, lock
+            )
 
             with lock:
                 writer.add_scalars(
@@ -207,3 +214,5 @@ class AgentRunner:
                 obs, _ = self.env.reset()
             else:
                 obs = episode_state.obses[-1]
+            last_done = episode_state.dones[-1]
+            last_net_states = episode_state.net_states
