@@ -45,7 +45,7 @@ class AsyncAgent(BaseAgent):
         self,
         obs: np.ndarray,
         done: bool,
-        net_state: Any,
+        net_state: FeudalState,
         global_counter: mp.Value = None,
         lock: threading.Lock = None,
     ) -> EpisodeState:
@@ -65,7 +65,7 @@ class AsyncAgent(BaseAgent):
         if done:
             net_state: FeudalState = self.model.init_state(1, self.device)
         else:
-            net_state = self.model.reset_states_grad(net_state[2])
+            net_state = self.model.reset_states_grad(net_state)
 
         counter = count() if not self.model.training else range(self.args.num_steps)
         # counter = range(self.args.num_steps)
@@ -146,6 +146,9 @@ class AsyncAgent(BaseAgent):
             entropies,
             len(rewards),
         )
+
+    def handle_net_states(self, episode_state: EpisodeState) -> Any:
+        return episode_state.net_states[2]
 
     def compute_loss(
         self, episode_state: EpisodeState

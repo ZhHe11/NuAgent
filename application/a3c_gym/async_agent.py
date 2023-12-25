@@ -52,6 +52,9 @@ class AsyncAgent(AgentRunner):
         model_cnt, model = self.ps_rref.rpc_sync().get_model()
         return model.to(self.device)
 
+    def handle_net_states(self, episode_state: EpisodeState) -> Any:
+        return tuple([e[-1] for e in episode_state.net_states])
+
     def compute_loss(
         self, episode_state: EpisodeState
     ) -> Tuple[torch.Tensor, Dict[str, Any]]:

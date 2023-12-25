@@ -215,4 +215,7 @@ class AgentRunner:
             else:
                 obs = episode_state.obses[-1]
             last_done = episode_state.dones[-1]
-            last_net_states = episode_state.net_states
+            last_net_states = self.handle_net_states(episode_state)
+
+    def handle_net_states(self, episode_state: EpisodeState) -> Any:
+        return episode_state.net_states
