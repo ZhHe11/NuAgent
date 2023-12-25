@@ -108,7 +108,7 @@ class AsyncAgent:
             values.append(torch.zeros(1).to(self.device).squeeze())
         else:
             obs = torch.from_numpy(obs).float()
-            value, _, _, _, _ = self.act(obs.unsqueeze(0), net_state)
+            value, _, _ = self.model(obs.unsqueeze(0), net_state)
             values.append(value.squeeze())
 
         return EpisodeState(
@@ -141,6 +141,9 @@ class AsyncAgent:
         ).to(self.device)
         return model
 
+    def fetch_model(self) -> nn.Module:
+        return self.ps_rref.rpc_sync().get_model().to(self.device)
+
     def test(
         self, args: Namespace, counter: mp.Value, lock: threading.Lock, log_dir: str
     ):
@@ -148,11 +151,11 @@ class AsyncAgent:
         writer = SummaryWriter(log_dir=log_dir)
 
         for epoch in count():
-            model: nn.Module = self.ps_rref.rpc_sync().get_model().to(self.device)
-            model.eval()
+            self.model: nn.Module = self.fetch_model()
+            self.model.eval()
             # always reset
             obs, _ = self.env.reset()
-            episode_state = self.run_episode(args, obs, model)
+            episode_state = self.run_episode(args, obs, self.model)
             reward_sum = sum(episode_state.rewards)
             print(
                 "Time {}, epoch {}, num steps {}, FPS {:.0f}, episode reward {}, episode length {}".format(
@@ -165,7 +168,7 @@ class AsyncAgent:
                 )
             )
             with lock:
-                for name, param in model.named_parameters():
+                for name, param in self.model.named_parameters():
                     writer.add_histogram(name, param.clone().cpu().data.numpy(), epoch)
                 writer.add_scalar(
                     "evaluation/episode_reward", reward_sum, counter.value
@@ -195,22 +198,9 @@ class AsyncAgent:
 
         R = torch.from_numpy(np.asarray(R)).float().to(args.device)
         GAE = torch.from_numpy(np.asarray(GAE)).float().to(args.device)
-        obses = torch.from_numpy(np.stack(episode_state.obses)).float().to(args.device)
-        actions = (
-            torch.from_numpy(np.stack(episode_state.actions))
-            .squeeze(1)
-            .long()
-            .to(args.device)
-        )
-        net_states = tuple(
-            map(lambda x: torch.stack(x).detach(), episode_state.net_states)
-        )
-        values, logits, _ = model(obses, net_states)
-        values = values[:-1].squeeze()
-        logits = logits[:-1]
-        dist = Categorical(logits=logits)
-        log_probs = dist.log_prob(actions)
-        entropies = dist.entropy()
+        log_probs = torch.stack(episode_state.log_probs)
+        entropies = torch.stack(episode_state.entropies)
+        values = torch.stack(episode_state.values[:-1])
 
         assert values.shape == R.shape, (
             values.shape,
@@ -286,15 +276,15 @@ class AsyncAgent:
     def train(
         self, args: Namespace, counter: mp.Value, lock: threading.Lock, log_dir: str
     ):
-        model: nn.Module = self.ps_rref.rpc_sync().get_model().to(self.device)
+        self.model: nn.Module = self.fetch_model()
         time.sleep(1)
         writer = SummaryWriter(log_dir=log_dir)
 
         obs, _ = self.env.reset()
 
         for epoch in count():
-            model.train()
-            episode_state = self.run_episode(args, obs, model, counter, lock)
+            self.model.train()
+            episode_state = self.run_episode(args, obs, self.model, counter, lock)
 
             with lock:
                 writer.add_scalars(
@@ -306,20 +296,20 @@ class AsyncAgent:
                     epoch,
                 )
 
-            total_loss, loss_detail = self.compute_loss(args, model, episode_state)
+            total_loss, loss_detail = self.compute_loss(args, self.model, episode_state)
 
             assert total_loss.requires_grad
 
             total_loss.backward()
             grad_norm = torch.nn.utils.clip_grad_norm_(
-                model.parameters(), args.max_grad_norm
+                self.model.parameters(), args.max_grad_norm
             )
 
             loss_detail["grad_norm"] = grad_norm
 
             # then sync model
-            model = self.update_and_fetch_model(model)
-            assert model.training
+            self.model = self.update_and_fetch_model(self.model)
+            assert self.model.training
 
             with lock:
                 self.log_training(epoch, loss_detail, writer)
