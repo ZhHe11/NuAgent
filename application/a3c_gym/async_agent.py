@@ -67,7 +67,7 @@ class AsyncAgent:
         # make sure it is not None
         net_state = model.init_state(1, self.device)
 
-        counter = count() if model.training else range(args.num_steps)
+        counter = count() if not model.training else range(args.num_steps)
 
         for step_cnt in counter:
             obses.append(obs)
