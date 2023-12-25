@@ -155,7 +155,9 @@ class FeudalNet(nn.Module):
 
         if use_repeated_terminal_state:
             terminal_states = torch.tile(s_t[-1], dims=[self.c, 1])
-            s_t_plus_c = torch.cat([s_t[self.c :], terminal_states], dim=0)
+            s_t_plus_c = torch.cat([s_t[self.c :], terminal_states], dim=0)[
+                : s_t.size(0)
+            ]
         else:
             s_t_plus_c = torch.cat(
                 [
@@ -165,7 +167,7 @@ class FeudalNet(nn.Module):
                     ),
                 ],
                 dims=0,
-            )
+            )[: s_t.size(0)]
 
         assert s_t_plus_c.shape == s_t.shape == g_t.shape, (
             s_t_plus_c.shape,
