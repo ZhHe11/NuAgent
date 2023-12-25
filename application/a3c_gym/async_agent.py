@@ -44,7 +44,6 @@ class AsyncAgent(AgentRunner):
                 self.worker_name,
                 [p.grad for p in model.cpu().parameters()],
             ),
-            timeout=60,
         ).to(self.device)
         return model
 
