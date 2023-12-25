@@ -57,20 +57,21 @@ def run_worker(
         async_agent_cls = AsyncAgent
 
     agent = async_agent_cls(
+        args,
         param_server_rref,
         rank,
         model_class,
         model_kwargs,
         make_env_wrapper(args),
-        device=args.device,
+        log_dir,
     )
 
     if rank == 1:
         print("starting evaluation task")
-        agent.test(args, counter, lock, log_dir)
+        agent.test(counter, lock)
     else:
         print("starting training task")
-        agent.train(args, counter, lock, log_dir)
+        agent.train(counter, lock)
 
     print(f"Worker {rank} finished task execution")
 

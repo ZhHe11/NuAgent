@@ -107,6 +107,7 @@ if __name__ == "__main__":
     current_time = datetime.now().strftime("%b%d_%H-%M-%S")
     log_dir = os.path.join("runs/test", current_time + "_" + socket.gethostname())
     ps_name = "parameter_server"
+    args.num_processes = args.num_processes + 2
 
     p = mp.Process(target=run_parameter_server, args=(0, args.num_processes, ps_name))
     p.start()

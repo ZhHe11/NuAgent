@@ -36,16 +36,15 @@ class AgentRunner:
         make_env: Any,
         log_dir: str,
     ) -> None:
+        self.args = args
         self.model = model_class(**model_kwargs).to(args.device)
         self.device = args.device
         self.env = make_env()
-        self.writer = SummaryWriter(log_dir=log_dir)
+        self.log_dir = log_dir
 
     def run_episode(
         self,
-        args: Namespace,
         obs: np.ndarray,
-        model: nn.Module,
         global_counter: mp.Value = None,
         lock: threading.Lock = None,
     ) -> EpisodeState:
@@ -61,9 +60,9 @@ class AgentRunner:
         net_states = []
 
         # make sure it is not None
-        net_state = model.init_state(1, self.device)
+        net_state = self.model.init_state(1, self.device)
 
-        counter = count() if model.training else range(args.num_steps)
+        counter = count() if not self.model.training else range(self.args.num_steps)
 
         for step_cnt in counter:
             obses.append(obs)
@@ -104,7 +103,7 @@ class AgentRunner:
             values.append(torch.zeros(1).to(self.device).squeeze())
         else:
             obs = torch.from_numpy(obs).float()
-            value, _, _, _, _ = self.act(obs.unsqueeze(0), net_state)
+            value, _, _ = self.model(obs.unsqueeze(0), net_state)
             values.append(value.squeeze())
 
         return EpisodeState(
@@ -125,16 +124,17 @@ class AgentRunner:
     def fetch_model(self) -> nn.Module:
         return self.model
 
-    def test(self, args: Namespace, counter: mp.Value, lock: threading.Lock):
+    def test(self, counter: mp.Value, lock: threading.Lock):
         start_time = time.time()
+        writer = SummaryWriter(log_dir=self.log_dir)
 
         for epoch in count():
-            model: nn.Module = self.ps_rref.rpc_sync().get_model().to(self.device)
-            model.eval()
+            self.model: nn.Module = self.fetch_model()
+            self.model.eval()
             # always reset
             obs, _ = self.env.reset()
             # test should not update counter
-            episode_state = self.run_episode(args, obs, model)
+            episode_state = self.run_episode(obs)
             reward_sum = sum(episode_state.rewards)
             print(
                 "Time {}, eval epoch {}, training steps {}, FPS {:.0f}, episode reward {}, episode length {}".format(
@@ -147,17 +147,15 @@ class AgentRunner:
                 )
             )
             with lock:
-                for name, param in model.named_parameters():
-                    self.writer.add_histogram(
-                        name, param.clone().cpu().data.numpy(), epoch
-                    )
-                self.writer.add_scalar(
+                for name, param in self.model.named_parameters():
+                    writer.add_histogram(name, param.clone().cpu().data.numpy(), epoch)
+                writer.add_scalar(
                     "evaluation/episode_reward", reward_sum, counter.value
                 )
             time.sleep(5)
 
     def compute_loss(
-        self, args: Namespace, model: nn.Module, episode_state: EpisodeState
+        self, episode_state: EpisodeState
     ) -> Tuple[torch.Tensor, Dict[str, Any]]:
         raise NotImplementedError
 
@@ -166,19 +164,19 @@ class AgentRunner:
     ):
         pass
 
-    def train(
-        self, args: Namespace, counter: mp.Value = None, lock: threading.Lock = None
-    ):
+    def train(self, counter: mp.Value = None, lock: threading.Lock = None):
         self.model: nn.Module = self.fetch_model()
+        time.sleep(1)
+        writer = SummaryWriter(log_dir=self.log_dir)
 
         obs, _ = self.env.reset()
 
         for epoch in count():
-            model.train()
-            episode_state = self.run_episode(args, obs, model, counter, lock)
+            self.model.train()
+            episode_state = self.run_episode(obs, counter, lock)
 
             with lock:
-                self.writer.add_scalars(
+                writer.add_scalars(
                     "training/episode_info" + str(self.rank),
                     {
                         "episode_reward": sum(episode_state.rewards),
@@ -187,23 +185,23 @@ class AgentRunner:
                     epoch,
                 )
 
-            total_loss, loss_detail = self.compute_loss(args, model, episode_state)
+            total_loss, loss_detail = self.compute_loss(episode_state)
 
             assert total_loss.requires_grad
 
             total_loss.backward()
             grad_norm = torch.nn.utils.clip_grad_norm_(
-                model.parameters(), args.max_grad_norm
+                self.model.parameters(), self.args.max_grad_norm
             )
 
             loss_detail["grad_norm"] = grad_norm
 
             # then sync model
-            model = self.update_and_fetch_model(model)
-            assert model.training
+            self.model = self.update_and_fetch_model(self.model)
+            assert self.model.training
 
             with lock:
-                self.log_training(epoch, loss_detail, self.writer)
+                self.log_training(epoch, loss_detail, writer)
 
             if episode_state.dones[-1]:
                 obs, _ = self.env.reset()
