@@ -80,7 +80,7 @@ class AsyncAgent(BaseAgent):
                 tuple(map(lambda x: x.squeeze(0), net_state.worker_state))
             )
 
-            obs = torch.from_numpy(obs).float()
+            obs = torch.from_numpy(obs).float().to(self.device)
             value_worker, value_manager, action_probs, net_state = self.model(
                 obs.unsqueeze(0), net_state
             )
@@ -128,7 +128,7 @@ class AsyncAgent(BaseAgent):
             values_manager.append(torch.zeros(1).to(self.device).squeeze())
             values_worker.append(torch.zeros(1).to(self.device).squeeze())
         else:
-            obs = torch.from_numpy(obs).float()
+            obs = torch.from_numpy(obs).float().to(self.device)
             value_worker, value_manager, _, _ = self.model(
                 obs.unsqueeze(0), net_state, update_network_state=False
             )
