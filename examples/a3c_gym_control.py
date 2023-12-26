@@ -11,7 +11,8 @@ from uniagent.models.a2c import ActorCritic
 from uniagent.envs.gym_control import create_gym_control
 from uniagent.trainers.parameter_server import run_parameter_server
 
-from application.a3c_gym.cli import run_worker
+from application.a3c_gym.
+from application.a3c_gym.cli import run_worker, make_env_wrapper
 
 
 parser = argparse.ArgumentParser(description="A3C for Gym control")
