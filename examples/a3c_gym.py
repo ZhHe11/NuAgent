@@ -92,7 +92,7 @@ def get_actor_critic_cls(args) -> Type[nn.Module]:
 
 if __name__ == "__main__":
     os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["CUDA_VISIBLE_DEVICES"] = ""  # if not torch.cuda.is_available() else "0"
+    # os.environ["CUDA_VISIBLE_DEVICES"] = ""  # if not torch.cuda.is_available() else "0"
     mp.set_start_method("spawn")
 
     args = parser.parse_args()
