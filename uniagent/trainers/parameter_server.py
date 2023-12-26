@@ -37,6 +37,8 @@ class ParameterServer:
             )
         elif args.optimizer == "rmsprop":
             self.optimizer = optim.RMSprop(self.model.parameters(), lr=args.lr)
+        elif args.optimizer == "adam":
+            self.optimizer = optim.Adam(self.model.parameters(), lr=args.lr)
 
         self.reset_grad()
 

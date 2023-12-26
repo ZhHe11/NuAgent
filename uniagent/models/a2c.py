@@ -43,7 +43,7 @@ class ActorCritic(torch.nn.Module):
         self.actor_linear = self.create_actor(256)
         self.critic_linear = self.create_critic(256)
 
-        self.apply(weights_init)
+        # self.apply(weights_init)
 
         # self.lstm.bias_ih.data.fill_(0)
         # self.lstm.bias_hh.data.fill_(0)

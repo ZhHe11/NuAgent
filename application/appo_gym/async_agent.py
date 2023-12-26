@@ -97,3 +97,6 @@ class AsyncAgent(BaseRunner):
             loss_detail["total_loss"],
             epoch,
         )
+        writer.add_scalar(
+            "training/grad_norm" + str(self.rank), loss_detail["grad_norm"], epoch
+        )

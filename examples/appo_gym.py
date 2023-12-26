@@ -14,6 +14,10 @@ from application.appo_gym.cli import command_args
 
 
 if __name__ == "__main__":
+    os.environ["OMP_NUM_THREADS"] = "1"
+    # os.environ["CUDA_VISIBLE_DEVICES"] = ""  # if not torch.cuda.is_available() else "0"
+    mp.set_start_method("spawn")
+
     args = command_args()
 
     os.environ["MASTER_ADDR"] = args.master_addr

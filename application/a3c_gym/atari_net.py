@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Any
 
 from gym import Space
 
@@ -30,8 +30,19 @@ class AtariLSTMPreprocessor(AtariPreprocessor):
 
 
 class AtariAC(ActorCritic):
+    def __init__(self, observation_space, action_space):
+        super().__init__(observation_space, action_space)
+        for p in self.preprocessor_critic.parameters():
+            p.requires_grad = False
+        del self.preprocessor_critic
+
     def create_preprocessor(self, num_outputs: int) -> nn.Module:
         return AtariPreprocessor(self.observation_space, num_outputs)
+
+    def forward(self, obs: Any, state: Tuple[torch.Tensor, torch.Tensor]):
+        x, state = self.preprocessor_actor(obs, state)
+        # x_critic, _ = self.preprocessor_critic(obs, state)
+        return self.critic_linear(x), self.actor_linear(x), state
 
 
 class AtariLSTMAC(ActorCritic):
