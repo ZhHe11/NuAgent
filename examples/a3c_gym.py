@@ -75,6 +75,7 @@ parser.add_argument("--master-port", default="29500")
 parser.add_argument("--optimizer", default="sgd")
 parser.add_argument("--task-type", default="gym_control")
 parser.add_argument("--use-lstm", action="store_true")
+parser.add_argument("--device-idx", default=0, type=int)
 
 
 def get_actor_critic_cls(args) -> Type[nn.Module]:
@@ -100,7 +101,7 @@ if __name__ == "__main__":
     os.environ["MASTER_PORT"] = args.master_port
 
     args.device = (
-        torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        torch.device(f"cuda:{args.device_idx}" if torch.cuda.is_available() else "cpu")
         if args.use_cuda
         else torch.device("cpu")
     )
