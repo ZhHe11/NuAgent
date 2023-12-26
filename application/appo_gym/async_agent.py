@@ -18,8 +18,9 @@ class AsyncAgent(BaseRunner):
     def compute_loss(
         self, episode_state: EpisodeState
     ) -> Tuple[torch.Tensor, Dict[str, Any]]:
-        episode_state = compute_gae_and_ret(self.args, episode_state)
+        episode_state = compute_gae_and_ret(self.args, self.model, episode_state)
         old_log_prob = episode_state.log_probs.detach()
+
         actions = (
             torch.from_numpy(np.concatenate(episode_state.actions))
             .long()
@@ -29,11 +30,18 @@ class AsyncAgent(BaseRunner):
         Adv = episode_state.adv
         for _ in range(self.args.repeat):
             if self.args.recompute_adv:
-                episode_state = compute_gae_and_ret(self.args, episode_state)
+                episode_state = compute_gae_and_ret(
+                    self.args, self.model, episode_state, recompute_value=True
+                )
 
             if self.args.norm_adv:
                 mean, std = Adv.mean(), Adv.std()
                 Adv = (Adv - mean) / (std + 1e-8)
+
+            if not hasattr(episode_state, "logits"):
+                _, episode_state.logits, _ = self.model(
+                    episode_state.obses, episode_state.net_states
+                )
 
             dist = Categorical(logits=episode_state.logits)
             log_prob = dist.log_prob(actions)

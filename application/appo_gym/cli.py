@@ -73,7 +73,7 @@ def command_args() -> Namespace:
     parser.add_argument(
         "--env-name",
         type=str,
-        help="environment to train on (default: CartPole-v1)",
+        help="environment to train on",
     )
     parser.add_argument("--use-cuda", action="store_true")
     parser.add_argument("--master-addr", default="localhost")

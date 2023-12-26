@@ -10,11 +10,8 @@ import torch
 import torch.nn as nn
 import torch.multiprocessing as mp
 
-from uniagent.models.a2c import ActorCritic
 from uniagent.trainers.parameter_server import run_parameter_server
-
-from application.a3c_gym import atari_net
-from application.a3c_gym.cli import run_worker, make_env_wrapper
+from application.a3c_gym.cli import run_worker, make_env_wrapper, get_actor_critic_cls
 
 
 parser = argparse.ArgumentParser(description="A3C for Gym control")
@@ -76,18 +73,6 @@ parser.add_argument("--optimizer", default="sgd")
 parser.add_argument("--task-type", default="gym_control")
 parser.add_argument("--use-lstm", action="store_true")
 parser.add_argument("--device-idx", default=0, type=int)
-
-
-def get_actor_critic_cls(args) -> Type[nn.Module]:
-    if args.task_type == "gym_control":
-        return ActorCritic
-    elif args.task_type == "atari":
-        if args.use_lstm:
-            return atari_net.AtariLSTMAC
-        else:
-            return atari_net.AtariAC
-    else:
-        raise NotImplementedError
 
 
 if __name__ == "__main__":

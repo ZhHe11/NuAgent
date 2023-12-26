@@ -29,7 +29,7 @@ from torch.distributions import Categorical
 
 
 class EpisodeState(dict):
-    def __init__(self, episode_state: dict, copy: bool = False, **kwargs):
+    def __init__(self, episode_state: dict = None, copy: bool = False, **kwargs):
         super().__init__()
         if copy:
             episode_state = deepcopy(episode_state)

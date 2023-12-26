@@ -7,11 +7,25 @@ import torch.nn as nn
 import torch.multiprocessing as mp
 import torch.distributed.rpc as rpc
 
+from uniagent.models.a2c import ActorCritic
 from uniagent.envs.gym_control import create_gym_control
 from uniagent.envs.atari import create_atari_env
 from uniagent.trainers.parameter_server import get_parameter_server
 
 from application.a3c_gym.async_agent import AsyncAgent
+from application.a3c_gym import atari_net
+
+
+def get_actor_critic_cls(args) -> Type[nn.Module]:
+    if args.task_type == "gym_control":
+        return ActorCritic
+    elif args.task_type == "atari":
+        if args.use_lstm:
+            return atari_net.AtariLSTMAC
+        else:
+            return atari_net.AtariAC
+    else:
+        raise NotImplementedError
 
 
 def make_env_wrapper(args):
