@@ -1,5 +1,10 @@
-from typing import Any
+from typing import Any, Type
+from argparse import Namespace
 
+import threading
+import gym.spaces as spaces
+import torch.nn as nn
+import torch.multiprocessing as mp
 import torch.distributed.rpc as rpc
 
 from uniagent.envs.gym_control import create_gym_control
@@ -22,17 +27,17 @@ def make_env_wrapper(args):
 
 
 def run_worker(
-    args,
-    rank,
-    world_size,
-    ps_name,
-    model_class,
-    observation_space,
-    action_space,
-    counter,
-    lock,
-    log_dir,
-    async_agent_cls: Any = None,
+    args: Namespace,
+    rank: int,
+    world_size: int,
+    ps_name: str,
+    model_class: Type[nn.Module],
+    observation_space: spaces.Space,
+    action_space: spaces.Space,
+    counter: mp.Value,
+    lock: threading.Lock,
+    log_dir: str,
+    async_agent_cls: Type[AsyncAgent] = None,
 ):
     print(f"Worker rank {rank} initializing RPC")
     rpc.init_rpc(name=f"trainer_{rank}", rank=rank, world_size=world_size)
@@ -67,10 +72,10 @@ def run_worker(
     )
 
     if rank == 1:
-        print("starting evaluation task")
+        print(f"starting evaluation task for rank={rank}")
         agent.test(counter, lock)
     else:
-        print("starting training task")
+        print(f"starting training task for rank={rank}")
         agent.train(counter, lock)
 
     print(f"Worker {rank} finished task execution")

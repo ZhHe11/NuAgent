@@ -1,3 +1,5 @@
+from typing import Type
+
 import os
 import argparse
 import shutup
@@ -5,13 +7,13 @@ import shutup
 shutup.please()
 
 import torch
+import torch.nn as nn
 import torch.multiprocessing as mp
 
 from uniagent.models.a2c import ActorCritic
-from uniagent.envs.gym_control import create_gym_control
 from uniagent.trainers.parameter_server import run_parameter_server
 
-from application.a3c_gym.
+from application.a3c_gym import atari_net
 from application.a3c_gym.cli import run_worker, make_env_wrapper
 
 
@@ -71,6 +73,20 @@ parser.add_argument("--use-cuda", action="store_true")
 parser.add_argument("--master-addr", default="localhost")
 parser.add_argument("--master-port", default="29500")
 parser.add_argument("--optimizer", default="sgd")
+parser.add_argument("--task-type", default="gym_control")
+parser.add_argument("--use-lstm", action="store_true")
+
+
+def get_actor_critic_cls(args) -> Type[nn.Module]:
+    if args.task_type == "gym_control":
+        return ActorCritic
+    elif args.task_type == "atari":
+        if args.use_lstm:
+            return atari_net.AtariLSTMAC
+        else:
+            return atari_net.AtariAC
+    else:
+        raise NotImplementedError
 
 
 if __name__ == "__main__":
@@ -83,7 +99,6 @@ if __name__ == "__main__":
     os.environ["MASTER_ADDR"] = args.master_addr
     os.environ["MASTER_PORT"] = args.master_port
 
-    args.task_type = "gym_control"
     args.device = (
         torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if args.use_cuda
@@ -92,7 +107,7 @@ if __name__ == "__main__":
 
     torch.manual_seed(args.seed)
 
-    env = create_gym_control(args.env_name)
+    env = make_env_wrapper(args)()
     print(
         f"env: {args.env_name}\nobservation_space: {env.observation_space}\naction_space: {env.action_space}"
     )
@@ -122,7 +137,7 @@ if __name__ == "__main__":
                 rank,
                 args.num_processes,
                 ps_name,
-                ActorCritic,
+                get_actor_critic_cls(args),
                 env.observation_space,
                 env.action_space,
                 counter,

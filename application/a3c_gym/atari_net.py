@@ -34,6 +34,6 @@ class AtariAC(ActorCritic):
         return AtariPreprocessor(self.observation_space, num_outputs)
 
 
-class AtariLSTMAc(ActorCritic):
+class AtariLSTMAC(ActorCritic):
     def create_preprocessor(self, num_outputs: int) -> nn.Module:
         raise NotImplementedError
