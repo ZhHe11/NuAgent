@@ -1,7 +1,4 @@
-from typing import Type
-
 import os
-import argparse
 import shutup
 
 shutup.please()

@@ -26,44 +26,56 @@ def compute_gae_and_ret(
 
     if recompute_value:
         values, logits, _ = model(new_episode_state.obses, new_episode_state.net_states)
-        new_episode_state["logits"] = logits
-    # else:
-    #     ret = new_episode_state.state_values[-1].item()
-
-    delta_ts = (
-        (
-            new_episode_state.rewards
-            + args.gamma * new_episode_state.state_values[1:]
-            - new_episode_state.state_values[:-1]
+        next_values, _, _ = model(
+            new_episode_state.next_obses, new_episode_state.next_net_states
         )
-        .detach()
-        .cpu()
-        .numpy()
-    )
+        new_episode_state.logits = logits
+        new_episode_state.state_values = values
+        new_episode_state.next_state_values = next_values
 
-    R = np.frompyfunc(lambda x, y: args.gamma * x + y, 2, 1).accumulate(
-        np.flip(episode_state.rewards.cpu().numpy(), axis=0)
-    )
-    GAE = np.frompyfunc(
-        lambda x, y: args.gamma * args.llambda * x + y, 2, 1
-    ).accumulate(np.flip(delta_ts, axis=0))
+    # delta_ts = (
+    #     (
+    #         new_episode_state.rewards
+    #         + args.gamma * new_episode_state.next_state_values
+    #         - new_episode_state.state_values
+    #     )
+    #     .detach()
+    #     .cpu()
+    #     .numpy()
+    # )
 
-    # for i in reversed(range(new_episode_state.episode_len)):
-    #     ret = args.gamma * ret + new_episode_state.rewards[i]
-    #     gae = gae * args.gamma * args.llambda + delta_ts[i]
+    # R = (
+    #     np.frompyfunc(lambda x, y: args.gamma * x + y, 2, 1)
+    #     .accumulate(np.flip(episode_state.rewards.cpu().numpy(), axis=0))
+    #     .tolist()
+    # )
+    # GAE = (
+    #     np.frompyfunc(lambda x, y: args.gamma * args.llambda * x + y, 2, 1)
+    #     .accumulate(np.flip(delta_ts, axis=0))
+    #     .tolist()
+    # )
+    next_state_values = new_episode_state.next_state_values.detach().cpu().numpy()
+    state_values = new_episode_state.state_values.detach().cpu().numpy()
+    rewards = new_episode_state.rewards.cpu().numpy()
+    ret = next_state_values[-1]
+    gae = 0.0
+    for i in reversed(range(new_episode_state.episode_len)):
+        ret = args.gamma * ret + rewards[i]
+        delta_t = rewards[i] + args.gamma * next_state_values[i] - state_values[i]
+        gae = gae * args.gamma * args.llambda + delta_t
 
-    #     GAE[i] = gae
-    #     R[i] = ret
+        GAE[i] = gae
+        R[i] = ret
 
-    R = torch.from_numpy(R).float().to(args.device)
-    GAE = torch.from_numpy(GAE).float().to(args.device)
-    ADV = R - values[:-1]
+    R = torch.FloatTensor(R).to(args.device)
+    GAE = torch.FloatTensor(GAE).to(args.device)
+    ADV = R - new_episode_state.state_values
 
     new_episode_state.rets = R
     new_episode_state.gae = GAE
     new_episode_state.adv = ADV
 
-    return episode_state
+    return new_episode_state
 
 
 class AsyncAgent(AgentRunner):
@@ -113,22 +125,26 @@ class AsyncAgent(AgentRunner):
             torch.from_numpy(np.stack(new_episode_state.obses))
             .float()
             .squeeze(1)
-            .to(self.model.device)
+            .to(self.device)
         )
-        new_episode_state.obses = obses
+        new_episode_state.obses = obses[:-1]
+        new_episode_state.next_obses = obses[1:]
         net_states = tuple(
             map(lambda x: torch.stack(x).squeeze(1), zip(*new_episode_state.net_states))
         )
-        new_episode_state.net_states = net_states
+        new_episode_state.net_states = tuple([e[:-1] for e in net_states])
+        new_episode_state.next_net_states = tuple([e[1:] for e in net_states])
 
         values = torch.stack(new_episode_state.state_values)
         assert len(values.shape) == 1
-        new_episode_state.state_values = values
+        new_episode_state.state_values = values[:-1]
+        new_episode_state.next_state_values = values[1:]
+        new_episode_state.entropies = torch.stack(episode_state.entropies)
         new_episode_state.log_probs = torch.stack(new_episode_state.log_probs)
         new_episode_state.rewards = (
             torch.from_numpy(np.stack(new_episode_state.rewards))
             .float()
-            .to(self.model.device)
+            .to(self.device)
         )
 
         return new_episode_state
@@ -142,8 +158,8 @@ class AsyncAgent(AgentRunner):
         Advs = episode_state.adv
         GAE = episode_state.gae
 
-        log_probs = torch.stack(episode_state.log_probs)
-        entropies = torch.stack(episode_state.entropies)
+        log_probs = episode_state.log_probs
+        entropies = episode_state.entropies
         values = episode_state.state_values
 
         assert values.shape == R.shape, (

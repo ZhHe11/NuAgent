@@ -44,7 +44,12 @@ class EpisodeState(dict):
         self.__dict__[__name] = __value
 
     def __getattr__(self, __key: str):
-        return self.__dict__[__key]
+        try:
+            return self.__dict__[__key]
+        except KeyError:
+            classname = type(self).__name__
+            msg = f"{classname!r} object has no attribute {__key!r}"
+            raise AttributeError(msg)
 
     def __setitem__(self, __name: str, __value: Any) -> None:
         self.__dict__[__name] = __value

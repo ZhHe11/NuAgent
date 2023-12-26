@@ -18,6 +18,7 @@ class AsyncAgent(BaseRunner):
     def compute_loss(
         self, episode_state: EpisodeState
     ) -> Tuple[torch.Tensor, Dict[str, Any]]:
+        episode_state = self.preprocess_episode(episode_state)
         episode_state = compute_gae_and_ret(self.args, self.model, episode_state)
         old_log_prob = episode_state.log_probs.detach()
 
@@ -79,22 +80,20 @@ class AsyncAgent(BaseRunner):
     ):
         writer.add_scalar(
             "training/entropy" + str(self.rank),
-            loss_detail["entropy_loss"].item(),
+            loss_detail["entropy_loss"],
             epoch,
         )
         writer.add_scalar(
             "training/value_loss" + str(self.rank),
-            loss_detail["value_loss"].item(),
+            loss_detail["value_loss"],
             epoch,
         )
         writer.add_scalar(
-            "training/pg_loss" + str(self.rank), loss_detail["pg_loss"].item(), epoch
+            "training/pg_loss" + str(self.rank), loss_detail["pg_loss"], epoch
         )
-        writer.add_scalar(
-            "training/adv" + str(self.rank), loss_detail["adv"].item(), epoch
-        )
+        writer.add_scalar("training/adv" + str(self.rank), loss_detail["adv"], epoch)
         writer.add_scalar(
             "training/total_loss" + str(self.rank),
-            loss_detail["total_loss"].item(),
+            loss_detail["total_loss"],
             epoch,
         )
