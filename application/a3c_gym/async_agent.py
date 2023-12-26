@@ -13,6 +13,59 @@ from uniagent.trainers.parameter_server import ParameterServer
 from uniagent.core.agent_runner import AgentRunner, EpisodeState
 
 
+def compute_gae_and_ret(
+    args: Namespace,
+    model: nn.Module,
+    episode_state: EpisodeState,
+    recompute_value: bool = False,
+) -> EpisodeState:
+    new_episode_state = EpisodeState(episode_state.__dict__)
+    R = [0.0] * episode_state.episode_len
+    GAE = [0.0] * episode_state.episode_len
+    gae = 0.0
+
+    if recompute_value:
+        obs = (
+            torch.from_numpy(np.stack(episode_state.obses))
+            .float()
+            .squeeze(1)
+            .to(model.device)
+        )
+        net_states = tuple(
+            map(lambda x: torch.stack(x).squeeze(1), zip(*episode_state.net_states))
+        )
+        values, logits, net_states = model(obs, net_states)
+        new_episode_state["logits"] = logits
+        new_episode_state["net_states"] = net_states
+    else:
+        ret = episode_state.state_values[-1].item()
+        values = torch.stack(episode_state.state_values)
+
+    for i in reversed(range(new_episode_state.episode_len)):
+        ret = args.gamma * ret + new_episode_state.rewards[i]
+        delta_t = (
+            new_episode_state.rewards[i]
+            + args.gamma * new_episode_state.state_values[i + 1].cpu().item()
+            - new_episode_state.state_values[i].cpu().item()
+        )
+        gae = gae * args.gamma * args.llambda + delta_t
+
+        GAE[i] = gae
+        R[i] = ret
+
+    R = torch.from_numpy(np.asarray(R)).float().to(args.device)
+    GAE = torch.from_numpy(np.asarray(GAE)).float().to(args.device)
+    ADV = R - values[:-1]
+
+    episode_state.rets = R
+    episode_state.gae = GAE
+    episode_state.adv = ADV
+    episode_state.log_probs = torch.stack(episode_state.log_probs)
+    new_episode_state.state_values = values[:-1]
+
+    return episode_state
+
+
 class AsyncAgent(AgentRunner):
     def __init__(
         self,
@@ -57,35 +110,19 @@ class AsyncAgent(AgentRunner):
     def compute_loss(
         self, episode_state: EpisodeState
     ) -> Tuple[torch.Tensor, Dict[str, Any]]:
-        gae = 0.0
-        ret = episode_state.values[-1].item()
-        R = [0.0] * episode_state.episode_len
-        GAE = [0.0] * episode_state.episode_len
+        episode_state = compute_gae_and_ret(self.args, self.model, episode_state)
+        R = episode_state.rets
+        Advs = episode_state.adv
+        GAE = episode_state.gae
 
-        for i in reversed(range(episode_state.episode_len)):
-            ret = self.args.gamma * ret + episode_state.rewards[i]
-            delta_t = (
-                episode_state.rewards[i]
-                + self.args.gamma * episode_state.values[i + 1].cpu().item()
-                - episode_state.values[i].cpu().item()
-            )
-            gae = gae * self.args.gamma * self.args.llambda + delta_t
-
-            GAE[i] = gae
-            R[i] = ret
-
-        R = torch.from_numpy(np.asarray(R)).float().to(self.device)
-        GAE = torch.from_numpy(np.asarray(GAE)).float().to(self.device)
         log_probs = torch.stack(episode_state.log_probs)
         entropies = torch.stack(episode_state.entropies)
-        values = torch.stack(episode_state.values[:-1])
+        values = episode_state.state_values
 
         assert values.shape == R.shape, (
             values.shape,
             R.shape,
         )
-
-        Advs = R - values
 
         assert Advs.requires_grad
         value_loss = 0.5 * Advs.pow(2).mean()

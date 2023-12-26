@@ -1,4 +1,5 @@
 from typing import Any, Tuple, Dict
+from copy import deepcopy
 
 import torch
 import torch.nn as nn
@@ -21,10 +22,35 @@ from tensorboardX import SummaryWriter
 from torch.distributions import Categorical
 
 
-EpisodeState = namedtuple(
-    "EpisodeState",
-    "obses, dones, actions, net_states, rewards, values, log_probs, entropies, episode_len",
-)
+# EpisodeState = namedtuple(
+#     "EpisodeState",
+#     "obses, dones, actions, net_states, rewards, values, log_probs, entropies, episode_len",
+# )
+
+
+class EpisodeState(dict):
+    def __init__(self, episode_state: dict, copy: bool = False, **kwargs):
+        super().__init__()
+        if copy:
+            episode_state = deepcopy(episode_state)
+        if episode_state is not None:
+            assert isinstance(episode_state, dict)
+            for k, v in episode_state.items():
+                self.__dict__[k] = v
+        if len(kwargs):
+            self.__init__(kwargs, copy=copy)
+
+    def __setattr__(self, __name: str, __value: Any) -> None:
+        self.__dict__[__name] = __value
+
+    def __getattr__(self, __key: str):
+        return self.__dict__[__key]
+
+    def __setitem__(self, __name: str, __value: Any) -> None:
+        self.__dict__[__name] = __value
+
+    def __getitem__(self, __key: Any) -> Any:
+        return self.__dict__[__key]
 
 
 class AgentRunner:
@@ -110,15 +136,15 @@ class AgentRunner:
             values.append(value.squeeze())
 
         return EpisodeState(
-            obses,
-            dones,
-            actions,
-            net_states,
-            rewards,
-            values,
-            log_probs,
-            entropies,
-            len(rewards),
+            obses=obses,
+            dones=dones,
+            actions=actions,
+            net_states=net_states,
+            rewards=rewards,
+            state_values=values,
+            log_probs=log_probs,
+            entropies=entropies,
+            episode_len=len(rewards),
         )
 
     def update_and_fetch_model(self, model: nn.Module) -> nn.Module:
