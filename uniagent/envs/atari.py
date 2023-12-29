@@ -7,6 +7,7 @@ from collections import deque
 
 import cv2
 import gym
+from gym.core import Env
 import numpy as np
 
 from gym import spaces
@@ -24,16 +25,29 @@ def create_atari_env(
     use_normalized_env: bool = False,
     use_reward_clip: bool = True,
     frame_stack: bool = True,
+    scale_obs: bool = False,
+    episode_life: bool = True,
+    wrap_frame: bool = True,
+    channel_first: bool = True,
 ):
     env = gym.make(env_id)
-    env = WarpFrame(env)  # down sampling
+    if wrap_frame:
+        env = WarpFrame(env)  # down sampling
     if frame_stack:
         env = FrameStack(env, 4)
-    env = ChannelFirst(env)
-    # if use_reward_clip:
-    #     env = TransformReward(env, lambda r: max(min(r, 1.0), -1.0))
-    env = TimeLimit(env, max_episode_steps=max_episode_steps)
-    # env = AtariRescale42x42(env)
+    if channel_first:
+        env = ChannelFirst(env)
+    if use_reward_clip:
+        env = TransformReward(env, lambda r: max(min(r, 1.0), -1.0))
+    if max_episode_steps > 0:
+        env = TimeLimit(env, max_episode_steps=max_episode_steps)
+    if use_normalized_env:
+        env = NormalizedEnv(env)
+    if scale_obs:
+        env = ScaleObs(env)
+    if episode_life:
+        env = EpisodicLifeEnv(env)
+
     return env
 
 
@@ -78,13 +92,22 @@ class ChannelFirst(gym.ObservationWrapper):
     def __init__(self, env=None):
         super(ChannelFirst, self).__init__(env)
         self.observation_space = Box(
-            0.0,
-            1.0,
+            self.observation_space.low.transpose(2, 0, 1),
+            self.observation_space.high.transpose(2, 0, 1),
             [self.observation_space.shape[-1], *self.observation_space.shape[:-1]],
         )
 
     def observation(self, observation):
-        return np.moveaxis(observation / 255, -1, 0)
+        return np.moveaxis(observation, -1, 0)
+
+
+class ScaleObs(gym.ObservationWrapper):
+    def __init__(self, env: Env):
+        super().__init__(env)
+        self.observation_space = Box(0.0, 1.0, self.observation_space.shape)
+
+    def observation(self, observation):
+        return observation / 255.0
 
 
 class NormalizedEnv(gym.ObservationWrapper):

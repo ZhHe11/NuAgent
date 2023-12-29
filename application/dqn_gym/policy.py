@@ -4,6 +4,7 @@ from gym import spaces
 import copy
 import random
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -13,20 +14,38 @@ from uniagent.models.torch_net_utils import View
 
 
 class AtariPreprocessor(nn.Module):
-    def __init__(self, observation_space: spaces.Space, num_outputs: int) -> None:
+    def __init__(
+        self,
+        observation_space: spaces.Space,
+        num_outputs: int,
+        channel_first: bool = True,
+    ) -> None:
         super().__init__()
 
+        if channel_first:
+            c, h, w = observation_space.shape
+        else:
+            h, w, c = observation_space.shape
+
         self.embed = nn.Sequential(
-            nn.Conv2d(in_channels=4, out_channels=32, kernel_size=8, stride=4),
-            nn.ReLU(),
+            nn.Conv2d(in_channels=c, out_channels=32, kernel_size=8, stride=4),
+            nn.ReLU(inplace=True),
             nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Flatten(1, -1),
-            nn.Linear(3136, num_outputs),
-            nn.ReLU(),
         )
+
+        with torch.no_grad():
+            self.output_dim = int(
+                np.prod(self.embed(torch.zeros(1, c, h, w)).shape[1:])
+            )
+
+        self.embed = nn.Sequential(
+            self.embed, nn.Linear(self.output_dim, num_outputs), nn.ReLU(inplace=True)
+        )
+        self.output_dim = num_outputs
 
     def forward(
         self, obs: torch.Tensor, states: Tuple[torch.Tensor, torch.Tensor]

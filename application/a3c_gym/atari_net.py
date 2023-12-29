@@ -4,6 +4,7 @@ from gym import Space
 
 import torch
 import torch.nn as nn
+from torch.nn.modules import Module
 
 from uniagent.models.a2c import ActorCritic
 from application.dqn_gym.policy import AtariPreprocessor
@@ -35,14 +36,25 @@ class AtariAC(ActorCritic):
         for p in self.preprocessor_critic.parameters():
             p.requires_grad = False
         del self.preprocessor_critic
+        self.preprocessor = self.preprocessor_actor
 
     def create_preprocessor(self, num_outputs: int) -> nn.Module:
         return AtariPreprocessor(self.observation_space, num_outputs)
 
+    def create_actor(self, num_inputs: int) -> Module:
+        return nn.Linear(num_inputs, self.action_space.n)
+
+    def create_critic(self, num_inputs: int) -> Module:
+        return nn.Linear(num_inputs, 1)
+
     def forward(self, obs: Any, state: Tuple[torch.Tensor, torch.Tensor]):
-        x, state = self.preprocessor_actor(obs, state)
+        x, state = self.preprocessor(obs, state)
         # x_critic, _ = self.preprocessor_critic(obs, state)
         return self.critic_linear(x), self.actor_linear(x), state
+
+    def compute_value(self, obs: Any, state: Tuple[torch.Tensor, torch.Tensor]):
+        x, state = self.preprocessor(obs, state)
+        return self.critic_linear(x), state
 
 
 class AtariLSTMAC(ActorCritic):

@@ -48,19 +48,19 @@ if __name__ == "__main__":
     current_time = datetime.now().strftime("%b%d_%H-%M-%S")
     log_dir = os.path.join("runs/test", current_time + "_" + socket.gethostname())
     ps_name = "parameter_server"
-    args.num_processes = args.num_processes + 2
+    num_processes = args.num_workers + 2
 
-    p = mp.Process(target=run_parameter_server, args=(0, args.num_processes, ps_name))
+    p = mp.Process(target=run_parameter_server, args=(0, num_processes, ps_name))
     p.start()
     processes.append(p)
 
-    for rank in range(1, args.num_processes):
+    for rank in range(1, num_processes):
         p = mp.Process(
             target=run_worker,
             args=(
                 args,
                 rank,
-                args.num_processes,
+                num_processes,
                 ps_name,
                 get_actor_critic_cls(args),
                 env.observation_space,

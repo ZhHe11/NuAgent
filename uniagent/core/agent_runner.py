@@ -22,12 +22,6 @@ from tensorboardX import SummaryWriter
 from torch.distributions import Categorical
 
 
-# EpisodeState = namedtuple(
-#     "EpisodeState",
-#     "obses, dones, actions, net_states, rewards, values, log_probs, entropies, episode_len",
-# )
-
-
 class EpisodeState(dict):
     def __init__(self, episode_state: dict = None, copy: bool = False, **kwargs):
         super().__init__()
@@ -57,6 +51,17 @@ class EpisodeState(dict):
     def __getitem__(self, __key: Any) -> Any:
         return self.__dict__[__key]
 
+    def split(self, batch_size):
+        episode_len = self.__dict__["episode_len"]
+        for i in range(0, episode_len, batch_size):
+            data = {
+                k: v[i : i + batch_size]
+                for k, v in self.__dict__.items()
+                if k != "episode_len"
+            }
+            data["episode_len"] = data["obses"].shape[0]
+            yield EpisodeState(data)
+
 
 class AgentRunner:
     def __init__(
@@ -73,6 +78,7 @@ class AgentRunner:
         self.env = make_env()
         self.log_dir = log_dir
 
+    @torch.no_grad()
     def run_episode(
         self,
         obs: np.ndarray,

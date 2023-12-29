@@ -48,8 +48,6 @@ class ActorCritic(torch.nn.Module):
         # self.lstm.bias_ih.data.fill_(0)
         # self.lstm.bias_hh.data.fill_(0)
 
-        self.train()
-
     def create_preprocessor(self, num_outputs: int) -> nn.Module:
         return SimplePreprocessor(self.observation_space.shape[0], num_outputs)
 
@@ -79,3 +77,7 @@ class ActorCritic(torch.nn.Module):
 
     def reset_states_grad(self, net_state: Tuple[torch.Tensor, torch.Tensor]):
         return tuple(map(lambda x: x.detach(), net_state))
+
+    def compute_value(self, obs: Any, state: Tuple[torch.Tensor, torch.Tensor]):
+        x, state = self.preprocessor_critic(obs, state)
+        return self.critic_linear(x), state

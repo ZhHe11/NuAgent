@@ -10,3 +10,4 @@ readerwriterlock
 opencv-python
 tensorboardX
 shutup
+torchvision

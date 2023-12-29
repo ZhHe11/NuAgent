@@ -7,12 +7,14 @@ import torch
 import torch.nn as nn
 import torch.distributed.rpc as rpc
 
+from torch.distributions import Categorical
 from tensorboardX import SummaryWriter
 
 from uniagent.trainers.parameter_server import ParameterServer
 from uniagent.core.agent_runner import AgentRunner, EpisodeState
 
 
+@torch.no_grad()
 def compute_gae_and_ret(
     args: Namespace,
     model: nn.Module,
@@ -25,37 +27,15 @@ def compute_gae_and_ret(
     # gae = 0.0
 
     if recompute_value:
-        values, logits, _ = model(new_episode_state.obses, new_episode_state.net_states)
+        values, _, _ = model(new_episode_state.obses, new_episode_state.net_states)
         next_values, _, _ = model(
             new_episode_state.next_obses, new_episode_state.next_net_states
         )
-        new_episode_state.logits = logits
         new_episode_state.state_values = values
         new_episode_state.next_state_values = next_values
 
-    # delta_ts = (
-    #     (
-    #         new_episode_state.rewards
-    #         + args.gamma * new_episode_state.next_state_values
-    #         - new_episode_state.state_values
-    #     )
-    #     .detach()
-    #     .cpu()
-    #     .numpy()
-    # )
-
-    # R = (
-    #     np.frompyfunc(lambda x, y: args.gamma * x + y, 2, 1)
-    #     .accumulate(np.flip(episode_state.rewards.cpu().numpy(), axis=0))
-    #     .tolist()
-    # )
-    # GAE = (
-    #     np.frompyfunc(lambda x, y: args.gamma * args.llambda * x + y, 2, 1)
-    #     .accumulate(np.flip(delta_ts, axis=0))
-    #     .tolist()
-    # )
-    next_state_values = new_episode_state.next_state_values.detach().cpu().numpy()
-    state_values = new_episode_state.state_values.detach().cpu().numpy()
+    next_state_values = new_episode_state.next_state_values.cpu().numpy()
+    state_values = new_episode_state.state_values.cpu().numpy()
     rewards = new_episode_state.rewards.cpu().numpy()
     ret = next_state_values[-1]
     gae = 0.0
@@ -69,11 +49,9 @@ def compute_gae_and_ret(
 
     R = torch.FloatTensor(R).to(args.device)
     GAE = torch.FloatTensor(GAE).to(args.device)
-    ADV = R - new_episode_state.state_values
 
     new_episode_state.rets = R
     new_episode_state.gae = GAE
-    new_episode_state.adv = ADV
 
     return new_episode_state
 
@@ -140,10 +118,15 @@ class AsyncAgent(AgentRunner):
         new_episode_state.state_values = values[:-1]
         new_episode_state.next_state_values = values[1:]
         new_episode_state.entropies = torch.stack(episode_state.entropies)
-        new_episode_state.log_probs = torch.stack(new_episode_state.log_probs)
+        new_episode_state.old_log_probs = torch.stack(new_episode_state.log_probs)
         new_episode_state.rewards = (
             torch.from_numpy(np.stack(new_episode_state.rewards))
             .float()
+            .to(self.device)
+        )
+        new_episode_state.actions = (
+            torch.from_numpy(np.concatenate(episode_state.actions))
+            .long()
             .to(self.device)
         )
 
@@ -155,28 +138,28 @@ class AsyncAgent(AgentRunner):
         episode_state = self.preprocess_episode(episode_state)
         episode_state = compute_gae_and_ret(self.args, self.model, episode_state)
         R = episode_state.rets
-        Advs = episode_state.adv
-        GAE = episode_state.gae
+        Adv = episode_state.gae
 
-        log_probs = episode_state.log_probs
-        entropies = episode_state.entropies
-        values = episode_state.state_values
+        values, logits, _ = self.model(episode_state.obses, episode_state.net_states)
+        values = values.squeeze()
+        dist = Categorical(logits=logits)
+        log_probs = dist.log_prob(episode_state.actions).squeeze()
+        entropies = dist.entropy().squeeze()
 
         assert values.shape == R.shape, (
             values.shape,
             R.shape,
         )
 
-        assert Advs.requires_grad
-        value_loss = 0.5 * Advs.pow(2).mean()
+        value_loss = 0.5 * (R - values).pow(2).mean()
 
-        assert log_probs.shape == GAE.shape, (
+        assert log_probs.shape == Adv.shape, (
             log_probs.shape,
-            GAE.shape,
+            Adv.shape,
         )
         assert log_probs.requires_grad
 
-        pg_loss = -(log_probs * GAE.detach()).mean()
+        pg_loss = -(log_probs * Adv.detach()).mean()
         entropy_loss = entropies.mean()
 
         total_loss = (
@@ -189,8 +172,7 @@ class AsyncAgent(AgentRunner):
             "value_loss": value_loss,
             "pg_loss": pg_loss,
             "total_loss": total_loss,
-            "Advs": Advs,
-            "GAE": GAE,
+            "Advs": Adv,
         }
         return total_loss, loss_detail
 
@@ -223,10 +205,5 @@ class AsyncAgent(AgentRunner):
         writer.add_scalar(
             "training/adv" + str(self.rank),
             loss_detail["Advs"].detach().mean().item(),
-            epoch,
-        )
-        writer.add_scalar(
-            "training/gae" + str(self.rank),
-            loss_detail["GAE"].detach().mean().item(),
             epoch,
         )

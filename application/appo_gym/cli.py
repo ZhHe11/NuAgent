@@ -6,13 +6,13 @@ def command_args() -> Namespace:
     parser.add_argument(
         "--lr",
         type=float,
-        default=0.0003,  # try LogUniform(1e-4.5, 1e-3.5)
+        default=2.5e-4,  # try LogUniform(1e-4.5, 1e-3.5)
         help="learning rate",
     )
     parser.add_argument(
         "--gamma",
         type=float,
-        default=0.95,
+        default=0.99,
         help="worker discount factor for rewards",
     )
     parser.add_argument(
@@ -27,20 +27,29 @@ def command_args() -> Namespace:
     parser.add_argument(
         "--value-loss-coef",
         type=float,
-        default=1,
+        default=0.25,
         help="worker value loss coefficient",
     )
+    parser.add_argument("--lr-decay", type=bool, default=True)
     parser.add_argument(
-        "--eps-clip", type=float, default=0.2, help="epsilon for clipping in PPO"
+        "--eps-clip", type=float, default=0.1, help="epsilon for clipping in PPO"
     )
     parser.add_argument(
         "--dual-clip", type=float, default=0, help="whether use dual clip in PPO"
     )
     parser.add_argument(
-        "--repeat", type=int, default=1, help="replicas for training over a batch."
+        "--value-clip",
+        action="store_true",
+    )
+    parser.add_argument("--batch-size", type=int, default=256)
+    parser.add_argument(
+        "--repeat", type=int, default=4, help="replicas for training over a batch."
     )
     parser.add_argument(
         "--norm-adv", action="store_true", help="whether normalize advantage"
+    )
+    parser.add_argument(
+        "--reward-norm", action="store_true", help="whether enable reward normalization"
     )
 
     parser.add_argument(
@@ -49,11 +58,11 @@ def command_args() -> Namespace:
         help="whether recompute advantage for each replica",
     )
     parser.add_argument(
-        "--max-grad-norm", type=float, default=50, help="value loss coefficient"
+        "--max-grad-norm", type=float, default=0.5, help="value loss coefficient"
     )
     parser.add_argument("--seed", type=int, default=123, help="random seed")
     parser.add_argument(
-        "--num-processes",
+        "--num-workers",
         type=int,
         default=4,
         help="how many training processes to use",
@@ -61,8 +70,8 @@ def command_args() -> Namespace:
     parser.add_argument(
         "--num-steps",
         type=int,
-        default=400,
-        help="number of forward steps in A3C (every `num_steps`, do a backward step)",
+        default=1000,
+        help="number of forward steps to collect data",
     )
     parser.add_argument(
         "--max-episode-length",
