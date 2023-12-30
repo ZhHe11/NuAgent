@@ -134,7 +134,6 @@ class AsyncAgent(BaseRunner):
                     + self.args.value_loss_coef * value_loss
                     - self.args.entropy_coef * entropy_loss
                 )
-                print("--------------", loss)
                 optimizer.zero_grad()
                 loss.backward()
                 self.save_grad()
