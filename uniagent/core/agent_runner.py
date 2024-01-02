@@ -82,13 +82,15 @@ class AgentRunner:
     def run_episode(
         self,
         obs: np.ndarray,
-        done: bool,
+        last_done: bool,
         net_state: Any,
         global_counter: mp.Value = None,
         lock: threading.Lock = None,
     ) -> EpisodeState:
         rewards = []
-        values = []
+        # note the length of values is one more than the length of the episode
+        # as we want to compute values for the next_state
+        values_with_next = []
         log_probs = []
         entropies = []
         obses = []
@@ -97,7 +99,7 @@ class AgentRunner:
         net_states = []
 
         # make sure it is not None
-        if done:
+        if last_done:
             net_state = self.model.init_state(1, self.device)
         else:
             net_state = self.model.reset_states_grad(net_state)
@@ -122,7 +124,7 @@ class AgentRunner:
             obs, reward, done, truncated, info = self.env.step(action.cpu().numpy()[0])
             done = done or truncated
 
-            values.append(value.squeeze())
+            values_with_next.append(value.squeeze())
             actions.append(action.cpu().numpy())
             log_probs.append(log_prob.squeeze())
             entropies.append(entropy.squeeze())
@@ -140,11 +142,11 @@ class AgentRunner:
         net_states.append([e.squeeze(0) for e in net_state])
 
         if dones[-1]:
-            values.append(torch.zeros(1).to(self.device).squeeze())
+            values_with_next.append(torch.zeros(1).to(self.device).squeeze())
         else:
             obs = torch.from_numpy(obs).float().to(self.device)
             value, _, _ = self.model(obs.unsqueeze(0), net_state)
-            values.append(value.squeeze())
+            values_with_next.append(value.squeeze())
 
         return EpisodeState(
             obses=obses,
@@ -152,7 +154,7 @@ class AgentRunner:
             actions=actions,
             net_states=net_states,
             rewards=rewards,
-            state_values=values,
+            state_values=values_with_next,
             log_probs=log_probs,
             entropies=entropies,
             episode_len=len(rewards),
@@ -173,8 +175,8 @@ class AgentRunner:
             self.model.eval()
             # always reset
             obs, _ = self.env.reset()
-            # test should not update counter
-            episode_state = self.run_episode(obs, done=True, net_state=None)
+            # test should not update counter, and always reset last_done to True
+            episode_state = self.run_episode(obs, last_done=True, net_state=None)
             reward_sum = sum(episode_state.rewards)
             print(
                 "Time {}, eval epoch {}, training steps {}, FPS {:.0f}, episode reward {}, episode length {}".format(

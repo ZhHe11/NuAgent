@@ -17,7 +17,7 @@ from tensorboardX import SummaryWriter
 
 from uniagent.core.agent_runner import EpisodeState
 from uniagent.utils.statistics import RunningMeanStd
-from uniagent.trainers.parameter_server import ParameterServer
+from uniagent.trainers.parameter_server import ParameterServer, setup_optimizer
 
 from application.a3c_gym.async_agent import (
     AsyncAgent as BaseRunner,
@@ -68,7 +68,7 @@ class AsyncAgent(BaseRunner):
     def compute_loss(
         self, episode_state: EpisodeState
     ) -> Tuple[torch.Tensor, Dict[str, Any]]:
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.args.lr)
+        optimizer = setup_optimizer(self.args, self.model)
         episode_state = self.preprocess_episode(episode_state)
         episode_state = compute_gae_and_ret(self.args, self.model, episode_state)
 
@@ -85,6 +85,8 @@ class AsyncAgent(BaseRunner):
                 )
 
             for minibatch in episode_state.split(self.args.batch_size):
+                if minibatch.episode_len == 0:
+                    continue
                 Adv = minibatch.gae
                 old_log_prob = minibatch.old_log_probs
                 R = minibatch.rets
@@ -97,7 +99,7 @@ class AsyncAgent(BaseRunner):
                     minibatch.obses,
                     minibatch.net_states,
                 )
-                values = values.squeeze()
+                values = values.squeeze(-1)
                 dist = Categorical(logits=logits)
                 log_prob = dist.log_prob(minibatch.actions)
                 entropy_loss = dist.entropy().mean()
@@ -143,7 +145,7 @@ class AsyncAgent(BaseRunner):
                     value_loss = 0.5 * torch.max(vf1, vf2).mean()
                 else:
                     assert R.shape == values.shape, (R.shape, values.shape)
-                    value_loss = 0.5 * (R - values).pow(2).mean()
+                    value_loss = 0.5 * (R.detach() - values).pow(2).mean()
 
                 loss = (
                     clip_loss

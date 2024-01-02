@@ -24,7 +24,6 @@ def compute_gae_and_ret(
     new_episode_state = EpisodeState(episode_state.__dict__)
     R = [0.0] * episode_state.episode_len
     GAE = [0.0] * episode_state.episode_len
-    # gae = 0.0
 
     if recompute_value:
         values, _, _ = model(new_episode_state.obses, new_episode_state.net_states)
@@ -37,7 +36,8 @@ def compute_gae_and_ret(
     next_state_values = new_episode_state.next_state_values.cpu().numpy()
     state_values = new_episode_state.state_values.cpu().numpy()
     rewards = new_episode_state.rewards.cpu().numpy()
-    ret = next_state_values[-1]
+    ret = 0.0 if new_episode_state.dones[-1] else next_state_values[-1]
+
     gae = 0.0
     for i in reversed(range(new_episode_state.episode_len)):
         ret = args.gamma * ret + rewards[i]

@@ -12,6 +12,18 @@ from torch import optim
 num_classes, batch_update_size = 30, 5
 
 
+def setup_optimizer(args, model) -> torch.optim.Optimizer:
+    if args.optimizer == "sgd":
+        optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
+    elif args.optimizer == "rmsprop":
+        optimizer = optim.RMSprop(model.parameters(), lr=args.lr)
+    elif args.optimizer == "adam":
+        optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    else:
+        raise NotImplementedError
+    return optimizer
+
+
 class ParameterServer:
     def __init__(
         self,
@@ -31,14 +43,7 @@ class ParameterServer:
         self.curr_update_size = 0
         self.batch_mode = batch_mode
 
-        if args.optimizer == "sgd":
-            self.optimizer = optim.SGD(
-                self.model.parameters(), lr=args.lr, momentum=0.9
-            )
-        elif args.optimizer == "rmsprop":
-            self.optimizer = optim.RMSprop(self.model.parameters(), lr=args.lr)
-        elif args.optimizer == "adam":
-            self.optimizer = optim.Adam(self.model.parameters(), lr=args.lr)
+        self.optimizer = setup_optimizer(args, self.model)
 
         self.reset_grad()
 

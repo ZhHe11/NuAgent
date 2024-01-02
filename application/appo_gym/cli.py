@@ -9,6 +9,7 @@ def command_args() -> Namespace:
         default=2.5e-4,  # try LogUniform(1e-4.5, 1e-3.5)
         help="learning rate",
     )
+    parser.add_argument("--optimizer", default="sgd", type=str, help="optimizer")
     parser.add_argument(
         "--gamma",
         type=float,
@@ -38,8 +39,7 @@ def command_args() -> Namespace:
         "--dual-clip", type=float, default=0, help="whether use dual clip in PPO"
     )
     parser.add_argument(
-        "--value-clip",
-        action="store_true",
+        "--value-clip", action="store_true", help="enable value clip or not"
     )
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument(
@@ -87,7 +87,6 @@ def command_args() -> Namespace:
     parser.add_argument("--use-cuda", action="store_true")
     parser.add_argument("--master-addr", default="localhost")
     parser.add_argument("--master-port", default="29500")
-    parser.add_argument("--optimizer", default="sgd")
     parser.add_argument("--task-type", default="gym_control")
     parser.add_argument("--use-lstm", action="store_true")
     parser.add_argument("--device-idx", default=0, type=int)
