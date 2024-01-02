@@ -94,15 +94,21 @@ class AsyncAgent(BaseRunner):
                     Adv = (Adv - mean) / (std + 1e-8)
 
                 values, logits, _ = self.model(
-                    torch.zeros_like(minibatch.obses),
-                    [torch.zeros_like(e) for e in minibatch.net_states],
+                    minibatch.obses,
+                    minibatch.net_states,
                 )
                 values = values.squeeze()
                 dist = Categorical(logits=logits)
                 log_prob = dist.log_prob(minibatch.actions)
                 entropy_loss = dist.entropy().mean()
 
+                assert log_prob.shape == old_log_prob.shape, (
+                    log_prob.shape,
+                    old_log_prob.shape,
+                )
                 ratio = torch.exp(log_prob - old_log_prob.detach()).float()
+
+                assert ratio.shape == Adv.shape, (ratio.shape, Adv.shape)
                 surr1 = ratio * Adv.detach()
                 surr2 = (
                     torch.clamp(
@@ -110,6 +116,7 @@ class AsyncAgent(BaseRunner):
                     )
                     * Adv.detach()
                 )
+                assert len(surr1.shape) == 1
 
                 if self.args.dual_clip:
                     clip1 = torch.min(surr1, surr2)
@@ -119,14 +126,23 @@ class AsyncAgent(BaseRunner):
                     clip_loss = -torch.min(surr1, surr2).mean()
 
                 if self.args.value_clip:
-                    values = values.squeeze(-1)
+                    assert minibatch.state_values.shape == v_clip.shape, (
+                        minibatch.state_values.shape,
+                        v_clip.shape,
+                    )
                     v_clip = minibatch.state_values + (
                         values - minibatch.state_values
                     ).clamp(-self.args.eps_clip, self.args.eps_clip)
+                    assert minibatch.rets.shape == values.shape == v_clip.shape, (
+                        minibatch.rets.shape,
+                        values.shape,
+                        v_clip.shape,
+                    )
                     vf1 = (minibatch.rets - values).pow(2)
                     vf2 = (minibatch.rets - v_clip).pow(2)
                     value_loss = 0.5 * torch.max(vf1, vf2).mean()
                 else:
+                    assert R.shape == values.shape, (R.shape, values.shape)
                     value_loss = 0.5 * (R - values).pow(2).mean()
 
                 loss = (
