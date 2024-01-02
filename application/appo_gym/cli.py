@@ -11,6 +11,12 @@ def command_args() -> Namespace:
     )
     parser.add_argument("--optimizer", default="adam", type=str, help="optimizer")
     parser.add_argument(
+        "--model-sync-method",
+        default="grad",
+        type=str,
+        help="sync method for model parameters",
+    )
+    parser.add_argument(
         "--gamma",
         type=float,
         default=0.99,

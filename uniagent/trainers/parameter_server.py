@@ -44,7 +44,7 @@ class ParameterServer:
         self.batch_mode = batch_mode
 
         self.optimizer = setup_optimizer(args, self.model)
-        self.paramters_buffer = []
+        self.parameter_buffer = []
 
         self.reset_grad()
 
@@ -55,9 +55,12 @@ class ParameterServer:
         for p in self.model.parameters():
             p.grad = torch.zeros_like(p)
 
+    def reset_parameter_buffer(self):
+        self.parameter_buffer = [torch.zeros_like(p) for p in self.parameter_buffer]
+
     @staticmethod
     @rpc.functions.async_execution
-    def update_and_fetch_model(ps_rref, worker_id, grads=None, model=None):
+    def update_and_fetch_model(ps_rref, worker_id, grads=None, paramters=None):
         # Using the RRef to retrieve the local PS instance
         self = ps_rref.local_value()
 
@@ -68,13 +71,13 @@ class ParameterServer:
                 for p, g in zip(self.model.parameters(), grads):
                     assert g is not None
                     p.grad += g
-            elif model is not None:
+            elif paramters is not None:
                 for i, (_, target_p) in enumerate(
-                    zip(self.model.parameters(), model.parameters())
+                    zip(self.model.parameters(), paramters)
                 ):
-                    if len(self.parameters_buffer) == i:
-                        self.parameters_buffer.append(torch.zeros_like(target_p))
-                    self.parameters_buffer[i] += target_p.data.clone()
+                    if len(self.parameter_buffer) == i:
+                        self.parameter_buffer.append(torch.zeros_like(target_p))
+                    self.parameter_buffer[i] += target_p.data.clone()
 
             # Save the current future_model and return it to make sure the
             # returned Future object holds the correct model even if another
@@ -90,11 +93,12 @@ class ParameterServer:
                     self.optimizer.step()
                     self.optimizer.zero_grad()
                     self.reset_grad()
-                elif model is not None:
+                elif paramters is not None:
                     for local_p, target_p in zip(
-                        self.model.parameters(), self.parameters_buffer
+                        self.model.parameters(), self.parameter_buffer
                     ):
                         local_p.data.copy_(target_p.data / self.batch_update_size)
+                    self.reset_parameter_buffer()
                 self.curr_update_size = 0
                 # by settiing the result on the Future object, all previous
                 # requests expecting this updated model will be notified and

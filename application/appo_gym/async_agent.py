@@ -52,14 +52,23 @@ class AsyncAgent(BaseRunner):
                 i += 1
 
     def update_and_fetch_model(self, model: Module) -> Module:
-        model: nn.Module = rpc.rpc_sync(
-            self.ps_rref.owner(),
-            ParameterServer.update_and_fetch_model,
-            args=(
+        if self.args.model_sync_method == "grad":
+            args = (
                 self.ps_rref,
                 self.worker_name,
                 [e.to("cpu") for e in self.grad_placeholder],
-            ),
+            )
+        else:
+            args = (
+                self.ps_rref,
+                self.worker_name,
+                None,
+                [p.to("cpu") for p in self.model.parameters()],
+            )
+        model: nn.Module = rpc.rpc_sync(
+            self.ps_rref.owner(),
+            ParameterServer.update_and_fetch_model,
+            args,
         ).to(self.device)
         model.train()
         self.grad_placeholder = []
