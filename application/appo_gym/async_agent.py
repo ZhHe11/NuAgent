@@ -58,7 +58,7 @@ class AsyncAgent(BaseRunner):
             args=(
                 self.ps_rref,
                 self.worker_name,
-                self.grad_placeholder,
+                [e.to("cpu") for e in self.grad_placeholder],
             ),
         ).to(self.device)
         model.train()

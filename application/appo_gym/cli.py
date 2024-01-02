@@ -9,7 +9,7 @@ def command_args() -> Namespace:
         default=2.5e-4,  # try LogUniform(1e-4.5, 1e-3.5)
         help="learning rate",
     )
-    parser.add_argument("--optimizer", default="sgd", type=str, help="optimizer")
+    parser.add_argument("--optimizer", default="adam", type=str, help="optimizer")
     parser.add_argument(
         "--gamma",
         type=float,

@@ -44,6 +44,7 @@ class ParameterServer:
         self.batch_mode = batch_mode
 
         self.optimizer = setup_optimizer(args, self.model)
+        self.paramters_buffer = []
 
         self.reset_grad()
 
@@ -56,16 +57,24 @@ class ParameterServer:
 
     @staticmethod
     @rpc.functions.async_execution
-    def update_and_fetch_model(ps_rref, worker_id, grads):
+    def update_and_fetch_model(ps_rref, worker_id, grads=None, model=None):
         # Using the RRef to retrieve the local PS instance
         self = ps_rref.local_value()
 
         with self.lock:
             self.curr_update_size += 1
             # accumulate gradients into .grad field
-            for p, g in zip(self.model.parameters(), grads):
-                assert g is not None
-                p.grad += g
+            if grads is not None:
+                for p, g in zip(self.model.parameters(), grads):
+                    assert g is not None
+                    p.grad += g
+            elif model is not None:
+                for i, (_, target_p) in enumerate(
+                    zip(self.model.parameters(), model.parameters())
+                ):
+                    if len(self.parameters_buffer) == i:
+                        self.parameters_buffer.append(torch.zeros_like(target_p))
+                    self.parameters_buffer[i] += target_p.data.clone()
 
             # Save the current future_model and return it to make sure the
             # returned Future object holds the correct model even if another
@@ -77,10 +86,16 @@ class ParameterServer:
                 if self.batch_mode == "avg":
                     for p in self.model.parameters():
                         p.grad /= self.batch_update_size
+                if grads is not None:
+                    self.optimizer.step()
+                    self.optimizer.zero_grad()
+                    self.reset_grad()
+                elif model is not None:
+                    for local_p, target_p in zip(
+                        self.model.parameters(), self.parameters_buffer
+                    ):
+                        local_p.data.copy_(target_p.data / self.batch_update_size)
                 self.curr_update_size = 0
-                self.optimizer.step()
-                self.optimizer.zero_grad()
-                self.reset_grad()
                 # by settiing the result on the Future object, all previous
                 # requests expecting this updated model will be notified and
                 # the their responses will be sent accordingly.
