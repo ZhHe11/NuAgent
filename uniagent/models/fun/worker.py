@@ -2,7 +2,8 @@ from typing import Tuple
 
 import torch
 
-from torch import nn
+from torch import DeviceObjType, nn
+from torch._C import DeviceObjType, device
 from torch.nn import functional as F
 
 from .utils import reset_grad2, View
@@ -106,6 +107,47 @@ class Worker(nn.Module):
         return value, probs, states_W
 
 
+from uniagent.models.mingpt import GPT, OuterQueryGPT
+
+
 class TransformerWorker(Worker):
-    def create_observation_embedding(self):
+    def __init__(
+        self,
+        backbone: str,
+        num_outputs: int,
+        d: int,
+        k: int,
+        device: DeviceObjType = torch.device("cpu"),
+    ):
+        self.backbone = backbone
+        super().__init__(num_outputs, d, k, device)
+        self.tokenizer = self.create_tokenizer()
+        self.action_decoder = self.create_action_decoder()
+        self.gpt = self.f_Wrnn
+
+    def create_tokenizer(self):
         raise NotImplementedError
+
+    def create_action_decoder(self):
+        raise NotImplementedError
+
+    def create_value_function(self):
+        raise NotImplementedError
+
+    def create_observation_embedding(self):
+        raise OuterQueryGPT(self.vocab_size, self.block_size, self.backbone)
+
+    def forward(
+        self,
+        z: torch.Tensor,
+        sum_g_W: torch.Tensor,
+        states_W: Tuple[torch.Tensor, torch.Tensor],
+        reset_value_grad: bool = True,
+        update_network_state: bool = True,
+    ):
+        w = self.phi(sum_g_W)
+        idxes = self.tokenizer(z)
+        # logits: [batch_size, seq_len, vocab_size]
+        logits, states_W = self.gpt(idxes, query=w, states=states_W)
+        values = self.value_function(states_W)
+        return values, logits, states_W

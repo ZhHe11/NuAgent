@@ -45,8 +45,6 @@ class GPT(nn.Module):
 
     def __init__(
         self,
-        observation_space: gym.Space,
-        action_space: gym.Space,
         vocab_size: int,
         block_size: int,
         backbone: str = "gpt2",
@@ -55,9 +53,6 @@ class GPT(nn.Module):
         attn_pdrop: float = 0.1,
     ):
         super().__init__()
-        self.observation_space = observation_space
-        self.action_space = action_space
-
         config = BACKBONE_CONFIGS[backbone].copy()
         config["vocab_size"] = vocab_size
         config["block_size"] = block_size
@@ -69,15 +64,7 @@ class GPT(nn.Module):
         self.vocab_size = vocab_size
         self.block_size = block_size
 
-        self.transformer = nn.ModuleDict(
-            dict(
-                wte=nn.Embedding(vocab_size, config.n_embd),
-                wpe=nn.Embedding(block_size, config.n_embd),
-                drop=nn.Dropout(embd_pdrop),
-                h=nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
-                ln_f=nn.LayerNorm(config.n_embd),
-            )
-        )
+        self.transformer = self.construct_transformer(config)
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
         # init all weights, and apply a special scaled init to the residual projections, per GPT-2 paper
@@ -91,6 +78,18 @@ class GPT(nn.Module):
         # report number of parameters (note we don't count the decoder parameters in lm_head)
         n_params = sum(p.numel() for p in self.transformer.parameters())
         print("number of parameters: %.2fM" % (n_params / 1e6,))
+
+    def construct_transformer(self, config: Namespace):
+        transformer = nn.ModuleDict(
+            dict(
+                wte=nn.Embedding(config.vocab_size, config.n_embd),
+                wpe=nn.Embedding(config.block_size, config.n_embd),
+                drop=nn.Dropout(config.embd_pdrop),
+                h=nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
+                ln_f=nn.LayerNorm(config.n_embd),
+            )
+        )
+        return transformer
 
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):

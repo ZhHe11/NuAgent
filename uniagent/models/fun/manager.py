@@ -3,7 +3,8 @@ from typing import List, Tuple
 import random
 import torch
 
-from torch import nn
+from torch import DeviceObjType, nn
+from torch._C import DeviceObjType, device
 from torch.nn import functional as F
 
 from uniagent.models.backbone.dilated_lstm import DilatedLSTM
@@ -151,6 +152,52 @@ class Manager(nn.Module):
         return tick, list(map(reset_grad2, hx)), list(map(reset_grad2, cx))
 
 
+from uniagent.models.mingpt import GPT
+
+
 class TransformerManager(Manager):
-    def create_goal_embedding(self):
+    def __init__(
+        self, backbone: str, d: int, c: int, device: DeviceObjType = torch.device("cpu")
+    ):
+        self.backbone = backbone
+        super().__init__(d, c, device)
+        self.gpt = self.f_Mrnn
+        self.tokenizer = self.create_tokenizer()
+        self.action_decoder = self.create_action_decoder()
+
+    def create_value_function(self):
         raise NotImplementedError
+
+    def create_tokenizer(self):
+        raise NotImplementedError
+
+    def create_action_decoder(self):
+        raise NotImplementedError
+
+    def create_goal_embedding(self):
+        raise GPT(self.vocab_size, self.block_size, self.backbone)
+
+    def forward(
+        self,
+        z,
+        states_M,
+        reset_value_grad: bool = False,
+        update_network_state: bool = True,
+    ):
+        s = self.f_Mspace(z)  # latent state representation [batch x d]
+        idxes = self.tokenizer(s)
+        # g_hat: [batch_size, seq_len, vocab_size]
+        g_hat, states_M = self.gpt(s, states_M)
+
+        if self.training and random.random() < 0.1:
+            # add noise to the g_hat for exploration
+            g_hat = g_hat + torch.autograd.Variable(
+                g_hat.data.new(g_hat.size()).normal_(0.0, 1.0), requires_grad=False
+            )
+
+        g = F.normalize(g_hat)  # goal [batch x d]
+        value = self.value_function(
+            torch.cat([g, s], dim=-1)
+        )  # if reset_value_grad else g_hat)
+
+        return value, g, s.detach(), states_M

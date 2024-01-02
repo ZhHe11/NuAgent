@@ -74,7 +74,7 @@ class Block(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.ln_1 = nn.LayerNorm(config.n_embd)
-        self.attn = CausalSelfAttention(config)
+        self.attn = self.create_attn(config)
         self.ln_2 = nn.LayerNorm(config.n_embd)
         self.mlp = nn.ModuleDict(
             dict(
@@ -86,6 +86,9 @@ class Block(nn.Module):
         )
         m = self.mlp
         self.mlpf = lambda x: m.dropout(m.c_proj(m.act(m.c_fc(x))))  # MLP forward
+
+    def create_attn(self, config):
+        return CausalSelfAttention(config)
 
     def forward(self, x):
         x = x + self.attn(self.ln_1(x))
