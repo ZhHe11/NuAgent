@@ -4,3 +4,6 @@
 [submodule "third_party/d4rl"]
 	path = third_party/d4rl
 	url = https://github.com/Farama-Foundation/D4RL
+[submodule "third_party/minigpt4"]
+	path = third_party/minigpt4
+	url = https://github.com/Vision-CAIR/MiniGPT-4.git
