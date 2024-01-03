@@ -43,29 +43,11 @@ BACKBONE_CONFIGS = {
 class GPT(nn.Module):
     """GPT Language Model"""
 
-    def __init__(
-        self,
-        vocab_size: int,
-        block_size: int,
-        backbone: str = "gpt2",
-        embd_pdrop: float = 0.1,
-        resid_pdrop: float = 0.1,
-        attn_pdrop: float = 0.1,
-    ):
+    def __init__(self, config: Namespace):
         super().__init__()
-        config = BACKBONE_CONFIGS[backbone].copy()
-        config["vocab_size"] = vocab_size
-        config["block_size"] = block_size
-        config["embd_pdrop"] = embd_pdrop
-        config["resid_pdrop"] = resid_pdrop
-        config["attn_pdrop"] = attn_pdrop
-        config = Namespace(**config)
-
-        self.vocab_size = vocab_size
-        self.block_size = block_size
 
         self.transformer = self.construct_transformer(config)
-        self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+        self.lm_head = self.construct_lm_head(config)
 
         # init all weights, and apply a special scaled init to the residual projections, per GPT-2 paper
         self.apply(self._init_weights)
@@ -79,12 +61,16 @@ class GPT(nn.Module):
         n_params = sum(p.numel() for p in self.transformer.parameters())
         print("number of parameters: %.2fM" % (n_params / 1e6,))
 
-    def construct_transformer(self, config: Namespace):
+    def construct_lm_head(self, config: Namespace) -> nn.Module:
+        lm_head = nn.Linear(config.n_embed, config.vocab_size, bias=False)
+        return lm_head
+
+    def construct_transformer(self, config: Namespace) -> nn.Module:
         transformer = nn.ModuleDict(
             dict(
-                wte=nn.Embedding(config.vocab_size, config.n_embd),
-                wpe=nn.Embedding(config.block_size, config.n_embd),
-                drop=nn.Dropout(config.embd_pdrop),
+                wte=nn.Embedding(config.vocab_size, config.n_embed),
+                wpe=nn.Embedding(config.block_size, config.n_embed),
+                drop=nn.Dropout(config.embed_pdrop),
                 h=nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
                 ln_f=nn.LayerNorm(config.n_embd),
             )

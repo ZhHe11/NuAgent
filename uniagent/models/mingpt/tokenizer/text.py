@@ -13,7 +13,7 @@
 
 """Implementation of Text tokenizer and its training code"""
 
-from typing import Optional
+from typing import Optional, Any
 from pathlib import Path
 from transformers import AutoTokenizer
 
@@ -22,7 +22,7 @@ def build_text_tokenizer(
     save_path: str,
     train_from_scratch: bool = False,
     pretrained_tokenizer_name: Optional[str] = None,
-    training_corpus: Optional = None,
+    training_corpus: Optional[Any] = None,
     vocab_size: int = 32000,
 ):
     """

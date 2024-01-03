@@ -1,5 +1,6 @@
 from typing import Tuple, List, Any, Dict
 from collections import namedtuple, deque
+from argparse import Namespace
 
 import torch
 import numpy as np
@@ -18,28 +19,20 @@ from .feudal_net import FeudalState, FeudalNet
 
 class GPTFeudal(FeudalNet):
     def __init__(
-        self,
-        observation_space: Space,
-        action_space: Space,
-        backbone: str = "gpt2",
-        d: int = 256,
-        k: int = 16,
-        c: int = 10,
-        channel_first: bool = True,
-        device: DeviceObjType = ...,
+        self, observation_space: Space, action_space: Space, args: Namespace
     ) -> None:
-        self.backbone = backbone
-        super().__init__(
-            observation_space, action_space, d, k, c, channel_first, device
-        )
+        super().__init__(observation_space, action_space, args)
 
     def create_worker(self) -> Worker:
-        return TransformerWorker(
-            self.backbone, self.num_outputs, self.d, self.k, self.backbone, self.device
-        )
+        return TransformerWorker(self.observation_space, self.action_space, self.config)
 
     def create_manager(self) -> Manager:
-        return TransformerManager(self.backbone, self.d, self.k, self.c, self.device)
+        return TransformerManager(
+            self.observation_space, self.action_space, self.config
+        )
+
+    def init_memory(self):
+        raise NotImplementedError
 
     def init_weights(self):
         pass

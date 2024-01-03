@@ -14,8 +14,11 @@
 """Implementation of vision encoder with a ResNet-v2 block as described in [Gato][][Gato][https://www.deepmind.com/publications/a-generalist-agent]"""
 
 
+from argparse import Namespace
+
 import collections
 import math
+import argparse
 
 import torch
 import torch.nn as nn
@@ -97,7 +100,7 @@ class VisionEmbedding(nn.Module):
 
     """
 
-    def __init__(self, config):
+    def __init__(self, config: Namespace):
         super().__init__()
         data_type = torch.half if config.fp16 else torch.float32
         self.data_type = data_type
@@ -118,6 +121,11 @@ class VisionEmbedding(nn.Module):
         )
         self.dropout = nn.Dropout(config.vision_hidden_dropout_prob)
         self.config = config
+
+    def print_model_size(self) -> int:
+        num = sum(p.numel() for p in self.parameters())
+        num /= 1e9
+        print("Model size (B):", num)
 
     def forward(self, pixel_values):
         batch_size, num_channels, height, width = pixel_values.shape
@@ -183,3 +191,57 @@ class VisionEmbedding(nn.Module):
         # embeddings = self.dropout(embeddings)
 
         return embeddings
+
+
+def get_args_for_vision_tokenizer(
+    parser: argparse.ArgumentParser = None,
+) -> argparse.ArgumentParser:
+    """Create or update an argument parser with vision tokenizer arguments.
+
+    Args:
+        parser (argparse.ArgumentParser, optional): External parser. Defaults to None. Note if you want to \
+            existing arguments, you need to pass the parser in.
+
+    Returns:
+        argparse.ArgumentParser: New parser.
+    """
+
+    if parser is None:
+        parser = argparse.ArgumentParser("Create vision tokenizer.")
+
+    # check whether parser already has argument 'fp16'
+    if "fp16" not in parser._option_string_actions:
+        parser.add_argument(
+            "--fp16", action="store_true", help="Whether to use fp16 precision."
+        )
+
+    if hasattr(parser, "n_embed"):
+        parser.add_argument(
+            "--n-embed",
+            type=int,
+            default=255,
+            help="Vocabulary size of the GPT-2 model. Defines the number of different tokens that can be represented by the`inputs_ids` passed when calling",
+        )
+
+    # Vision Processing
+    parser.add_argument(
+        "--vision-num-input-channels",
+        type=int,
+        default=3,
+        help="Number of input channels to the vision encoder, e.g., 3 for RGB, 4 for framestack of Atari games.",
+    )
+    parser.add_argument(
+        "--vision-patch-size",
+        type=int,
+        default=16,
+        help="Size of a patch to be processed by the vision encoder. Determined by the input size.",
+    )
+    parser.add_argument(
+        "--vision-position-vocab-size",
+        type=int,
+        default=128,
+        help="Size of the positional embedding vocabulary. Determines the resolution of the positional encoding.",
+    )
+    parser.add_argument("--vision-hidden-dropout-prob", type=float, default=0.5)
+
+    return parser

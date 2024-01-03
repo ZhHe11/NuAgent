@@ -10,8 +10,9 @@ import torch
 import torch.nn as nn
 import torch.multiprocessing as mp
 
+from uniagent.envs.utils import make_env_wrapper
 from uniagent.trainers.parameter_server import run_parameter_server
-from application.a3c_gym.cli import run_worker, make_env_wrapper, get_actor_critic_cls
+from application.a3c_gym.cli import run_worker, get_actor_critic_cls
 
 
 parser = argparse.ArgumentParser(description="A3C for Gym control")

@@ -1,4 +1,5 @@
 from argparse import Namespace
+from gym import Space
 
 import torch
 import torch.nn as nn
@@ -10,35 +11,59 @@ from uniagent.models.fun.gpt_feudal import GPTFeudal, FeudalState
 
 
 class GPTFeudalVision(GPTFeudal):
+    def __init__(
+        self,
+        observation_space: Space,
+        action_space: Space,
+        backbone: str = "gpt2",
+        d: int = 256,
+        k: int = 16,
+        c: int = 10,
+        channel_first: bool = True,
+        device: torch.DeviceObjType = ...,
+    ) -> None:
+        super().__init__(
+            observation_space, action_space, backbone, d, k, c, channel_first, device
+        )
+
     def create_perception(self) -> nn.Module:
         if len(self.observation_space.shape) == 3:
-            config = Namespace(
-                **dict(
-                    fp16=False,
-                    vision_patch_size=16,
-                    vision_num_input_channels=self.observation_space.shape[0]
-                    if self.channel_first
-                    else self.observation_space.shape[-1],
-                    n_embed=256,
-                    vision_position_vocab_size=256,
-                    vision_hidden_dropout_prob=0.1,
+            return nn.ModuleDict(
+                dict(
+                    vision=VisionEmbedding(self.args),
+                    scalar=ContinuousScalarTokenizer(self.args),
                 )
             )
-            return VisionEmbedding(config)
         elif len(self.observation_space.shape) == 1:
-            raise NotImplementedError
-            # return ContinuousScalarTokenizer(config)
+            return ContinuousScalarTokenizer(self.args)
         else:
             raise NotImplementedError
 
     # TODO(ming): do not forget apply cache for inference mode
+    def init_memory(self):
+        raise NotImplementedError
+
+    def merge_with_memory(self, step_token_embedding_batch: torch.Tensor):
+        # shape of step_token: [batch_size, 50, embedding_size]
+        raise NotImplementedError
+
     def forward(
-        self, x: torch.Tensor, feudal_state: FeudalState, reset_value_grad: bool = True
+        self, x: torch.Tensor, last_action: torch.Tensor, feudal_state: FeudalState
     ):
-        token_embedding_batch = self.perception(x)
+        # [batch_size, 49, embedding_size]
+        vision_token_embedding_batch = self.perception.vision(x)
+        # [batch_size, 1, embedding_size]
+        action_token_embedding_batch = self.perception.scalar(last_action)
+        # [batch_size, 50, embedding_size]
+        step_token_embedding_batch = torch.concat(
+            [vision_token_embedding_batch, action_token_embedding_batch], dim=1
+        )
+        # [batch_size, time_step * 50, embedding_size]
+        token_seq_embedding_batch = self.merge_with_memory(step_token_embedding_batch)
+
         # each ele: [batch_size, seq_len, embed_dim]
-        values_manager, queries, states_M = self.manager.compute_with_outer_embedding(
-            token_embedding_batch, feudal_state.manager_state
+        values_manager, queries, states_M = self.manager(
+            token_seq_embedding_batch, feudal_state.manager_state
         )
 
         # here, goals play as query to compute the corresponding values and policy
@@ -46,8 +71,8 @@ class GPTFeudalVision(GPTFeudal):
             values_worker,
             logits,
             states_W,
-        ) = self.worker.compute_with_outer_embedding(
-            token_embedding_batch, queries.detach(), feudal_state.worker_state
+        ) = self.worker(
+            step_token_embedding_batch, queries.detach(), feudal_state.worker_state
         )
 
         # keep dim

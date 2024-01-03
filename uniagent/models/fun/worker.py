@@ -1,22 +1,16 @@
 from typing import Tuple
+from argparse import Namespace
 
 import torch
 
-from torch import DeviceObjType, nn
-from torch._C import DeviceObjType, device
+from torch import nn
 from torch.nn import functional as F
 
-from .utils import reset_grad2, View
+from .utils import reset_grad2
 
 
 class Worker(nn.Module):
-    def __init__(
-        self,
-        num_outputs: int,
-        d: int,
-        k: int,
-        device: torch.DeviceObjType = torch.device("cpu"),
-    ):
+    def __init__(self, config):
         """Construct a Worker
 
         Args:
@@ -27,13 +21,14 @@ class Worker(nn.Module):
 
         super(Worker, self).__init__()
 
-        self.num_outputs = num_outputs
-        self.k = k
-        self.d = d
-        self.device = device
+        self.num_outputs = config.num_outputs
+        self.k = config.k
+        self.d = config.d
+        self.device = config.device
+        self.config = config
 
         self.f_Wrnn = self.create_observation_embedding()
-        self.phi = nn.Linear(d, k, bias=False)
+        self.proj = nn.Linear(config.k, config.k, bias=False)
         self.value_function = self.create_value_function()
 
         self.to(self.device)
@@ -88,7 +83,7 @@ class Worker(nn.Module):
 
         # project the last c goals into a single vector, where the dimension
         #   size is k
-        w = self.phi(sum_g_W)  # projection [ batch x k]
+        w = self.proj(sum_g_W)  # projection [ batch x k]
 
         # Worker firstly embeds the input observations
         states_W = self.f_Wrnn(z, states_W)
@@ -107,47 +102,31 @@ class Worker(nn.Module):
         return value, probs, states_W
 
 
-from uniagent.models.mingpt import GPT, OuterQueryGPT
+from uniagent.models.mingpt import OuterQueryGPT
 
 
 class TransformerWorker(Worker):
-    def __init__(
-        self,
-        backbone: str,
-        num_outputs: int,
-        d: int,
-        k: int,
-        device: DeviceObjType = torch.device("cpu"),
-    ):
-        self.backbone = backbone
-        super().__init__(num_outputs, d, k, device)
-        self.tokenizer = self.create_tokenizer()
-        self.action_decoder = self.create_action_decoder()
-        self.gpt = self.f_Wrnn
-
-    def create_tokenizer(self):
-        raise NotImplementedError
-
-    def create_action_decoder(self):
-        raise NotImplementedError
+    def __init__(self, observation_space, action_space, config: Namespace):
+        self.observation_space = observation_space
+        self.action_space = action_space
+        super().__init__(config)
+        self.outer_query_gpt = self.f_Wrnn
 
     def create_value_function(self):
-        raise NotImplementedError
+        return nn.Linear(self.config.n_embed, 1, bias=False)
 
     def create_observation_embedding(self):
-        raise OuterQueryGPT(self.vocab_size, self.block_size, self.backbone)
+        raise OuterQueryGPT(self.observation_space, self.action_space, self.config)
 
     def forward(
         self,
-        z: torch.Tensor,
-        sum_g_W: torch.Tensor,
-        states_W: Tuple[torch.Tensor, torch.Tensor],
-        reset_value_grad: bool = True,
-        update_network_state: bool = True,
+        token_seq_emb: torch.Tensor,
+        queries: torch.Tensor,
+        states_W: torch.Tensor,
     ):
-        w = self.phi(sum_g_W)
-        idxes = self.tokenizer(z)
         # logits: [batch_size, seq_len, vocab_size]
-        logits, states_W = self.gpt(idxes, query=w, states=states_W)
+        logits, states_W = self.outer_query_gpt(
+            token_seq_emb, queries=queries, states=states_W
+        )
         values = self.value_function(states_W)
         return values, logits, states_W

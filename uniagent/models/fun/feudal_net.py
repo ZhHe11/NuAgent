@@ -4,6 +4,7 @@ This file implements a FeuDal net refer to: https://github.com/vtalpaert/pytorch
 
 from typing import Tuple, List, Any, Dict
 from collections import namedtuple, deque
+from argparse import Namespace
 
 import torch
 import numpy as np
@@ -28,16 +29,15 @@ class FeudalNet(nn.Module):
         self,
         observation_space: spaces.Space,
         action_space: spaces.Space,
-        d: int = 256,
-        k: int = 16,
-        c: int = 10,
-        channel_first: bool = True,
-        device: torch.DeviceObjType = torch.device("cpu"),
+        # d: int = 256,
+        # k: int = 16,
+        # c: int = 10,
+        args: Namespace,
     ) -> None:
         super().__init__()
 
-        self.d, self.k, self.c = d, k, c
-        self.device = device
+        self.d, self.k, self.c = args.d, args.k, args.c
+        self.device = args.device
 
         if action_space.__class__.__name__ == "Discrete":
             num_outputs = action_space.n
@@ -53,7 +53,8 @@ class FeudalNet(nn.Module):
         self.num_outputs = num_outputs
         self.observation_space = observation_space
         self.action_space = action_space
-        self.channel_first = channel_first
+        self.channel_first = args.channel_first
+        self.config = args
         self.perception = self.create_perception()
         self.worker = self.create_worker()
         self.manager = self.create_manager()

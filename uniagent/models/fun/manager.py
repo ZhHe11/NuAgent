@@ -92,9 +92,7 @@ class dLSTM(nn.Module):
 
 
 class Manager(nn.Module):
-    def __init__(
-        self, d: int, c: int, device: torch.DeviceObjType = torch.device("cpu")
-    ):
+    def __init__(self, observation_space, action_space, config):
         """Construct a manager with a dilated LSTM.
 
         Args:
@@ -104,11 +102,11 @@ class Manager(nn.Module):
 
         super(Manager, self).__init__()
 
-        self.c = c
-        self.d = d
-        self.device = device
+        self.c = config.c
+        self.d = config.d
+        self.device = config.device
 
-        self.f_Mspace = nn.Sequential(nn.Linear(d, d), nn.ReLU())
+        self.f_Mspace = nn.Sequential(nn.Linear(self.d, self.d), nn.ReLU())
         # the MRnn can be replaced with a Transformer
         self.f_Mrnn = self.create_goal_embedding()
         self.value_function = self.create_value_function()
@@ -153,14 +151,12 @@ class Manager(nn.Module):
 
 
 from uniagent.models.mingpt import GPT
+from argparse import Namespace
 
 
 class TransformerManager(Manager):
-    def __init__(
-        self, backbone: str, d: int, c: int, device: DeviceObjType = torch.device("cpu")
-    ):
-        self.backbone = backbone
-        super().__init__(d, c, device)
+    def __init__(self, observation_space, action_space, config: Namespace):
+        super().__init__(observation_space, action_space, config)
         self.gpt = self.f_Mrnn
         self.tokenizer = self.create_tokenizer()
         self.action_decoder = self.create_action_decoder()
