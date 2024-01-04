@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 
 from uniagent.models.mingpt.tokenizer.vision import VisionEmbedding
-from uniagent.models.mingpt.tokenizer.scalar import ContinuousScalarTokenizer
+from uniagent.models.mingpt.tokenizer.scalar import DiscreateScalarTokenizer
 from uniagent.models.mingpt.outer_query_gpt import GPT, OuterQueryGPT
 from uniagent.models.fun.gpt_feudal import GPTFeudal, FeudalState
 
@@ -16,11 +16,11 @@ class GPTFeudalVision(GPTFeudal):
             return nn.ModuleDict(
                 dict(
                     vision=VisionEmbedding(self.config),
-                    scalar=ContinuousScalarTokenizer(self.config),
+                    scalar=DiscreateScalarTokenizer(self.action_space.n, self.config),
                 )
             )
         elif len(self.observation_space.shape) == 1:
-            return ContinuousScalarTokenizer(self.config)
+            return DiscreateScalarTokenizer(self.action_space.n, self.config)
         else:
             raise NotImplementedError
 

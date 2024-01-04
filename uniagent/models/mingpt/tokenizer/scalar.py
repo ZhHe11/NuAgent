@@ -14,12 +14,16 @@
 """Implementation of continous scalar tokenizer as Described in [Gato][https://www.deepmind.com/publications/a-generalist-agent]"""
 
 
+from argparse import Namespace
+
 import numpy as np
 import torch
 
+from torch import nn
+
 
 # TODO(ming): convert to a subclass of nn.Module
-class ContinuousScalarTokenizer:
+class ContinuousScalarTokenizer(nn.Module):
     def __init__(
         self, num_continuous_bin: int = 1024, mu: float = 100.0, M: float = 256.0
     ):
@@ -63,3 +67,16 @@ class ContinuousScalarTokenizer:
             x = torch.sign(x) * ((1 + self.M * self.mu) ** torch.abs(x) - 1) / self.mu
 
         return x
+
+
+class DiscreateScalarTokenizer(nn.Module):
+    def __init__(self, action_dim: int, config: Namespace):
+        super().__init__()
+        data_type = torch.half if config.fp16 else torch.float32
+        self.row_position_embeddings = nn.Embedding(
+            config.vision_position_vocab_size, config.n_embed, dtype=data_type
+        )
+        self.config = config
+
+    def forward(self, action: torch.LongTensor):
+        raise NotImplementedError
