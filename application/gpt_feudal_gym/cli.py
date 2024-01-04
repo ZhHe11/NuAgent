@@ -97,8 +97,10 @@ def command_args() -> Namespace:
     parser.add_argument(
         "--env-name",
         type=str,
+        default="PongNoFrameskip-v4",
         help="environment to train on",
     )
+    parser.add_argument("--channel-first", default=True, type=bool)
     parser.add_argument("--task-type", default="atari")
 
     # Model settings
@@ -106,13 +108,8 @@ def command_args() -> Namespace:
 
     # GPT-2 as backbone
     parser.add_argument("--vocab-size", type=int, default=256, help="Total vocab size.")
+    parser.add_argument("--traj-len", type=int, default=10, help="Trajectory length.")
     # time_step * (7*7 + 1): 7*7 for pixel values, 1 for action
-    parser.add_argument(
-        "--seq-length",
-        type=int,
-        default=50 * 10,
-        help="Indicates the maximum of token sequence length.",
-    )
     parser.add_argument("--n-layer", type=int, default=12)
     parser.add_argument("--n-head", type=int, default=8)
     parser.add_argument(
@@ -124,4 +121,8 @@ def command_args() -> Namespace:
 
     parser = get_args_for_vision_tokenizer(parser)
 
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    args.seq_length = args.traj_len * 50
+
+    return args

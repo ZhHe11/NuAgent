@@ -11,41 +11,36 @@ from uniagent.models.fun.gpt_feudal import GPTFeudal, FeudalState
 
 
 class GPTFeudalVision(GPTFeudal):
-    def __init__(
-        self,
-        observation_space: Space,
-        action_space: Space,
-        backbone: str = "gpt2",
-        d: int = 256,
-        k: int = 16,
-        c: int = 10,
-        channel_first: bool = True,
-        device: torch.DeviceObjType = ...,
-    ) -> None:
-        super().__init__(
-            observation_space, action_space, backbone, d, k, c, channel_first, device
-        )
-
     def create_perception(self) -> nn.Module:
         if len(self.observation_space.shape) == 3:
             return nn.ModuleDict(
                 dict(
-                    vision=VisionEmbedding(self.args),
-                    scalar=ContinuousScalarTokenizer(self.args),
+                    vision=VisionEmbedding(self.config),
+                    scalar=ContinuousScalarTokenizer(self.config),
                 )
             )
         elif len(self.observation_space.shape) == 1:
-            return ContinuousScalarTokenizer(self.args)
+            return ContinuousScalarTokenizer(self.config)
         else:
             raise NotImplementedError
 
     # TODO(ming): do not forget apply cache for inference mode
-    def init_memory(self):
-        raise NotImplementedError
+    def init_memory(self, batch_size: int):
+        self.time_step = 0
+        shape = (batch_size, self.config.traj_len, 50, self.config.n_embed)
+        self.memory = torch.zeros(shape, device=self.config.device)
 
     def merge_with_memory(self, step_token_embedding_batch: torch.Tensor):
         # shape of step_token: [batch_size, 50, embedding_size]
-        raise NotImplementedError
+        self.memory[self.time_step] = step_token_embedding_batch.unsqueeze(1).clone()
+        if self.time_step + 1 == self.config.traj_len:
+            # shift
+            self.memory = self.memory.roll(-1, 0)
+        self.time_step = min(self.time_step + 1, self.config.traj_len)
+
+        return self.memory[:, : self.time_step].view(
+            -1, self.time_step * 50, self.config.n_embed
+        )
 
     def forward(
         self, x: torch.Tensor, last_action: torch.Tensor, feudal_state: FeudalState

@@ -29,14 +29,10 @@ class FeudalNet(nn.Module):
         self,
         observation_space: spaces.Space,
         action_space: spaces.Space,
-        # d: int = 256,
-        # k: int = 16,
-        # c: int = 10,
         args: Namespace,
     ) -> None:
         super().__init__()
 
-        self.d, self.k, self.c = args.d, args.k, args.c
         self.device = args.device
 
         if action_space.__class__.__name__ == "Discrete":
@@ -62,14 +58,16 @@ class FeudalNet(nn.Module):
         self.to(self.device)
 
     def create_worker(self) -> Worker:
-        return Worker(self.num_outputs, self.d, self.k, device=self.device)
+        return Worker(
+            self.num_outputs, self.config.d, self.config.k, device=self.device
+        )
 
     def create_manager(self) -> Manager:
-        return Manager(self.d, self.c, device=self.device)
+        return Manager(self.config.d, self.config.c, device=self.device)
 
     def create_perception(self) -> nn.Module:
         perception = Perception(
-            self.observation_space.shape, self.d, self.channel_first
+            self.observation_space.shape, self.config.d, self.channel_first
         )
         perception.to(self.device)
         perception.device = self.device
@@ -149,22 +147,24 @@ class FeudalNet(nn.Module):
         self, states, goals, use_repeated_terminal_state: bool = True
     ):
         # concatenate all states
-        assert len(states) >= self.c, (len(states), self.c)
-        assert len(goals) >= self.c, (len(goals), self.c)
-        s_t = torch.stack(states[self.c :], dim=0).squeeze(1)
-        g_t = torch.stack(goals[self.c :], dim=0).squeeze(1)
+        assert len(states) >= self.config.c, (len(states), self.config.c)
+        assert len(goals) >= self.config.c, (len(goals), self.config.c)
+        s_t = torch.stack(states[self.config.c :], dim=0).squeeze(1)
+        g_t = torch.stack(goals[self.config.c :], dim=0).squeeze(1)
 
         if use_repeated_terminal_state:
-            terminal_states = torch.tile(s_t[-1], dims=[self.c, 1])
-            s_t_plus_c = torch.cat([s_t[self.c :], terminal_states], dim=0)[
+            terminal_states = torch.tile(s_t[-1], dims=[self.config.c, 1])
+            s_t_plus_c = torch.cat([s_t[self.config.c :], terminal_states], dim=0)[
                 : s_t.size(0)
             ]
         else:
             s_t_plus_c = torch.cat(
                 [
-                    s_t[self.c :],
+                    s_t[self.config.c :],
                     torch.zeros(
-                        (self.c,) + s_t.shape[1:], device=s_t.device, dtype=s_t.dtype
+                        (self.config.c,) + s_t.shape[1:],
+                        device=s_t.device,
+                        dtype=s_t.dtype,
                     ),
                 ],
                 dims=0,
@@ -190,11 +190,15 @@ class FeudalNet(nn.Module):
 
         # state seg is a list of len=c, each element is a tensor of size [batch x d]
         ss = [
-            torch.zeros(batch_size, self.d, requires_grad=False, device=self.device)
+            torch.zeros(
+                batch_size, self.config.d, requires_grad=False, device=self.device
+            )
             for _ in range(self.c)
         ]
         goals = [
-            torch.zeros(batch_size, self.d, requires_grad=False, device=self.device)
+            torch.zeros(
+                batch_size, self.config.d, requires_grad=False, device=self.device
+            )
             for _ in range(self.c)
         ]
         return FeudalState(
@@ -209,10 +213,16 @@ class FeudalNet(nn.Module):
             self.manager.reset_states_grad(feudal_state.manager_state),
             self.worker.reset_states_grad(feudal_state.worker_state),
             list(
-                map(lambda x: reset_grad2(x, False), feudal_state.state_seg[-self.c :])
+                map(
+                    lambda x: reset_grad2(x, False),
+                    feudal_state.state_seg[-self.config.c :],
+                )
             ),
             list(
-                map(lambda x: reset_grad2(x, False), feudal_state.goal_seg[-self.c :])
+                map(
+                    lambda x: reset_grad2(x, False),
+                    feudal_state.goal_seg[-self.config.c :],
+                )
             ),
         )
 
@@ -231,12 +241,12 @@ class FeudalNet(nn.Module):
         s_t = state_hist[-1]
         t = len(state_hist) - 1
 
-        for i in range(1, self.c):
+        for i in range(1, self.config.c):
             t_minus_i = t - i
             s_t_i = feudal_state.state_seg[t_minus_i]
             g_t_i = goal_hist[t_minus_i]
             rI += F.cosine_similarity(s_t - s_t_i, g_t_i).detach().unsqueeze(-1)
-        return rI / self.c
+        return rI / self.config.c
 
 
 def test_forward():

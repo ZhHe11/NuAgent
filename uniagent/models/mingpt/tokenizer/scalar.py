@@ -18,6 +18,7 @@ import numpy as np
 import torch
 
 
+# TODO(ming): convert to a subclass of nn.Module
 class ContinuousScalarTokenizer:
     def __init__(
         self, num_continuous_bin: int = 1024, mu: float = 100.0, M: float = 256.0
