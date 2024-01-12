@@ -29,7 +29,7 @@ config = Namespace(
         vision_hidden_dropout_prob=0.5,
     )
 )
-vision_embedding = VisionEmbedding(config)
+vision_embedding = VisionEmbedding(env.observation_space, config)
 vision_embedding.print_model_size()
 embeddings = vision_embedding(
     torch.from_numpy(env.observation_space.sample()).unsqueeze(0)

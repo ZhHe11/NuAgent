@@ -16,23 +16,23 @@ class CausalSelfAttention(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        assert config.n_embd % config.n_head == 0
+        assert config.n_embed % config.n_head == 0
         # key, query, value projections for all heads, but in a batch
-        self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd)
+        self.c_attn = nn.Linear(config.n_embed, 3 * config.n_embed)
         # output projection
-        self.c_proj = nn.Linear(config.n_embd, config.n_embd)
+        self.c_proj = nn.Linear(config.n_embed, config.n_embed)
         # regularization
         self.attn_dropout = nn.Dropout(config.attn_pdrop)
         self.resid_dropout = nn.Dropout(config.resid_pdrop)
         # causal mask to ensure that attention is only applied to the left in the input sequence
         self.register_buffer(
             "bias",
-            torch.tril(torch.ones(config.block_size, config.block_size)).view(
-                1, 1, config.block_size, config.block_size
+            torch.tril(torch.ones(config.seq_length, config.seq_length)).view(
+                1, 1, config.seq_length, config.seq_length
             ),
         )
         self.n_head = config.n_head
-        self.n_embd = config.n_embd
+        self.n_embd = config.n_embed
 
     def forward(self, x):
         (
@@ -73,13 +73,13 @@ class Block(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.ln_1 = nn.LayerNorm(config.n_embd)
+        self.ln_1 = nn.LayerNorm(config.n_embed)
         self.attn = self.create_attn(config)
-        self.ln_2 = nn.LayerNorm(config.n_embd)
+        self.ln_2 = nn.LayerNorm(config.n_embed)
         self.mlp = nn.ModuleDict(
             dict(
-                c_fc=nn.Linear(config.n_embd, 4 * config.n_embd),
-                c_proj=nn.Linear(4 * config.n_embd, config.n_embd),
+                c_fc=nn.Linear(config.n_embed, 4 * config.n_embed),
+                c_proj=nn.Linear(4 * config.n_embed, config.n_embed),
                 act=NewGELU(),
                 dropout=nn.Dropout(config.resid_pdrop),
             )

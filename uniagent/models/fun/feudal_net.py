@@ -193,13 +193,13 @@ class FeudalNet(nn.Module):
             torch.zeros(
                 batch_size, self.config.d, requires_grad=False, device=self.device
             )
-            for _ in range(self.c)
+            for _ in range(self.config.c)
         ]
         goals = [
             torch.zeros(
                 batch_size, self.config.d, requires_grad=False, device=self.device
             )
-            for _ in range(self.c)
+            for _ in range(self.config.c)
         ]
         return FeudalState(
             self.manager.init_state(batch_size),

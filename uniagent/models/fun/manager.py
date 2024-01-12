@@ -102,21 +102,26 @@ class Manager(nn.Module):
 
         super(Manager, self).__init__()
 
-        self.c = config.c
-        self.d = config.d
         self.device = config.device
+        self.config = config
 
-        self.f_Mspace = nn.Sequential(nn.Linear(self.d, self.d), nn.ReLU())
+        self.f_Mspace = self.create_state_embedding() # nn.Sequential(nn.Linear(self.config.d, self.config.d), nn.ReLU())
         # the MRnn can be replaced with a Transformer
         self.f_Mrnn = self.create_goal_embedding()
         self.value_function = self.create_value_function()
         self.to(self.device)
 
+    def create_state_embedding(self):
+        return nn.Sequential(
+            nn.Linear(self.config.d, self.config.d),
+            nn.ReLU()
+        )
+
     def create_goal_embedding(self):
-        return dLSTM(self.c, self.d, self.d, device=self.device)
+        return dLSTM(self.config.c, self.config.d, self.config.d, device=self.device)
 
     def create_value_function(self):
-        return nn.Linear(self.d * 2, 1)
+        return nn.Linear(self.config.d * 2, 1)
 
     def forward(
         self,
@@ -161,29 +166,42 @@ class TransformerManager(Manager):
         self.tokenizer = self.create_tokenizer()
         self.action_decoder = self.create_action_decoder()
 
+    def create_state_embedding(self):
+        pass
+
     def create_value_function(self):
-        raise NotImplementedError
+        return nn.Linear(self.config.n_embed, 1, bias=False)
 
     def create_tokenizer(self):
-        raise NotImplementedError
+        pass
 
     def create_action_decoder(self):
-        raise NotImplementedError
+        pass
 
     def create_goal_embedding(self):
-        raise GPT(self.vocab_size, self.block_size, self.backbone)
+        return GPT(self.config)
+    
+    def init_state(self, batch_size: int):
+        return (
+            torch.zeros(
+                batch_size,
+                requires_grad=False,
+                device=self.device,
+            ),
+            torch.zeros(
+                batch_size,
+                requires_grad=False,
+                device=self.device,
+            ),
+        )
 
     def forward(
         self,
-        z,
-        states_M,
-        reset_value_grad: bool = False,
-        update_network_state: bool = True,
+        token_seq_embedding: torch.Tensor,
+        state: torch.Tensor
     ):
-        s = self.f_Mspace(z)  # latent state representation [batch x d]
-        idxes = self.tokenizer(s)
         # g_hat: [batch_size, seq_len, vocab_size]
-        g_hat, states_M = self.gpt(s, states_M)
+        g_hat, states_M = self.gpt(token_seq_embedding, states_M)
 
         if self.training and random.random() < 0.1:
             # add noise to the g_hat for exploration
@@ -191,9 +209,6 @@ class TransformerManager(Manager):
                 g_hat.data.new(g_hat.size()).normal_(0.0, 1.0), requires_grad=False
             )
 
-        g = F.normalize(g_hat)  # goal [batch x d]
-        value = self.value_function(
-            torch.cat([g, s], dim=-1)
-        )  # if reset_value_grad else g_hat)
+        value = self.value_function(states_M)
 
-        return value, g, s.detach(), states_M
+        return value, g_hat, states_M

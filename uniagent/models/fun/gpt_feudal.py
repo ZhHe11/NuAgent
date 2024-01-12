@@ -30,6 +30,10 @@ class GPTFeudal(FeudalNet):
         return TransformerManager(
             self.observation_space, self.action_space, self.config
         )
+    
+    def report_num_of_parameters(self):
+        n_params = sum(p.numel() for p in self.parameters()) / 1e6
+        print(f"[{self}] num of parameters: {n_params:.2f}M")
 
     def init_memory(self):
         raise NotImplementedError

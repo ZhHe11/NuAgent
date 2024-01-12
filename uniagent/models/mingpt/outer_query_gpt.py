@@ -32,7 +32,7 @@ class OuterQueryGPT(GPT):
         transformer = nn.ModuleDict(
             dict(
                 wpt=nn.Embedding(config.seq_length, config.n_embed),
-                drop=nn.Dropout(config.embd_pdrop),
+                drop=nn.Dropout(config.embed_pdrop),
                 h=nn.ModuleList(
                     [OuterQueryBlock(config) for _ in range(config.n_layer)]
                 ),

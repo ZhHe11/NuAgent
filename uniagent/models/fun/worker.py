@@ -21,27 +21,27 @@ class Worker(nn.Module):
 
         super(Worker, self).__init__()
 
-        self.num_outputs = config.num_outputs
-        self.k = config.k
-        self.d = config.d
         self.device = config.device
         self.config = config
 
         self.f_Wrnn = self.create_observation_embedding()
-        self.proj = nn.Linear(config.k, config.k, bias=False)
+        self.proj = self.create_goal_projection()
         self.value_function = self.create_value_function()
 
         self.to(self.device)
 
+    def create_goal_projection(self):
+        return nn.Linear(self.config.k, self.config.k, bias=False)
+
     def create_value_function(self):
         return nn.Sequential(
-            nn.Linear(self.num_outputs * self.k + self.k, 50),
+            nn.Linear(self.config.num_outputs * self.config.k + self.config.k, 50),
             nn.ReLU(),
             nn.Linear(50, 1),
         )
 
     def create_observation_embedding(self):
-        lstm = nn.LSTMCell(self.d, self.num_outputs * self.k)
+        lstm = nn.LSTMCell(self.config.d, self.config.num_outputs * self.config.k)
         lstm.bias_ih.data.fill_(0)
         lstm.bias_hh.data.fill_(0)
         return lstm
@@ -116,7 +116,24 @@ class TransformerWorker(Worker):
         return nn.Linear(self.config.n_embed, 1, bias=False)
 
     def create_observation_embedding(self):
-        raise OuterQueryGPT(self.observation_space, self.action_space, self.config)
+        return OuterQueryGPT(self.observation_space, self.action_space, self.config)
+    
+    def create_goal_projection(self):
+        return None
+    
+    def init_state(self, batch_size):
+        return (
+            torch.zeros(
+                batch_size,
+                requires_grad=False,
+                device=self.device,
+            ),
+            torch.zeros(
+                batch_size,
+                requires_grad=False,
+                device=self.device,
+            ),
+        )
 
     def forward(
         self,

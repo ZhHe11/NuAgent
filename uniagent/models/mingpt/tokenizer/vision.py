@@ -44,7 +44,7 @@ class PatchEmbeddings(nn.Module):
     def __init__(
         self,
         patch_size: int = 16,
-        num_channels: int = 3,
+        num_channels: int = 4,
         embed_dim: int = 768,
         data_type: torch.dtype = torch.half,
     ):
@@ -100,7 +100,7 @@ class VisionEmbedding(nn.Module):
 
     """
 
-    def __init__(self, config: Namespace):
+    def __init__(self, observation_space, config: Namespace):
         super().__init__()
         data_type = torch.half if config.fp16 else torch.float32
         self.data_type = data_type
@@ -233,7 +233,7 @@ def get_args_for_vision_tokenizer(
     parser.add_argument(
         "--vision-patch-size",
         type=int,
-        default=16,
+        default=12,
         help="Size of a patch to be processed by the vision encoder. Determined by the input size.",
     )
     parser.add_argument(

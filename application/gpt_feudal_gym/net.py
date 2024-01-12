@@ -15,7 +15,7 @@ class GPTFeudalVision(GPTFeudal):
         if len(self.observation_space.shape) == 3:
             return nn.ModuleDict(
                 dict(
-                    vision=VisionEmbedding(self.config),
+                    vision=VisionEmbedding(self.observation_space, self.config),
                     scalar=DiscreateScalarTokenizer(self.action_space.n, self.config),
                 )
             )
@@ -23,6 +23,14 @@ class GPTFeudalVision(GPTFeudal):
             return DiscreateScalarTokenizer(self.action_space.n, self.config)
         else:
             raise NotImplementedError
+        
+    def init_state(self, batch_size: int, device=None) -> FeudalState:
+        return FeudalState(
+            self.manager.init_state(batch_size),
+            self.worker.init_state(batch_size),
+            [],
+            []
+        )
 
     # TODO(ming): do not forget apply cache for inference mode
     def init_memory(self, batch_size: int):
@@ -67,7 +75,7 @@ class GPTFeudalVision(GPTFeudal):
             logits,
             states_W,
         ) = self.worker(
-            step_token_embedding_batch, queries.detach(), feudal_state.worker_state
+            token_seq_embedding_batch, queries.detach(), feudal_state.worker_state
         )
 
         # keep dim
