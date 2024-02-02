@@ -37,5 +37,5 @@ while not done:
         goals, worker_logits = logits
         dist = Categorical(logits=worker_logits)
         action = dist.sample()
-    obs, reward, done, truncated, info = env.step(action.cpu().numpy()[0, 0])
+    obs, reward, done, truncated, info = env.step(action.cpu().numpy()[0])
     done = done or truncated

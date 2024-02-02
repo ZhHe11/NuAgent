@@ -105,17 +105,16 @@ class Manager(nn.Module):
         self.device = config.device
         self.config = config
 
-        self.f_Mspace = self.create_state_embedding() # nn.Sequential(nn.Linear(self.config.d, self.config.d), nn.ReLU())
+        self.f_Mspace = (
+            self.create_state_embedding()
+        )  # nn.Sequential(nn.Linear(self.config.d, self.config.d), nn.ReLU())
         # the MRnn can be replaced with a Transformer
         self.f_Mrnn = self.create_goal_embedding()
         self.value_function = self.create_value_function()
         self.to(self.device)
 
     def create_state_embedding(self):
-        return nn.Sequential(
-            nn.Linear(self.config.d, self.config.d),
-            nn.ReLU()
-        )
+        return nn.Sequential(nn.Linear(self.config.d, self.config.d), nn.ReLU())
 
     def create_goal_embedding(self):
         return dLSTM(self.config.c, self.config.d, self.config.d, device=self.device)
@@ -155,14 +154,14 @@ class Manager(nn.Module):
         return tick, list(map(reset_grad2, hx)), list(map(reset_grad2, cx))
 
 
-from uniagent.models.mingpt import GPT
+from uniagent.models.mingpt import blocks
 from argparse import Namespace
 
 
 class TransformerManager(Manager):
     def __init__(self, observation_space, action_space, config: Namespace):
         super().__init__(observation_space, action_space, config)
-        self.gpt = self.f_Mrnn
+        self.transformer = self.f_Mrnn
         self.tokenizer = self.create_tokenizer()
         self.action_decoder = self.create_action_decoder()
 
@@ -179,8 +178,21 @@ class TransformerManager(Manager):
         pass
 
     def create_goal_embedding(self):
-        return GPT(self.config)
-    
+        transformer = nn.ModuleDict(
+            dict(
+                wpe=nn.Embedding(self.config.seq_length, self.config.n_embed),
+                drop=nn.Dropout(self.config.embed_pdrop),
+                h=nn.ModuleList(
+                    [blocks.Block(self.config) for _ in range(self.config.n_layer)]
+                ),
+                ln_f=nn.LayerNorm(self.config.n_embed),
+                lm_head=nn.Linear(
+                    self.config.n_embed, self.config.vocab_size, bias=False
+                ),
+            )
+        )
+        return transformer
+
     def init_state(self, batch_size: int):
         return (
             torch.zeros(
@@ -195,13 +207,18 @@ class TransformerManager(Manager):
             ),
         )
 
-    def forward(
-        self,
-        token_seq_embedding: torch.Tensor,
-        state: torch.Tensor
-    ):
+    def forward(self, token_seq_embedding: torch.Tensor, state: torch.Tensor):
         # g_hat: [batch_size, seq_len, vocab_size]
-        g_hat, states_M = self.gpt(token_seq_embedding, states_M)
+        batch_size, t, _ = token_seq_embedding.size()
+        # [1, seq_len]
+        pos = torch.arange(0, t, dtype=torch.long, device=self.device).unsqueeze(0)
+        pos_emb = self.transformer.wpe(pos)
+        x = self.transformer.drop(token_seq_embedding + pos_emb)
+        for block in self.transformer.h:
+            x = block(x)
+        x = self.transformer.ln_f(x)
+        g_hat = self.transformer.lm_head(x)
+        # g_hat, state = self.gpt(token_seq_embedding, state)
 
         if self.training and random.random() < 0.1:
             # add noise to the g_hat for exploration
@@ -209,6 +226,6 @@ class TransformerManager(Manager):
                 g_hat.data.new(g_hat.size()).normal_(0.0, 1.0), requires_grad=False
             )
 
-        value = self.value_function(states_M)
+        value = self.value_function(x)
 
-        return value, g_hat, states_M
+        return value, g_hat, state

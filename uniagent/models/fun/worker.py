@@ -111,16 +111,19 @@ class TransformerWorker(Worker):
         self.action_space = action_space
         super().__init__(config)
         self.outer_query_gpt = self.f_Wrnn
+        self.query_trans_layer = nn.Linear(
+            self.config.vocab_size, self.config.n_embed, bias=False
+        )
 
     def create_value_function(self):
         return nn.Linear(self.config.n_embed, 1, bias=False)
 
     def create_observation_embedding(self):
         return OuterQueryGPT(self.observation_space, self.action_space, self.config)
-    
+
     def create_goal_projection(self):
         return None
-    
+
     def init_state(self, batch_size):
         return (
             torch.zeros(
@@ -142,8 +145,10 @@ class TransformerWorker(Worker):
         states_W: torch.Tensor,
     ):
         # logits: [batch_size, seq_len, vocab_size]
+        # map queries to the space of token seq_emb
+        trans_queries = self.query_trans_layer(queries)
         logits, states_W = self.outer_query_gpt(
-            token_seq_emb, queries=queries, states=states_W
+            token_seq_emb, queries=trans_queries, states=states_W
         )
         values = self.value_function(states_W)
         return values, logits, states_W

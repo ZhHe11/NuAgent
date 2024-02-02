@@ -1,15 +1,50 @@
 from typing import Tuple
 from argparse import Namespace
 
+import math
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from .gpt import GPT
 from .blocks import Block, CausalSelfAttention
 
 
 class CausalExternalAttention(CausalSelfAttention):
-    pass
+    def custom_c_attn(self):
+        return nn.Linear(self.config.n_embed, 2 * self.config.n_embed)
+
+    def forward(self, x, q):
+        (
+            B,
+            T,
+            C,
+        ) = x.size()  # batch size, sequence length, embedding dimensionality (n_embd)
+        c_attn_tensor = self.c_attn(x)
+        k, v = c_attn_tensor.split(self.config.n_embed, dim=2)
+        k = k.view(B, T, self.n_head, C // self.n_head).transpose(
+            1, 2
+        )  # (B, nh, T, hs)
+        q = q.view(B, T, self.n_head, C // self.n_head).transpose(
+            1, 2
+        )  # (B, nh, T, hs)
+        v = v.view(B, T, self.n_head, C // self.n_head).transpose(
+            1, 2
+        )  # (B, nh, T, hs)
+
+        # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
+        att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+        att = att.masked_fill(self.bias[:, :, :T, :T] == 0, float("-inf"))
+        att = F.softmax(att, dim=-1)
+        att = self.attn_dropout(att)
+        y = att @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
+        y = (
+            y.transpose(1, 2).contiguous().view(B, T, C)
+        )  # re-assemble all head outputs side by side
+
+        # output projection
+        y = self.resid_dropout(self.c_proj(y))
+        return y
 
 
 class OuterQueryBlock(Block):
@@ -51,7 +86,7 @@ class OuterQueryGPT(GPT):
         states: torch.Tensor = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         device = tok_seq_emb.device
-        b, t, _ = tok_seq_emb.shape.size()
+        b, t, _ = tok_seq_emb.size()
         pos = torch.arange(0, t, dtype=torch.long, device=device).unsqueeze(
             0
         )  # shape (1, t)

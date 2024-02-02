@@ -23,13 +23,13 @@ class GPTFeudalVision(GPTFeudal):
             return DiscreateScalarTokenizer(self.action_space.n, self.config)
         else:
             raise NotImplementedError
-        
+
     def init_state(self, batch_size: int, device=None) -> FeudalState:
         return FeudalState(
             self.manager.init_state(batch_size),
             self.worker.init_state(batch_size),
             [],
-            []
+            [],
         )
 
     # TODO(ming): do not forget apply cache for inference mode
@@ -45,18 +45,19 @@ class GPTFeudalVision(GPTFeudal):
             # shift
             self.memory = self.memory.roll(-1, 0)
         self.time_step = min(self.time_step + 1, self.config.traj_len)
+        batch_size, size_of_one_step = step_token_embedding_batch.size()[:2]
 
         return self.memory[:, : self.time_step].view(
-            -1, self.time_step * 50, self.config.n_embed
+            batch_size, self.time_step * size_of_one_step, self.config.n_embed
         )
 
     def forward(
         self, x: torch.Tensor, last_action: torch.Tensor, feudal_state: FeudalState
     ):
-        # [batch_size, 49, embedding_size]
+        # [batch_size, 7 * 7, embedding_size]
         vision_token_embedding_batch = self.perception.vision(x)
         # [batch_size, 1, embedding_size]
-        action_token_embedding_batch = self.perception.scalar(last_action)
+        action_token_embedding_batch = self.perception.scalar(last_action).unsqueeze(1)
         # [batch_size, 50, embedding_size]
         step_token_embedding_batch = torch.concat(
             [vision_token_embedding_batch, action_token_embedding_batch], dim=1
@@ -65,11 +66,13 @@ class GPTFeudalVision(GPTFeudal):
         token_seq_embedding_batch = self.merge_with_memory(step_token_embedding_batch)
 
         # each ele: [batch_size, seq_len, embed_dim]
+        # TODO(ming): should check whether the gradient flow whether break
         values_manager, queries, states_M = self.manager(
             token_seq_embedding_batch, feudal_state.manager_state
         )
 
         # here, goals play as query to compute the corresponding values and policy
+        # convert queries to token_seq_embedding_batch
         (
             values_worker,
             logits,

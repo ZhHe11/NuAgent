@@ -79,4 +79,4 @@ class DiscreateScalarTokenizer(nn.Module):
         self.config = config
 
     def forward(self, action: torch.LongTensor):
-        raise NotImplementedError
+        return self.row_position_embeddings(action)

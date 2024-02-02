@@ -16,9 +16,12 @@ class CausalSelfAttention(nn.Module):
 
     def __init__(self, config):
         super().__init__()
+        self.config = config
         assert config.n_embed % config.n_head == 0
         # key, query, value projections for all heads, but in a batch
-        self.c_attn = nn.Linear(config.n_embed, 3 * config.n_embed)
+        self.c_attn = self.custom_c_attn()
+        if self.c_attn is None:
+            self.c_attn = nn.Linear(config.n_embed, 3 * config.n_embed)
         # output projection
         self.c_proj = nn.Linear(config.n_embed, config.n_embed)
         # regularization
@@ -33,6 +36,9 @@ class CausalSelfAttention(nn.Module):
         )
         self.n_head = config.n_head
         self.n_embd = config.n_embed
+
+    def custom_c_attn(self):
+        return None
 
     def forward(self, x):
         (
