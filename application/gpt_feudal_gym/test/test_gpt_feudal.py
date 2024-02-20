@@ -22,6 +22,7 @@ feudal.report_num_of_parameters()
 done = False
 obs, _ = env.reset()
 feudal.eval()
+# test for batch size = 1
 feudal.init_memory(1)
 feudal_state = feudal.init_state(1)
 last_action = torch.LongTensor([env.action_space.sample()]).to(args.device)
@@ -37,5 +38,6 @@ while not done:
         goals, worker_logits = logits
         dist = Categorical(logits=worker_logits)
         action = dist.sample()
+        print("time step:", feudal.time_step)
     obs, reward, done, truncated, info = env.step(action.cpu().numpy()[0])
     done = done or truncated

@@ -69,7 +69,7 @@ class ContinuousScalarTokenizer(nn.Module):
         return x
 
 
-class DiscreateScalarTokenizer(nn.Module):
+class DiscreteScalarTokenizer(nn.Module):
     def __init__(self, action_dim: int, config: Namespace):
         super().__init__()
         data_type = torch.half if config.fp16 else torch.float32

@@ -1,12 +1,25 @@
-from argparse import Namespace
-from gym import Space
+"""
+This file implements a GPTFeudalVision that is backboned with GPT, and the input is vision.
+To achieve that, GPTFeudalVision comprises three key components:
+
+1) shared preception module: see `create_preception`, the preception module is responsible for encoding an input trajectory
+    that is formed as (s_0, a_0, ..., s_t, a_t), where `s_t` the image-based observation and `a_t` the discrete action. As
+    there are two kinds of tensors (observations and actions) that differ in the data type, the preception module is 
+    implemented as a module dict including `VisionEmbedding` and `DiscreteScalarTokenizer` for the tokenization of 
+    observations and actions, respectively.
+
+2) Manager: the Manager is implemented as an instance of `uniagent.models.fun.manager::TransformerManager`, which a 
+    Transformer accepts outer token sequence that is given by the preception module, for goal generation
+
+3) Worker: the Worker is implemented as an instance of `uniagent.models.fun.worker::TransformerWorker`, which a GPT
+    accepts outer queries that is given by the Manager, a sequence of goals, each relates to an observation
+"""
 
 import torch
 import torch.nn as nn
 
 from uniagent.models.mingpt.tokenizer.vision import VisionEmbedding
-from uniagent.models.mingpt.tokenizer.scalar import DiscreateScalarTokenizer
-from uniagent.models.mingpt.outer_query_gpt import GPT, OuterQueryGPT
+from uniagent.models.mingpt.tokenizer.scalar import DiscreteScalarTokenizer
 from uniagent.models.fun.gpt_feudal import GPTFeudal, FeudalState
 
 
@@ -16,11 +29,11 @@ class GPTFeudalVision(GPTFeudal):
             return nn.ModuleDict(
                 dict(
                     vision=VisionEmbedding(self.observation_space, self.config),
-                    scalar=DiscreateScalarTokenizer(self.action_space.n, self.config),
+                    scalar=DiscreteScalarTokenizer(self.action_space.n, self.config),
                 )
             )
         elif len(self.observation_space.shape) == 1:
-            return DiscreateScalarTokenizer(self.action_space.n, self.config)
+            return DiscreteScalarTokenizer(self.action_space.n, self.config)
         else:
             raise NotImplementedError
 

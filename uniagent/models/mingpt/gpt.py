@@ -58,8 +58,8 @@ class GPT(nn.Module):
                 )
 
         # report number of parameters (note we don't count the decoder parameters in lm_head)
-        n_params = sum(p.numel() for p in self.transformer.parameters())
-        print("number of parameters: %.2fM" % (n_params / 1e6,))
+        # n_params = sum(p.numel() for p in self.transformer.parameters())
+        # print("number of parameters: %.2fM" % (n_params / 1e6,))
 
     def construct_lm_head(self, config: Namespace) -> nn.Module:
         lm_head = nn.Linear(config.n_embed, config.vocab_size, bias=False)
