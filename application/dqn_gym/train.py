@@ -1,4 +1,4 @@
-from typing import List, Tuple, Any
+from typing import List, Tuple, Any, Type
 
 from itertools import count
 from argparse import Namespace
@@ -72,6 +72,7 @@ def train(
     optimizer: optim.Optimizer,
     args: Namespace,
     model_cls: nn.Module,
+    agent_cls: Type[Agent] = None,
 ):
     seed = args.seed + rank
     torch.manual_seed(seed)
@@ -80,7 +81,8 @@ def train(
     if hasattr(env, "seed"):
         env.seed(seed)
 
-    agent = Agent(model_cls, env.observation_space, env.action_space, args.device)
+    agent_cls = agent_cls or Agent
+    agent = agent_cls(model_cls, env.observation_space, env.action_space, args.device)
     if not args.async_mode:
         del agent.model
         agent.model = shared_model

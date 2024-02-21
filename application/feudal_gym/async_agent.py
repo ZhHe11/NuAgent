@@ -77,7 +77,7 @@ class AsyncAgent(BaseAgent):
                 tuple(map(lambda x: x.squeeze(0), net_state.worker_state))
             )
             net_states_manager.append(
-                tuple(map(lambda x: x.squeeze(0), net_state.worker_state))
+                tuple(map(lambda x: x.squeeze(0), net_state.manager_state))
             )
 
             obs = torch.from_numpy(obs).float().to(self.device)

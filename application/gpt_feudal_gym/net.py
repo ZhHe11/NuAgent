@@ -18,6 +18,8 @@ To achieve that, GPTFeudalVision comprises three key components:
 import torch
 import torch.nn as nn
 
+from torch.distributions import Categorical
+
 from uniagent.models.mingpt.tokenizer.vision import VisionEmbedding
 from uniagent.models.mingpt.tokenizer.scalar import DiscreteScalarTokenizer
 from uniagent.models.fun.gpt_feudal import GPTFeudal, FeudalState
@@ -97,10 +99,13 @@ class GPTFeudalVision(GPTFeudal):
         token_seq_embedding_batch = self.merge_with_memory(step_token_embedding_batch)
 
         # each ele: [batch_size, seq_len, embed_dim]
-        # TODO(ming): should check whether the gradient flow whether break
-        values_manager, queries, states_M = self.manager(
-            token_seq_embedding_batch, feudal_state.manager_state
-        )
+        (
+            values_manager,
+            queries,
+            queries_log_prob,
+            queries_entropy,
+            states_M,
+        ) = self.manager(token_seq_embedding_batch, feudal_state.manager_state)
 
         # here, goals play as query to compute the corresponding values and policy
         # convert queries to token_seq_embedding_batch
@@ -114,12 +119,28 @@ class GPTFeudalVision(GPTFeudal):
 
         # keep dim
         values = [values_manager, values_worker]
-        logits = [queries, logits]
+        # logits = [queries, logits]
+        dist = Categorical(logits=logits)
+
+        if self.training:
+            actions = dist.rsample()
+        else:
+            actions = logits.argmax(dim=-1)
+
+        act_log_probs = dist.log_prob(actions)
+        act_entropy = dist.entropy()
+
+        outputs = [queries, actions]
+        log_probs = [queries_log_prob, act_log_probs]
+        entropies = [queries_entropy, act_entropy]
+
         states = FeudalState(
             states_M, states_W, feudal_state.state_seg, feudal_state.goal_seg
         )
         if not self.training:
             values = [v[:, -1] for v in values]
-            logits = [v[:, -1] for v in logits]
+            outputs = [x[:, -1] for x in outputs]
+            log_probs = [x[:, -1] for x in log_probs]
+            entropies = [x[:, -1] for x in entropies]
 
-        return values, logits, states
+        return values, outputs, log_probs, entropies, states

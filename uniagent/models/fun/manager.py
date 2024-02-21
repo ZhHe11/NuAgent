@@ -154,6 +154,8 @@ class Manager(nn.Module):
         return tick, list(map(reset_grad2, hx)), list(map(reset_grad2, cx))
 
 
+from torch.nn import functional as F
+from torch.distributions import MultivariateNormal
 from uniagent.models.mingpt import blocks
 from argparse import Namespace
 
@@ -186,7 +188,10 @@ class TransformerManager(Manager):
                     [blocks.Block(self.config) for _ in range(self.config.n_layer)]
                 ),
                 ln_f=nn.LayerNorm(self.config.n_embed),
-                lm_head=nn.Linear(
+                lm_head_loc=nn.Linear(
+                    self.config.n_embed, self.config.vocab_size, bias=False
+                ),
+                lm_head_scale=nn.Linear(
                     self.config.n_embed, self.config.vocab_size, bias=False
                 ),
             )
@@ -217,15 +222,18 @@ class TransformerManager(Manager):
         for block in self.transformer.h:
             x = block(x)
         x = self.transformer.ln_f(x)
-        g_hat = self.transformer.lm_head(x)
-        # g_hat, state = self.gpt(token_seq_embedding, state)
+        g_loc = self.transformer.lm_head_loc(x)
+        g_scale = torch.exp(self.transformer.lm_head_scale(x))
+        g_cov = torch.diag_embed(g_scale)
+        dist = MultivariateNormal(g_loc, g_cov)
 
-        if self.training and random.random() < 0.1:
-            # add noise to the g_hat for exploration
-            g_hat = g_hat + torch.autograd.Variable(
-                g_hat.data.new(g_hat.size()).normal_(0.0, 1.0), requires_grad=False
-            )
+        if self.training:
+            g_hat = dist.sample()
+        else:
+            g_hat = g_loc
 
+        g_log_prob = dist.log_prob(g_hat)
+        g_entropy = dist.entropy()
         value = self.value_function(x)
 
-        return value, g_hat, state
+        return value, g_hat, g_log_prob, g_entropy, state
