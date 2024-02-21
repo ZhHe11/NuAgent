@@ -1,3 +1,4 @@
+import pprint
 import torch
 
 from torch.distributions import Categorical
@@ -13,6 +14,7 @@ args.device = (
     if args.use_cuda
     else torch.device("cpu")
 )
+pprint.pprint(args.__dict__)
 
 env = make_env_wrapper(args)()
 args.vision_num_input_channels = env.observation_space.shape[0]
@@ -38,6 +40,6 @@ while not done:
         goals, worker_logits = logits
         dist = Categorical(logits=worker_logits)
         action = dist.sample()
-        print("time step:", feudal.time_step)
     obs, reward, done, truncated, info = env.step(action.cpu().numpy()[0])
+    print(action, done, truncated)
     done = done or truncated
