@@ -2,7 +2,7 @@
 This file implements a FeuDal net refer to: https://github.com/vtalpaert/pytorch-feudal-network/blob/master/fun.py
 """
 
-from typing import Tuple, List, Any, Dict
+from typing import Any, Dict
 from collections import namedtuple, deque
 from argparse import Namespace
 
@@ -13,15 +13,13 @@ from torch import nn
 from torch.nn import functional as F
 from gym import spaces
 
-from .utils import reset_grad2, cosine_similarity
+from .utils import reset_grad2
 from .perception import Perception
 from .manager import Manager
 from .worker import Worker
 
 
-FeudalState = namedtuple(
-    "FeudalState", "manager_state,worker_state,state_seg, goal_seg"
-)
+FeudalState = namedtuple("FeudalState", "manager_state,worker_state,state_seg,goal_seg")
 
 
 class FeudalNet(nn.Module):
@@ -49,21 +47,20 @@ class FeudalNet(nn.Module):
         self.num_outputs = num_outputs
         self.observation_space = observation_space
         self.action_space = action_space
-        self.channel_first = args.channel_first
+        self.channel_first = True
         self.config = args
+        self.config.num_outputs = num_outputs
+
         self.perception = self.create_perception()
         self.worker = self.create_worker()
         self.manager = self.create_manager()
-        # self.manager_partial_loss = nn.CosineEmbeddingLoss()
         self.to(self.device)
 
     def create_worker(self) -> Worker:
-        return Worker(
-            self.num_outputs, self.config.d, self.config.k, device=self.device
-        )
+        return Worker(self.config)
 
     def create_manager(self) -> Manager:
-        return Manager(self.config.d, self.config.c, device=self.device)
+        return Manager(self.config)
 
     def create_perception(self) -> nn.Module:
         perception = Perception(
@@ -92,60 +89,65 @@ class FeudalNet(nn.Module):
         x: Any,
         feudal_state: FeudalState,
         reset_value_grad: bool = True,
-        update_network_state: bool = True,
+        flush_network_state: bool = True,
     ):
         """Feed forward computing with given observation (x) and feudal state (feudal_state).
 
         Args:
             x (Any): A batch of observations
             feudal_state (FeudalState): An instance of FeudalState
-            reset_value_grad (bool, optional): Whether reset value grad or not. Defaults to False.
+            reset_value_grad (bool, optional): Whether reset value grad or not. Defaults to False
+            flush_network_state (bool, optional): Whether flush network state. Defaults to True
 
         Returns:
             Tuple: ...
         """
 
-        states_W, states_M, ss, goal_hist = (
-            feudal_state.worker_state,
-            feudal_state.manager_state,
-            feudal_state.state_seg,
-            feudal_state.goal_seg,
-        )
+        states_W = feudal_state.worker_state
+        states_M = feudal_state.manager_state
+        ss: deque = feudal_state.state_seg
+        goal_hist: deque = feudal_state.goal_seg
 
+        # observation encoding
         z = self.perception(x)
         value_manager, goal, s, states_M = self.manager(
-            z, states_M, reset_value_grad, update_network_state
+            z, states_M, reset_value_grad, flush_network_state
         )
 
         assert not s.requires_grad, "s should not require grad"
 
         # update goal and state history
-        if update_network_state:
+        if flush_network_state:
             goal_hist.append(goal)
             ss.append(s)
 
-            # sum_goal = torch.stack(goal_hist[-self.c :]).sum(dim=0).detach()
-            sum_goal = goal_hist[-1].detach()
-        else:
-            # sum_goal = (
-            #     torch.stack(goal_hist[-self.c - 1 :] + [goal]).sum(dim=0).detach()
-            # )
-            sum_goal = goal.detach()
-
-        value_worker, action_probs, states_W = self.worker(
-            z, sum_goal, states_W, reset_value_grad, update_network_state
+        # XXX(ming): please have a try for not gradient-stopping
+        sum_goal = torch.stack(goal_hist).sum(dim=0).detach()
+        value_worker, action_logits, states_W = self.worker(
+            z, sum_goal, states_W, reset_value_grad, flush_network_state
         )
 
         return (
             value_worker,
             value_manager,
-            action_probs,
+            action_logits,
             FeudalState(states_M, states_W, ss, goal_hist),
         )
 
     def state_cosin_similarity(
         self, states, goals, use_repeated_terminal_state: bool = True
     ):
+        """Compute state cosin similarity.
+
+        Args:
+            states (torch.Tensor): A batch of states
+            goals (torch.Tensor): A batch of goals
+            use_repeated_terminal_state (bool, optional): Enable repeated terminal states. Defaults to True.
+
+        Returns:
+            _type_: _description_
+        """
+
         # concatenate all states
         assert len(states) >= self.config.c, (len(states), self.config.c)
         assert len(goals) >= self.config.c, (len(goals), self.config.c)
@@ -212,6 +214,7 @@ class FeudalNet(nn.Module):
         return FeudalState(
             self.manager.reset_states_grad(feudal_state.manager_state),
             self.worker.reset_states_grad(feudal_state.worker_state),
+            # keep only the latest C timestep of states and goals
             list(
                 map(
                     lambda x: reset_grad2(x, False),
@@ -232,20 +235,34 @@ class FeudalNet(nn.Module):
         reward: float,
         env_info: Dict[str, Any],
         feudal_state: FeudalState,
-    ):
-        state_hist = feudal_state.state_seg
-        goal_hist = feudal_state.goal_seg
+    ) -> torch.Tensor:
+        """Compute intrinsic reward for current time ste
 
+        Args:
+            obs (np.ndarray): Observation at current step
+            reward (float): Reward at current step
+            env_info (Dict[str, Any]): Environment information
+            feudal_state (FeudalState): A feudal state instance
+
+        Returns:
+            torch.Tensor: A batch of intrinsic rewards, shaped as [batch_size, 1]
+        """
+
+        state_hist = feudal_state.state_seg[-self.config.c :]
+        goal_hist = feudal_state.goal_seg[-self.config.c :]
+
+        # a batch of intrinsic reward, be shaped as [batch_size, 1]
         rI = torch.zeros(state_hist[0].size(0), 1, device=state_hist[0].device)
 
         s_t = state_hist[-1]
-        t = len(state_hist) - 1
+        idx = len(state_hist) - 1
 
         for i in range(1, self.config.c):
-            t_minus_i = t - i
-            s_t_i = feudal_state.state_seg[t_minus_i]
+            t_minus_i = idx - i
+            s_t_i = state_hist[t_minus_i]
             g_t_i = goal_hist[t_minus_i]
             rI += F.cosine_similarity(s_t - s_t_i, g_t_i).detach().unsqueeze(-1)
+
         return rI / self.config.c
 
 

@@ -2,15 +2,11 @@
 Agent the wrapper of FeuDal, for discrete environment.
 """
 
-from typing import Any, Optional
 from threading import Lock
 from itertools import count
 
-import argparse
-import gym
 import torch
 import numpy as np
-from torch._C import Size
 
 import torch.multiprocessing as mp
 
@@ -59,7 +55,7 @@ class AsyncAgent(BaseAgent):
             # )
 
             obs = torch.from_numpy(obs).float().to(self.device)
-            values, goal_and_actions, log_probs, entropies, net_state = self.model(
+            values, outputs, log_probs, entropies, net_state = self.model(
                 obs.unsqueeze(0), net_state
             )
             manager_values, worker_values = values

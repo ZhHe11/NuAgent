@@ -5,7 +5,7 @@ from .utils import View
 class Perception(nn.Module):
     """Returns z, the shared intermediate representation [batch x d]"""
 
-    def __init__(self, observation_shape, d, channel_first):
+    def __init__(self, observation_shape, d, channel_first=True):
         super(Perception, self).__init__()
         self.channel_first = channel_first
 

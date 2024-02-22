@@ -17,11 +17,12 @@ from application.feudal_gym.async_agent import AsyncAgent
 
 parser = argparse.ArgumentParser(description="Feudal Net with A3C setup")
 parser.add_argument(
-    "--lr",
+    "--manager-lr",
     type=float,
     default=0.0003,  # try LogUniform(1e-4.5, 1e-3.5)
     help="learning rate",
 )
+parser.add_argument("--worker-lr", type=float, default=0.002)
 parser.add_argument(
     "--alpha", type=float, default=0.8, help="intrinsic reward multiplier"
 )
@@ -94,6 +95,12 @@ parser.add_argument("--master-addr", default="localhost")
 parser.add_argument("--master-port", default="29500")
 parser.add_argument("--optimizer", default="sgd")
 
+# network structure settings
+parser.add_argument("--c", type=int, default=10)
+parser.add_argument("--r", type=int, default=10)
+parser.add_argument("--k", type=int, default=256)
+parser.add_argument("--d", type=int, default=256)
+
 
 if __name__ == "__main__":
     os.environ["OMP_NUM_THREADS"] = "1"
@@ -152,6 +159,7 @@ if __name__ == "__main__":
                 lock,
                 log_dir,
                 AsyncAgent,
+                run_worker,
             ),
         )
         p.start()

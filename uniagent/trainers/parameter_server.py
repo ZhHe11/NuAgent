@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Type
 import threading
 
 import torch
@@ -33,7 +33,8 @@ class ParameterServer:
         batch_update_size: int = batch_update_size,
         batch_mode: str = "avg",
     ):
-        self.model: nn.Module = model_cls(**model_kwargs)
+        self.args = args
+        self.model: nn.Module = model_cls(args=args, **model_kwargs)
         self.model.train()
         self.cnt = 0
         self.lock = threading.Lock()
@@ -43,10 +44,18 @@ class ParameterServer:
         self.curr_update_size = 0
         self.batch_mode = batch_mode
 
-        self.optimizer = setup_optimizer(args, self.model)
+        self.optimizer = self.setup_optimizer()
         self.parameter_buffer = []
 
         self.reset_grad()
+
+    def setup_optimizer(self):
+        optimizer = setup_optimizer(self.args, self.model)
+        return optimizer
+
+    def step_optimizer(self):
+        self.optimizer.step()
+        self.optimizer.zero_grad()
 
     def get_model(self) -> Tuple[int, nn.Module]:
         return [self.cnt, self.model]
@@ -60,7 +69,7 @@ class ParameterServer:
 
     @staticmethod
     @rpc.functions.async_execution
-    def update_and_fetch_model(ps_rref, worker_id, grads=None, paramters=None):
+    def update_and_fetch_model(ps_rref, worker_id, grads=None, parameters=None):
         # Using the RRef to retrieve the local PS instance
         self = ps_rref.local_value()
 
@@ -71,9 +80,9 @@ class ParameterServer:
                 for p, g in zip(self.model.parameters(), grads):
                     assert g is not None
                     p.grad += g
-            elif paramters is not None:
+            elif parameters is not None:
                 for i, (_, target_p) in enumerate(
-                    zip(self.model.parameters(), paramters)
+                    zip(self.model.parameters(), parameters)
                 ):
                     if len(self.parameter_buffer) == i:
                         self.parameter_buffer.append(torch.zeros_like(target_p))
@@ -90,10 +99,9 @@ class ParameterServer:
                     for p in self.model.parameters():
                         p.grad /= self.batch_update_size
                 if grads is not None:
-                    self.optimizer.step()
-                    self.optimizer.zero_grad()
+                    self.step_optimizer()
                     self.reset_grad()
-                elif paramters is not None:
+                elif parameters is not None:
                     for local_p, target_p in zip(
                         self.model.parameters(), self.parameter_buffer
                     ):
@@ -120,11 +128,14 @@ def get_parameter_server(
     model_kwargs,
     worker_num,
     batch_mode: str = "sum",
+    parameter_server_cls: Type[ParameterServer] = None,
 ):
     global param_server
     with global_lock:
         if not param_server:
-            param_server = ParameterServer(
+            if parameter_server_cls is None:
+                parameter_server_cls = ParameterServer
+            param_server = parameter_server_cls(
                 args,
                 model_class,
                 model_kwargs,

@@ -12,16 +12,17 @@ from uniagent.envs.atari import create_atari_env
 from uniagent.trainers.parameter_server import run_parameter_server
 
 from application.a3c_gym.cli import run_worker
-from application.feudal_gym.async_agent import AsyncAgent
+from application.feudal_gym.async_agent import AsyncAgent, FeudalParameterServer
 
 
 parser = argparse.ArgumentParser(description="Feudal Net with A3C setup")
 parser.add_argument(
-    "--lr",
+    "--manager-lr",
     type=float,
     default=0.0003,  # try LogUniform(1e-4.5, 1e-3.5)
     help="learning rate",
 )
+parser.add_argument("--worker-lr", type=float, default=0.002)
 parser.add_argument(
     "--alpha", type=float, default=0.8, help="intrinsic reward multiplier"
 )
@@ -70,7 +71,7 @@ parser.add_argument(
 )
 parser.add_argument("--seed", type=int, default=123, help="random seed")
 parser.add_argument(
-    "--num-processes", type=int, default=4, help="how many training processes to use"
+    "--num-workers", type=int, default=4, help="how many training workers to use"
 )
 parser.add_argument(
     "--num-steps",
@@ -93,6 +94,12 @@ parser.add_argument("--use-cuda", action="store_true")
 parser.add_argument("--master-addr", default="localhost")
 parser.add_argument("--master-port", default="29500")
 parser.add_argument("--optimizer", default="sgd")
+
+# network structure settings
+parser.add_argument("--c", type=int, default=10)
+parser.add_argument("--r", type=int, default=10)
+parser.add_argument("--k", type=int, default=256)
+parser.add_argument("--d", type=int, default=256)
 
 
 if __name__ == "__main__":
@@ -130,17 +137,20 @@ if __name__ == "__main__":
     log_dir = os.path.join("runs", current_time + "_" + socket.gethostname())
     ps_name = "parameter_server"
 
-    p = mp.Process(target=run_parameter_server, args=(0, args.num_processes, ps_name))
+    # 1 for evaluation
+    num_processes = 2 + args.num_workers
+    # 0 for parameter server
+    p = mp.Process(target=run_parameter_server, args=(0, num_processes, ps_name))
     p.start()
     processes.append(p)
 
-    for rank in range(1, args.num_processes):
+    for rank in range(1, num_processes):
         p = mp.Process(
             target=run_worker,
             args=(
                 args,
                 rank,
-                args.num_processes,
+                num_processes,
                 ps_name,
                 FeudalNet,
                 env.observation_space,
@@ -149,6 +159,7 @@ if __name__ == "__main__":
                 lock,
                 log_dir,
                 AsyncAgent,
+                FeudalParameterServer,
             ),
         )
         p.start()

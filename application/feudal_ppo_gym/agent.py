@@ -39,7 +39,7 @@ class AtariAC(ActorCritic):
 
 class Agent:
     def __init__(self, args, model_class: nn.Module, model_kwargs: dict):
-        self.model = model_class(**model_kwargs)
+        self.model = model_class(args=args, **model_kwargs)
         self.device = args.device
         self.env = make_env(args)
 

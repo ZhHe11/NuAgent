@@ -39,6 +39,7 @@ def run_worker(
     lock: threading.Lock,
     log_dir: str,
     async_agent_cls: Type[AsyncAgent] = None,
+    parameter_server_cls: Type = None,
 ):
     print(f"Worker rank {rank} initializing RPC")
     rpc.init_rpc(name=f"trainer_{rank}", rank=rank, world_size=world_size)
@@ -54,7 +55,14 @@ def run_worker(
     param_server_rref = rpc.remote(
         ps_name,
         get_parameter_server,
-        args=(args, model_class, model_kwargs, world_size - 2, "avg"),
+        args=(
+            args,
+            model_class,
+            model_kwargs,
+            world_size - 2,
+            "avg",
+            parameter_server_cls,
+        ),
     )
 
     print("* fetched parameter server reference", param_server_rref)

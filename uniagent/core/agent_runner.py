@@ -73,7 +73,7 @@ class AgentRunner:
         log_dir: str,
     ) -> None:
         self.args = args
-        self.model = model_class(**model_kwargs).to(args.device)
+        self.model = model_class(args=args, **model_kwargs).to(args.device)
         self.device = args.device
         self.env = make_env()
         self.log_dir = log_dir
@@ -257,4 +257,4 @@ class AgentRunner:
             last_net_states = self.handle_net_states(episode_state)
 
     def handle_net_states(self, episode_state: EpisodeState) -> Any:
-        return episode_state.net_states
+        return episode_state.last_net_state

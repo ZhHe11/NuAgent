@@ -9,12 +9,50 @@ import torch.distributed.rpc as rpc
 import torch.multiprocessing as mp
 from tensorboardX import SummaryWriter
 
+from torch import optim
 from torch.distributions import Categorical
 from torch.nn.modules import Module
 
 from uniagent.trainers.parameter_server import ParameterServer
-from uniagent.models.fun.feudal_net import FeudalState
+from uniagent.models.fun.feudal_net import FeudalState, FeudalNet
 from application.a3c_gym.async_agent import AsyncAgent as BaseAgent, EpisodeState
+
+
+class FeudalParameterServer(ParameterServer):
+    def setup_optimizer(self):
+        optimizer = {}
+        if self.args.optimizer == "sgd":
+            optimizer["manager"] = optim.SGD(
+                self.model.manager.parameters(), lr=self.args.manager_lr, momentum=0.9
+            )
+            optimizer["worker"] = optim.SGD(
+                self.model.worker.parameters(), lr=self.args.worker_lr, momentum=0.9
+            )
+        elif self.args.optimizer == "rmsprop":
+            optimizer["manager"] = optim.RMSprop(
+                self.model.manager.parameters(), lr=self.args.manager_lr
+            )
+            optimizer["worker"] = optim.RMSprop(
+                self.model.manager.parameters(), lr=self.args.worker_lr
+            )
+        elif self.args.optimizer == "adam":
+            optimizer["manager"] = optim.Adam(
+                self.model.worker.parameters(), lr=self.args.manager_lr
+            )
+            optimizer["worker"] = optim.Adam(
+                self.model.worker.parameters(), lr=self.args.worker_lr
+            )
+        else:
+            raise NotImplementedError
+        return optimizer
+
+    def step_optimizer(self):
+        for v in self.optimizer.values():
+            v.step()
+            v.zero_grad()
+
+
+from numbers import Number
 
 
 class AsyncAgent(BaseAgent):
@@ -31,7 +69,7 @@ class AsyncAgent(BaseAgent):
 
         model: nn.Module = rpc.rpc_sync(
             self.ps_rref.owner(),
-            ParameterServer.update_and_fetch_model,
+            FeudalParameterServer.update_and_fetch_model,
             args=(
                 self.ps_rref,
                 self.worker_name,
@@ -44,7 +82,7 @@ class AsyncAgent(BaseAgent):
     def run_episode(
         self,
         obs: np.ndarray,
-        done: bool,
+        last_done: bool,
         net_state: FeudalState,
         global_counter: mp.Value = None,
         lock: threading.Lock = None,
@@ -53,8 +91,8 @@ class AsyncAgent(BaseAgent):
         intrinsic_rewards = []
         values_manager = []
         values_worker = []
-        net_states_manager = []
-        net_states_worker = []
+        # net_states_manager = []
+        # net_states_worker = []
 
         log_probs = []
         entropies = []
@@ -62,7 +100,9 @@ class AsyncAgent(BaseAgent):
         actions = []
         dones = []
 
-        if done:
+        assert isinstance(self.model, FeudalNet)
+
+        if last_done:
             net_state: FeudalState = self.model.init_state(1, self.device)
         else:
             net_state = self.model.reset_states_grad(net_state)
@@ -73,23 +113,29 @@ class AsyncAgent(BaseAgent):
         for step_cnt in counter:
             obses.append(obs)
             # TODO(ming): fix this squeeze
-            net_states_worker.append(
-                tuple(map(lambda x: x.squeeze(0), net_state.worker_state))
-            )
-            net_states_manager.append(
-                tuple(map(lambda x: x.squeeze(0), net_state.manager_state))
-            )
+            # net_states_worker.append(
+            #     tuple(map(lambda x: x.squeeze(0), net_state.worker_state))
+            # )
+            # # tick, hx, cx
+            # net_states_manager.append(
+            #     tuple(map(lambda x: x.squeeze(0) if not isinstance(x, Number) else x, net_state.manager_state))
+            # )
+            # net_states_worker.append(net_state.worker_state)
+            # net_states_manager.append(net_state.manager_state)
 
             obs = torch.from_numpy(obs).float().to(self.device)
-            value_worker, value_manager, action_probs, net_state = self.model(
-                obs.unsqueeze(0), net_state
+            value_worker, value_manager, action_logits, net_state = self.model(
+                obs.unsqueeze(0), net_state, flush_network_state=True
             )
 
-            dist = Categorical(probs=action_probs)
+            dist = Categorical(logits=action_logits)
+
             if self.model.training:
+                # XXX(ming): only discreate distribution use sample
+                #   otherwise rsample
                 action = dist.sample()
             else:
-                action = action_probs.argmax(dim=-1)
+                action = action_logits.argmax(dim=-1)
 
             log_prob = dist.log_prob(action)
             entropy = dist.entropy()
@@ -117,12 +163,12 @@ class AsyncAgent(BaseAgent):
                 break
 
         obses.append(obs)
-        net_states_worker.append(
-            tuple(map(lambda x: x.squeeze(0), net_state.worker_state))
-        )
-        net_states_manager.append(
-            tuple(map(lambda x: x.squeeze(0), net_state.worker_state))
-        )
+        # net_states_worker.append(
+        #     tuple(map(lambda x: x.squeeze(0), net_state.worker_state))
+        # )
+        # net_states_manager.append(
+        #     tuple(map(lambda x: x.squeeze(0), net_state.worker_state))
+        # )
 
         if dones[-1]:
             values_manager.append(torch.zeros(1).to(self.device).squeeze())
@@ -130,34 +176,57 @@ class AsyncAgent(BaseAgent):
         else:
             obs = torch.from_numpy(obs).float().to(self.device)
             value_worker, value_manager, _, _ = self.model(
-                obs.unsqueeze(0), net_state, update_network_state=False
+                obs.unsqueeze(0), net_state, flush_network_state=False
             )
             values_manager.append(value_manager.squeeze())
             values_worker.append(value_worker.squeeze())
 
         return EpisodeState(
-            obses,
-            dones,
-            actions,
-            [net_states_manager, net_states_worker, net_state, intrinsic_rewards],
-            rewards,
-            [values_manager, values_worker],
-            log_probs,
-            entropies,
-            len(rewards),
+            obses=obses,
+            dones=dones,
+            actions=actions,
+            # net_states_manager=net_states_manager,
+            # net_states_worker=net_states_worker,
+            last_net_state=net_state,
+            intrinsic_rewards=intrinsic_rewards,
+            rewards=rewards,
+            values_manager=values_manager,
+            values_worker=values_worker,
+            worker_log_probs=log_probs,
+            worker_entropies=entropies,
+            episode_len=len(rewards),
         )
 
     def handle_net_states(self, episode_state: EpisodeState) -> Any:
-        return episode_state.net_states[2]
+        return episode_state.last_net_state
 
     def compute_loss(
         self, episode_state: EpisodeState
     ) -> Tuple[torch.Tensor, Dict[str, Any]]:
         rewards = episode_state.rewards
-        intrinsic_rewards = episode_state.net_states[-1]
-        values_manager = episode_state.values[0]
-        values_worker = episode_state.values[1]
-        states = episode_state.net_states[2]
+        intrinsic_rewards = episode_state.intrinsic_rewards
+        values_manager = episode_state.values_manager
+        values_worker = episode_state.values_worker
+        goal_hist = episode_state.last_net_state.goal_seg
+        state_hist = episode_state.last_net_state.state_seg
+
+        assert isinstance(self.model, FeudalNet)
+        assert (
+            len(state_hist)
+            == len(goal_hist)
+            == episode_state.episode_len + self.model.config.c
+        ), (
+            len(state_hist),
+            len(goal_hist),
+            episode_state.episode_len + self.model.config.c,
+        )
+
+        # in fact, we use cos_similarity to approximate the
+        #   goal generation policy, which is optimized towards
+        #   directed state vector (pointed from s_t to s_{t+c})
+        dcos_ts = self.model.state_cosin_similarity(
+            state_hist, goal_hist, use_repeated_terminal_state=True
+        )
 
         gae_worker = 0.0
         gae_manager = 0.0
@@ -168,7 +237,8 @@ class AsyncAgent(BaseAgent):
         GAE_manager = [0.0] * episode_state.episode_len
         GAE_worker = [0.0] * episode_state.episode_len
 
-        for i in reversed(range(episode_state.episode_len)):
+        for i in range(episode_state.episode_len - 1, -1, -1):
+            # for worker
             ret_worker = (
                 self.args.gamma_worker * ret_worker
                 + rewards[i]
@@ -184,6 +254,8 @@ class AsyncAgent(BaseAgent):
                 gae_worker * self.args.gamma_worker * self.args.lambda_worker
                 + delta_t_worker
             )
+
+            # for manager
             ret_manager = self.args.gamma_manager * ret_manager + rewards[i]
             delta_t_manager = (
                 rewards[i]
@@ -207,28 +279,16 @@ class AsyncAgent(BaseAgent):
 
         values_manager = torch.stack(values_manager[:-1])
         values_worker = torch.stack(values_worker[:-1])
-        entropies = torch.stack(episode_state.entropies, dim=-1)
-        log_probs = torch.stack(episode_state.log_probs, dim=-1)
-        assert (
-            len(states.state_seg)
-            == len(states.goal_seg)
-            == episode_state.episode_len + self.model.c
-        ), (
-            len(states.state_seg),
-            len(states.goal_seg),
-            episode_state.episode_len + self.model.c,
-        )
-        dcos_ts = self.model.state_cosin_similarity(
-            states.state_seg, states.goal_seg, use_repeated_terminal_state=True
-        )
+        entropies = torch.stack(episode_state.worker_entropies, dim=-1)
+        log_probs = torch.stack(episode_state.worker_log_probs, dim=-1)
 
         assert values_worker.shape == R_worker.shape, (
             values_worker.shape,
             R_worker.shape,
         )
 
-        Advs_worker = R_worker - values_worker
-        # Advs_worker = GAE_worker - values_worker
+        # Advs_worker = R_worker - values_worker
+        Advs_worker = GAE_worker - values_worker
 
         assert values_manager.shape == R_manager.shape, (
             values_manager.shape,
@@ -254,7 +314,7 @@ class AsyncAgent(BaseAgent):
             GAE_manager.shape,
         )
         assert dcos_ts.requires_grad
-        manager_pg_loss = -(dcos_ts * GAE_manager.detach()).mean()
+        manager_pg_loss = (dcos_ts * GAE_manager.detach()).mean()
 
         entropy_loss = entropies.mean()
 

@@ -24,6 +24,10 @@ class Worker(nn.Module):
         self.device = config.device
         self.config = config
 
+        assert hasattr(
+            self.config, "num_outputs"
+        ), "config has no attribute named 'num_outputs' which should be the same as action dim"
+
         self.f_Wrnn = self.create_observation_embedding()
         self.proj = self.create_goal_projection()
         self.value_function = self.create_value_function()
@@ -88,10 +92,10 @@ class Worker(nn.Module):
         # Worker firstly embeds the input observations
         states_W = self.f_Wrnn(z, states_W)
         hx, cx = states_W
-        U = hx.reshape(hx.shape[0], self.k, self.num_outputs)
+        U = hx.reshape(hx.shape[0], self.config.k, self.config.num_outputs)
         # then coordinates the embedded observation with the embedded goals
-        a = torch.einsum("bk,bka->ba", w, U)  # [batch x a]
-        probs = F.softmax(a, dim=1)
+        logits = torch.einsum("bk,bka->ba", w, U)  # [batch x a]
+        # probs = F.softmax(a, dim=1)
         value = self.value_function(
             torch.cat([cx, w], dim=-1)
         )  # if reset_value_grad else hx)
@@ -99,7 +103,7 @@ class Worker(nn.Module):
         if not update_network_state:
             states_W = None
 
-        return value, probs, states_W
+        return value, logits, states_W
 
 
 from uniagent.models.mingpt import OuterQueryGPT

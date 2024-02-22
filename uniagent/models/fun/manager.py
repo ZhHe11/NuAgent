@@ -92,7 +92,7 @@ class dLSTM(nn.Module):
 
 
 class Manager(nn.Module):
-    def __init__(self, observation_space, action_space, config):
+    def __init__(self, config):
         """Construct a manager with a dilated LSTM.
 
         Args:
