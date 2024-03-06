@@ -12,3 +12,4 @@ tensorboardX
 shutup
 torchvision
 einops>=0.7.0
+dm-tree==0.1.8
