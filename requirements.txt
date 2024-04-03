@@ -13,3 +13,7 @@ shutup
 torchvision
 einops>=0.7.0
 dm-tree==0.1.8
+ml_collections==0.1.1
+jax
+flax
+matplotlib
