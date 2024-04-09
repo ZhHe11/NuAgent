@@ -1,3 +1,5 @@
+from typing import Dict
+
 import tree
 import numpy as np
 
@@ -49,6 +51,14 @@ class Dataset:
         if kwargs is not None:
             self.data.update(kwargs)
         self.size = get_size(self.data)
+
+    def __getitem__(self, k) -> np.ndarray:
+        return self.data[k]
+
+    def copy(self, data: Dict[str, np.ndarray]):
+        for k, v in data.items():
+            self.data[k] = v
+        return self
 
     def sample(self, batch_size: int, indx=None):
         """

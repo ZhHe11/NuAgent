@@ -29,15 +29,15 @@ import wandb
 import tempfile
 import absl.flags as flags
 import ml_collections
-from  ml_collections.config_dict import FieldReference
+from ml_collections.config_dict import FieldReference
 import datetime
 import wandb
 import time
 import numpy as np
 
 
-def get_flag_dict():
-    flag_dict = {k: getattr(flags.FLAGS, k) for k in flags.FLAGS}
+def get_flag_dict(args):
+    flag_dict = {k: getattr(args, k) for k in args.__dict__}
     for k in flag_dict:
         if isinstance(flag_dict[k], ml_collections.ConfigDict):
             flag_dict[k] = flag_dict[k].to_dict()
@@ -48,15 +48,21 @@ def default_wandb_config():
     config = ml_collections.ConfigDict()
     config.offline = False  # Syncs online or not?
     config.project = "jaxrl_m"  # WandB Project Name
-    config.entity = FieldReference(None, field_type=str)  # Which entity to log as (default: your own user)
+    config.entity = FieldReference(
+        None, field_type=str
+    )  # Which entity to log as (default: your own user)
 
     group_name = FieldReference(None, field_type=str)  # Group name
-    config.exp_prefix = group_name  # Group name (deprecated, but kept for backwards compatibility)
+    config.exp_prefix = (
+        group_name  # Group name (deprecated, but kept for backwards compatibility)
+    )
     config.group = group_name  # Group name
 
-    experiment_name = FieldReference(None, field_type=str) # Experiment name
+    experiment_name = FieldReference(None, field_type=str)  # Experiment name
     config.name = experiment_name  # Run name (will be formatted with flags / variant)
-    config.exp_descriptor = experiment_name  # Run name (deprecated, but kept for backwards compatibility)
+    config.exp_descriptor = (
+        experiment_name  # Run name (deprecated, but kept for backwards compatibility)
+    )
 
     config.unique_identifier = ""  # Unique identifier for run (will be automatically generated unless provided)
     config.random_delay = 0  # Random delay for wandb.init (in seconds)
@@ -64,6 +70,7 @@ def default_wandb_config():
 
 
 def setup_wandb(
+    args,
     hyperparam_dict,
     entity=None,
     project="jaxrl_m",
@@ -102,7 +109,7 @@ def setup_wandb(
         unique_identifier = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
     if name is not None:
-        name = name.format(**{**get_flag_dict(), **hyperparam_dict})
+        name = name.format(**{**get_flag_dict(args), **hyperparam_dict})
 
     if group is not None and name is not None:
         experiment_id = f"{name}_{unique_identifier}"
@@ -134,7 +141,7 @@ def setup_wandb(
     init_kwargs.update(additional_init_kwargs)
     run = wandb.init(**init_kwargs)
 
-    wandb.config.update(get_flag_dict())
+    wandb.config.update(get_flag_dict(args))
 
     wandb_config = dict(
         exp_prefix=group,

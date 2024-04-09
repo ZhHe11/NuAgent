@@ -14,7 +14,9 @@ import os.path as osp
 class Visualizer:
     def __init__(self, env_name, viz_env, dataset, discount):
         data_path = osp.abspath(
-            osp.join(osp.dirname(__file__), f"../antmaze_aux/{env_name}-aux.npz")
+            osp.join(
+                osp.dirname(__file__), f"../d4rl_envs/antmaze_aux/{env_name}-aux.npz"
+            )
         )
         print("Attempting to load from: ", data_path)
         data = np.load(data_path)

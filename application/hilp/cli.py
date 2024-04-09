@@ -10,19 +10,22 @@ from argparse import ArgumentParser, Namespace
 import numpy as np
 import wandb
 import tqdm
+import tree
 
+from torch import nn
 from uniagent.utils.wandb import setup_wandb, default_wandb_config
 
-from d4rl_envs.utils import record_video, CsvLogger
-from d4rl_envs import ant as d4rl_ant
-from dataset_utils import get_env_and_dataset, get_traj_v, get_v_goal
-from dataset import GCDataset
+from .d4rl_envs.utils import record_video, CsvLogger
+from .d4rl_envs import ant as d4rl_ant
+from .dataset_utils import get_env_and_dataset, get_traj_v, get_v_goal
+from .dataset import GCDataset
 from . import utils
-from learner import HILPAgent
+from .learner import HILPAgent
+from .evaluation import evaluate_with_trajectories
 
 
 def main(args: Namespace):
-    g_start_time = int(datetime.now().timestamp())
+    g_start_time = int(datetime.datetime.now().timestamp())
 
     exp_name = ""
     exp_name += f"sd{args.seed:03d}_"
@@ -39,13 +42,13 @@ def main(args: Namespace):
     args.wandb["project"] = "hilp_gcrl"
     args.wandb["name"] = args.wandb["exp_descriptor"] = exp_name
     args.wandb["group"] = args.wandb["exp_prefix"] = args.run_group
-    setup_wandb(dict(), **args.wandb)
+    setup_wandb(args, dict(), **args.wandb)
 
     args.save_dir = os.path.join(
         args.save_dir,
-        args.run.project,
-        args.config.exp_prefix,
-        args.config.experiment_id,
+        wandb.run.project,
+        wandb.config.exp_prefix,
+        wandb.config.experiment_id,
     )
     os.makedirs(args.save_dir, exist_ok=True)
 
@@ -53,6 +56,10 @@ def main(args: Namespace):
     env, dataset, aux_env, goal_info = get_env_and_dataset(
         args.env_name, args.width, args.height, args.discount
     )
+
+    # considering some observations maybe a tree of numpy ndarray
+    base_observation = tree.map_structure(lambda x: x[0], dataset["observations"])
+    env.reset()
 
     train_dataset = GCDataset(
         dataset=dataset,
@@ -64,7 +71,9 @@ def main(args: Namespace):
     )
 
     sample = train_dataset.sample(1)
-    agent = HILPAgent(
+
+    agent: nn.Module = HILPAgent(
+        args,
         sample["observations"].shape[-1],
         sample["goals"].shape[-1],
         sample["actions"].shape[-1],
@@ -106,9 +115,9 @@ def main(args: Namespace):
         batch = train_dataset.sample(args.batch_size)
 
         if args.use_rnd:
-            agent, update_info = agent.update_with_rnd(batch)
+            raise NotImplementedError
         else:
-            agent, update_info = agent.update(batch)
+            update_info = agent.update(batch)
 
         if i % args.log_interval == 0:
             train_metrics = {f"training/{k}": v for k, v in update_info.items()}
@@ -195,19 +204,72 @@ def main(args: Namespace):
             eval_logger.log(eval_metrics, step=i)
 
         if i % args.save_interval == 0:
-            save_dict = dict(
-                agent=flax.serialization.to_state_dict(agent),
-            )
+            pass
+            # save_dict = dict(
+            #     agent=flax.serialization.to_state_dict(agent),
+            # )
 
-            fname = os.path.join(args.save_dir, f"params_{i}.pkl")
-            print(f"Saving to {fname}")
-            with open(fname, "wb") as f:
-                pickle.dump(save_dict, f)
+            # fname = os.path.join(args.save_dir, f"params_{i}.pkl")
+            # print(f"Saving to {fname}")
+            # with open(fname, "wb") as f:
+            #     pickle.dump(save_dict, f)
     train_logger.close()
     eval_logger.close()
 
 
-if __name__ == "__main__":
-    parser = ArgumentParser("HILP training")
+import torch
+
+
+def get_command_parser():
+    parser = ArgumentParser("Training HILP")
+
+    parser.add_argument("--env-name", type=str, help="environment name", required=True)
+    parser.add_argument("--width", type=int, default=200, help="window size, the width")
+    parser.add_argument(
+        "--height", type=int, default=200, help="window size, the height"
+    )
+
+    parser.add_argument(
+        "--save-dir", type=str, default="exp/", help="experiment logging directory"
+    )
+    parser.add_argument("--restore-path", type=str, default=None)
+    parser.add_argument(
+        "--run-group", type=str, default="debug", help="naming experiment group"
+    )
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--eval-episodes", type=int, default=50)
+    parser.add_argument("--num-video-episodes", type=int, default=2)
+    parser.add_argument("--log-interval", type=int, default=1000)
+    parser.add_argument("--eval-interval", type=int, default=100000)
+    parser.add_argument("--save-interval", type=int, default=1000000)
+    parser.add_argument("--batch-size", type=int, default=1024)
+    parser.add_argument("--total-steps", type=int, default=1000000)
+
+    parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--discount", type=float, default=0.99)
+    parser.add_argument("--tau", type=float, default=0.005)
+    parser.add_argument("--expectile", type=float, default=0.95)
+    parser.add_argument("--use-layer-norm", type=int, default=1)
+    parser.add_argument("--skill-dim", type=int, default=32)
+    parser.add_argument("--skill-expectile", type=float, default=0.9)
+    parser.add_argument("--skill-temperature", type=float, default=10.0)
+    parser.add_argument("--skill-discount", type=float, default=0.99)
+    parser.add_argument("--p-currgoal", type=float, default=0.0)
+    parser.add_argument("--p-trajgoal", type=float, default=0.625)
+    parser.add_argument("--p-randomgoal", type=float, default=0.375)
+
+    parser.add_argument("--planning-num-recursions", type=int, default=0)
+    parser.add_argument("--planning-num_states", type=int, default=50000)
+    parser.add_argument("--planning-num-knns", type=int, default=50)
+
+    parser.add_argument("--encoder", type=str, default=None)
+    parser.add_argument("--p-aug", type=float, default=None)
+    parser.add_argument("--use-rnd", type=int, default=0)
+
+    parser.add_argument("--device", type=str, default="cpu")
+
     args = parser.parse_args()
-    main(args)
+
+    args.wandb = default_wandb_config()
+
+    return args

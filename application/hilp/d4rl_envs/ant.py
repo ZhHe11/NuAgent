@@ -1,4 +1,4 @@
-from typing import Tuple, Any
+from typing import Tuple, Any, Dict
 
 import matplotlib
 
@@ -17,7 +17,6 @@ import d4rl
 import numpy as np
 import functools as ft
 import math
-from dataset import Dataset
 import matplotlib.gridspec as gridspec
 
 
@@ -171,14 +170,14 @@ class GoalReachingAnt(gym.Wrapper):
         ax.axis("off")
 
 
-def get_env_and_dataset(env_name: str) -> Tuple[Any, Dataset]:
+def get_env_and_dataset(env_name: str) -> Tuple[Any, Dict[str, np.ndarray]]:
     """Initializing environment and dataset with given name.
 
     Args:
         env_name (str): Environment name
 
     Returns:
-        Tuple[Any, Dataset]: A tuple of environment instance and dataset.
+        Tuple[Any, Dict[str, np.ndarray]]: A tuple of environment instance and dataset.
     """
 
     env = GoalReachingAnt(env_name)
@@ -187,7 +186,6 @@ def get_env_and_dataset(env_name: str) -> Tuple[Any, Dataset]:
     dataset["dones_float"] = 1.0 - np.isclose(
         np.roll(dataset["observations"], -1, axis=0), dataset["next_observations"]
     ).all(-1)
-    dataset = Dataset.create(**dataset)
     return env, dataset
 
 

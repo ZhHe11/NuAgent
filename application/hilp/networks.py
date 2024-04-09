@@ -79,7 +79,7 @@ class GoalConditionedValue(nn.Module):
         super().__init__()
         self.net = MLP(
             obs_dim + goal_dim,
-            hidden_channels=hidden_dims + [1],
+            hidden_channels=hidden_dims + (1,),
             norm_layer=nn.LayerNorm if norm else None,
         )
 
@@ -92,7 +92,7 @@ class GoalConditionedValue(nn.Module):
             return self.net(torch.concat([observations, goals], dim=-1))
 
 
-class GoalConditionedPhiValue:
+class GoalConditionedPhiValue(nn.Module):
     def __init__(
         self,
         obs_dim: int,
@@ -103,7 +103,7 @@ class GoalConditionedPhiValue:
         super().__init__()
         self.net = MLP(
             obs_dim + goal_dim,
-            hidden_channels=hidden_dims + [1],
+            hidden_channels=hidden_dims + (1,),
             norm_layer=nn.LayerNorm if norm else None,
         )
 
@@ -130,7 +130,7 @@ class GoalConditionedCritic(nn.Module):
         super().__init__()
         self.net = MLP(
             obs_dim + goal_dim + act_dim,
-            hidden_channels=hidden_dims + [1],
+            hidden_channels=hidden_dims + (1,),
             norm_layer=nn.LayerNorm if norm else None,
         )
 
@@ -174,6 +174,9 @@ class RNDNet(nn.Module):
         return rets
 
 
+import numpy as np
+
+
 class Actor(nn.Module):
     def __init__(
         self,
@@ -182,13 +185,37 @@ class Actor(nn.Module):
         act_dim: int,
         hidden_dims: Sequence[int] = (256, 256),
         norm: bool = True,
+        state_dependent_std: bool = True,
     ):
         super().__init__()
         self.net = MLP(
             obs_dim + goal_dim,
-            hidden_channels=hidden_dims + [act_dim],
+            hidden_channels=hidden_dims,
             norm_layer=nn.LayerNorm if norm else None,
         )
+        mean = nn.Linear(hidden_dims[-1], act_dim, bias=False)
+        if state_dependent_std:
+            log_stds = nn.Linear(hidden_dims[-1], act_dim, bias=False)
+        else:
+            log_stds = torch.autograd.Variable(torch.rand(act_dim))
+        # log_stds = torch.clip(log_stds, log_std_min, log_std_max)
+        self.mean_layer = mean
+        self.log_std_layer = log_stds
 
-    def forward(self, observations: torch.Tensor, goals: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError
+    def compute_actions(
+        self, observations: torch.Tensor, goals: torch.Tensor, temperature: float = 1.0
+    ) -> torch.Tensor:
+        dist = self(observations, goals, temperature)
+        actions = dist.sample()
+        return actions
+
+    def forward(
+        self, observations: torch.Tensor, goals: torch.Tensor, temperature: float = 1.0
+    ) -> torch.distributions.Distribution:
+        x = self.net(torch.concat([observations, goals], dim=-1))
+        mean = self.mean_layer(x)
+        log_std = self.log_std_layer(x)
+        dist = torch.distributions.MultivariateNormal(
+            loc=mean, scale_tril=torch.exp(log_std) * temperature
+        )
+        return dist
