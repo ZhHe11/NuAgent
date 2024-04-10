@@ -1,6 +1,7 @@
 from typing import Tuple, Dict, Any, Sequence, Union
 
 import copy
+import logging
 
 from argparse import Namespace
 from collections import namedtuple
@@ -23,7 +24,7 @@ def expectile_loss(adv: torch.Tensor, diff: torch.Tensor, expectile: float = 0.7
     return w * (diff**2)
 
 
-import jax
+logger = logging.getLogger("HILPAgent")
 
 
 class HILPAgent(nn.Module):
@@ -45,35 +46,45 @@ class HILPAgent(nn.Module):
         self.config = copy.deepcopy(config)
 
         self.networks = self.create_networks(load_path)
-        # XXX(Ming): I do not know whether it is required, please have a check
-        for k, v in self.networks.items():
-            if "target" not in k:
-                assert isinstance(v, nn.Module), (k, v)
-                self.register_module(k, v)
         self.setup_optimizer()
 
     def setup_optimizer(self):
-        self.optimizer = torch.optim.Adam(self.parameters())
+        self.optimizer = torch.optim.Adam(self.parameters(), self.config.lr)
 
-    def create_networks(self, load_path: str = None):
+    def create_networks(self, load_path: str = None) -> nn.ModuleDict:
+        """Register a module dict.
+
+        Args:
+            load_path (str, optional): File path of local storage. Defaults to None.
+
+        Returns:
+            nn.ModuleDict: An instance of module dict.
+        """
+
         value = GoalConditionedPhiValue(
             self.obs_dim, self.goal_dim, self.config.skill_dim
+        ).to(self.config.device)
+        skill_value = GoalConditionedValue(self.obs_dim, self.config.skill_dim).to(
+            self.config.device
         )
-        skill_value = GoalConditionedValue(self.obs_dim, self.config.skill_dim)
         skill_critic = GoalConditionedCritic(
             self.obs_dim, self.config.skill_dim, self.act_dim
+        ).to(self.config.device)
+        skill_actor = Actor(self.obs_dim, self.config.skill_dim, self.act_dim).to(
+            self.config.device
         )
 
-        skill_actor = Actor(self.obs_dim, self.config.skill_dim, self.act_dim)
-        return {
-            "value": value,
-            "target_value": copy.deepcopy(value),
-            "skill_value": skill_value,
-            "target_skill_value": copy.deepcopy(skill_value),
-            "skill_critic": skill_critic,
-            "target_skill_critic": copy.deepcopy(skill_critic),
-            "skill_actor": skill_actor,
-        }
+        return nn.ModuleDict(
+            {
+                "value": value,
+                "target_value": copy.deepcopy(value),
+                "skill_value": skill_value,
+                "target_skill_value": copy.deepcopy(skill_value),
+                "skill_critic": skill_critic,
+                "target_skill_critic": copy.deepcopy(skill_critic),
+                "skill_actor": skill_actor,
+            }
+        )
 
     def get_phi(self, observations: Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
         """Return embeded observation as goal.
@@ -92,9 +103,12 @@ class HILPAgent(nn.Module):
         phi = self.networks["value"].get_phi(observations)
         return phi
 
-    def target_update(self, tau: float = 0.05):
+    def target_update(self):
+        tau = self.config.tau
         for k in ["value", "skill_value", "skill_critic"]:
-            for tp, p in zip(self.networks[f"target_{k}"], self.networks[k]):
+            for tp, p in zip(
+                self.networks[f"target_{k}"].parameters(), self.networks[k].parameters()
+            ):
                 tp.data.copy_(tau * p + (1 - tau) * tp)
 
     def forward(
@@ -127,7 +141,8 @@ class HILPAgent(nn.Module):
     def compute_skill_actor_loss(
         self, batch: Dict[str, torch.Tensor]
     ) -> Tuple[torch.Tensor, Dict[str, float]]:
-        v = self("skill_value", batch["observations"], batch["skills"]).squeeze(-1)
+        with torch.no_grad():
+            v = self("skill_value", batch["observations"], batch["skills"]).squeeze(-1)
         q = self.compute_target(
             "skill_critic", batch["observations"], batch["skills"], batch["actions"]
         ).squeeze(-1)
@@ -138,15 +153,19 @@ class HILPAgent(nn.Module):
 
         dist = self("skill_actor", batch["observations"], batch["skills"])
         log_probs = dist.log_prob(batch["actions"]).squeeze(-1)
-        actor_loss = -(exp_a * log_probs).mean()
+        assert exp_a.size() == log_probs.size(), (exp_a.size(), log_probs.size())
+        # actor_loss = -(exp_a * log_probs).mean()
+        actor_loss = -log_probs.mean()
         entropy = dist.entropy().mean()
 
-        return actor_loss, {
+        info = {
             "actor_loss": actor_loss.item(),
             "adv": adv.mean().item(),
             "log_probs": log_probs.mean().item(),
             "entropy": entropy.item(),
         }
+
+        return actor_loss, info
 
     def compute_skill_critic_loss(
         self, batch: Dict[str, torch.Tensor]
@@ -239,15 +258,20 @@ class HILPAgent(nn.Module):
         value_loss, value_info = self.compute_value_loss(batch)
         for k, v in value_info.items():
             info[f"value/{k}"] = v
+        logger.debug(f"value_info: {value_info}")
 
         # for skill policy
         bsize = batch["observations"].shape[0]
         with torch.no_grad():
             batch["phis"] = self.get_phi(batch["observations"])
             batch["next_phis"] = self.get_phi(batch["next_observations"])
-        random_skills = np.random.randn(bsize, self.config.skill_dim)
-        batch["skills"] = random_skills / np.linalg.norm(
-            random_skills, axis=1, keepdims=True
+        random_skills = (
+            torch.randn(bsize, self.config.skill_dim)
+            .float()
+            .to(device=self.config.device)
+        )
+        batch["skills"] = random_skills / torch.linalg.norm(
+            random_skills, dim=1, keepdim=True
         )
         batch["rewards"] = ((batch["next_phis"] - batch["phis"]) * batch["skills"]).sum(
             axis=1
@@ -257,18 +281,26 @@ class HILPAgent(nn.Module):
         skill_value_loss, skill_value_info = self.compute_skill_value_loss(batch)
         for k, v in skill_value_info.items():
             info[f"skill_value/{k}"] = v
+        logger.debug(f"skill_value_info: {skill_value_info}")
 
         skill_critic_loss, skill_critic_info = self.compute_skill_critic_loss(batch)
         for k, v in skill_critic_info.items():
             info[f"skill_critic/{k}"] = v
+        logger.debug(f"skill_critic_info: {skill_critic_info}")
 
         skill_actor_loss, skill_actor_info = self.compute_skill_actor_loss(batch)
         for k, v in skill_actor_info.items():
             info[f"skill_actor/{k}"] = v
+        logger.debug(f"skill_actor_info: {skill_actor_info}")
 
         loss = value_loss + skill_value_loss + skill_critic_loss + skill_actor_loss
 
-        return loss, info
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        self.target_update()
+
+        return info
 
     @torch.no_grad()
     def sample_skill_actions(

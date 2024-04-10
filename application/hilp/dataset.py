@@ -11,7 +11,7 @@ def get_size(data) -> int:
 
 class Dataset:
     """
-    A class for storing (and retrieving batches of) data in nested dictionary format.
+    A class for storing (and retrieving batches of) data in nested dictionary format. Then the data is frozen to avoid be modified.
 
     Example:
         dataset = Dataset({
@@ -44,19 +44,23 @@ class Dataset:
         return cls(data)
 
     def __init__(self, *args, **kwargs):
-        self.data = {}
+        self.data: Dict[str, np.ndarray] = {}
         for arg in args:
             assert isinstance(arg, dict), type(arg)
             self.data.update(arg)
         if kwargs is not None:
             self.data.update(kwargs)
         self.size = get_size(self.data)
+        # make the data be fixed
+        for v in self.data.values():
+            v.setflags(write=False)
 
     def __getitem__(self, k) -> np.ndarray:
         return self.data[k]
 
     def copy(self, data: Dict[str, np.ndarray]):
         for k, v in data.items():
+            v.setflags(write=True)
             self.data[k] = v
         return self
 
@@ -78,10 +82,6 @@ class Dataset:
 import dataclasses
 import jax
 import jax.numpy as jnp
-
-from flax.core.frozen_dict import FrozenDict
-
-# from flax.core import freeze
 
 
 def random_crop(img, crop_from, padding):
@@ -134,7 +134,24 @@ class GCDataset:
         (self.terminal_locs,) = np.nonzero(self.dataset[self.terminal_key] > 0)
         assert np.isclose(self.p_randomgoal + self.p_trajgoal + self.p_currgoal, 1.0)
 
-    def sample_goals(self, indx, p_randomgoal=None, p_trajgoal=None, p_currgoal=None):
+    def sample_goals(
+        self,
+        indx: np.ndarray,
+        p_randomgoal: float = None,
+        p_trajgoal: float = None,
+        p_currgoal: float = None,
+    ) -> np.ndarray:
+        """Sample a batch of indices corresponding to a part of observation sequence.
+
+        Args:
+            indx (np.ndarray): _description_
+            p_randomgoal (float, optional): _description_. Defaults to None.
+            p_trajgoal (float, optional): _description_. Defaults to None.
+            p_currgoal (float, optional): _description_. Defaults to None.
+
+        Returns:
+            np.ndarray: _description_
+        """
         if p_randomgoal is None:
             p_randomgoal = self.p_randomgoal
         if p_trajgoal is None:
@@ -220,8 +237,5 @@ class GCDataset:
                         else arr,
                         batch[key],
                     )
-
-        if isinstance(batch["goals"], FrozenDict):
-            raise RuntimeError("Unexcepted data type, goals should not be a FrozenDict")
 
         return batch

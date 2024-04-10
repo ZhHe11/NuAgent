@@ -5,11 +5,10 @@ import os
 os.environ["D4RL_SUPPRESS_IMPORT_ERROR"] = "1"
 
 import numpy as np
-import jax
 import d4rl
 import gym
-
-from jax import numpy as jnp
+import tree
+import torch
 
 from uniagent.envs.utils import EpisodeMonitor
 
@@ -20,20 +19,37 @@ from .d4rl_envs import ant_diagnostics
 from .dataset import Dataset
 
 
-@jax.jit
+# @jax.jit
 def get_traj_v(agent, trajectory):
-    def get_v(s, g):
-        v1, v2 = agent.network(
-            jax.tree_map(lambda x: x[None], s),
-            jax.tree_map(lambda x: x[None], g),
-            method="value",
-        )
-        return (v1 + v2) / 2
+    # def get_v(s, g):
+    #     v1, v2 = agent.network(
+    #         jax.tree_map(lambda x: x[None], s),
+    #         jax.tree_map(lambda x: x[None], g),
+    #         method="value",
+    #     )
+    #     return (v1 + v2) / 2
 
-    observations = trajectory["observations"]
-    all_values = jax.vmap(jax.vmap(get_v, in_axes=(None, 0)), in_axes=(0, None))(
-        observations, observations
+    # observations = trajectory["observations"]
+    # all_values = jax.vmap(jax.vmap(get_v, in_axes=(None, 0)), in_axes=(0, None))(
+    #     observations, observations
+    # )
+    def get_v(s, g):
+        v = agent(
+            "value",
+            tree.map_structure(lambda x: x[None], s),
+            tree.map_structure(lambda x: x[None], g),
+        )
+        return v
+
+    observations = tree.map_structure(
+        lambda x: torch.from_numpy(x).float().to(agent.config.device),
+        trajectory["observations"],
     )
+    with torch.no_grad():
+        all_values = torch.vmap(
+            torch.vmap(get_v, in_dims=(None, 0)), in_dims=(0, None)
+        )(observations, observations)
+        all_values = all_values.cpu().numpy()
     return {
         "dist_to_beginning": all_values[:, 0],
         "dist_to_end": all_values[:, -1],
@@ -41,11 +57,19 @@ def get_traj_v(agent, trajectory):
     }
 
 
-@jax.jit
+# @jax.jit
 def get_v_goal(agent, goal, observations):
-    goal = jnp.tile(goal, (observations.shape[0], 1))
-    v1, v2 = agent.network(observations, goal, method="value")
-    return (v1 + v2) / 2
+    goal = np.tile(goal, (observations.shape[0], 1))
+    # v1, v2 = agent.network(observations, goal, method="value")
+    observations = tree.map_structure(
+        lambda x: torch.from_numpy(x).float().to(agent.config.device), observations
+    )
+    goal = tree.map_structure(
+        lambda x: torch.from_numpy(x).float().to(agent.config.device), goal
+    )
+    with torch.no_grad():
+        v = agent("value", observations, goal)
+    return v.cpu().numpy()
 
 
 def get_dataset(
@@ -156,9 +180,10 @@ def normalize_dataset(env_name, dataset):
         return dataset
 
 
-def get_env_and_dataset(
-    env_name: str, width: int, height: int, discount: float
-) -> Tuple[Any, Dataset, Any, Dict]:
+from argparse import Namespace
+
+
+def get_env_and_dataset(args: Namespace) -> Tuple[Any, Dataset, Any, Dict]:
     """Return a tuple of (environment_instance, dataset, auxilary_environment, preset_goals)
 
     Returns:
@@ -167,6 +192,11 @@ def get_env_and_dataset(
 
     aux_env = {}
     goal_info = {}
+
+    env_name = args.env_name
+    width = args.width
+    height = args.height
+    discount = args.discount
 
     if "antmaze" in env_name:
         env_name = env_name
@@ -198,9 +228,9 @@ def get_env_and_dataset(
             env.viewer.cam.distance = 50
             env.viewer.cam.elevation = -90
 
-            viz_env, viz_dataset = d4rl_ant.get_env_and_dataset(env_name)
+            viz_env, viz_data = d4rl_ant.get_env_and_dataset(env_name)
             # convert to hilp dataset
-            viz_dataset = Dataset.create(**viz_dataset)
+            viz_dataset = Dataset.create(**viz_data)
             viz = ant_diagnostics.Visualizer(
                 env_name, viz_env, viz_dataset, discount=discount
             )

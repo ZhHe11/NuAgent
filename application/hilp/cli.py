@@ -53,9 +53,7 @@ def main(args: Namespace):
     os.makedirs(args.save_dir, exist_ok=True)
 
     # constructing goal-conditioned dataset
-    env, dataset, aux_env, goal_info = get_env_and_dataset(
-        args.env_name, args.width, args.height, args.discount
-    )
+    env, dataset, aux_env, goal_info = get_env_and_dataset(args)
 
     # considering some observations maybe a tree of numpy ndarray
     base_observation = tree.map_structure(lambda x: x[0], dataset["observations"])
@@ -164,7 +162,7 @@ def main(args: Namespace):
                 )
                 trajs_dict[policy_type] = cur_trajs
 
-            if ArgumentParser.num_video_episodes > 0:
+            if args.num_video_episodes > 0:
                 video = record_video("Video", i, renders=renders)
                 eval_metrics["video"] = video
 

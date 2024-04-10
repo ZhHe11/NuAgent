@@ -196,9 +196,10 @@ class Actor(nn.Module):
             hidden_channels=hidden_dims,
             norm_layer=nn.LayerNorm if norm else None,
         )
-        mean = nn.Linear(hidden_dims[-1], act_dim, bias=False)
+        mean = nn.Linear(hidden_dims[-1], act_dim, bias=True)
         if state_dependent_std:
             log_stds = nn.Linear(hidden_dims[-1], act_dim, bias=True)
+            nn.init.xavier_uniform_(log_stds.weight)
         else:
             log_stds = torch.autograd.Variable(torch.rand(act_dim))
         # log_stds = torch.clip(log_stds, log_std_min, log_std_max)
