@@ -151,7 +151,9 @@ class HILPAgent(nn.Module):
         exp_a = adv * self.config.skill_temperature
         exp_a = torch.clamp(exp_a, max=100.0)
 
-        dist = self("skill_actor", batch["observations"], batch["skills"])
+        dist: torch.distributions.Distribution = self(
+            "skill_actor", batch["observations"], batch["skills"]
+        )
         log_probs = dist.log_prob(batch["actions"]).squeeze(-1)
         assert exp_a.size() == log_probs.size(), (exp_a.size(), log_probs.size())
         # actor_loss = -(exp_a * log_probs).mean()
@@ -161,7 +163,9 @@ class HILPAgent(nn.Module):
         info = {
             "actor_loss": actor_loss.item(),
             "adv": adv.mean().item(),
-            "log_probs": log_probs.mean().item(),
+            "bc_log_probs": log_probs.mean().item(),
+            "adv_median": adv.median().item(),
+            "mse": ((dist.mode - batch["actions"]) ** 2).mean().item(),
             "entropy": entropy.item(),
         }
 
@@ -182,9 +186,9 @@ class HILPAgent(nn.Module):
         critic_loss = ((q - target_q) ** 2).mean()
         return critic_loss, {
             "critic_loss": critic_loss,
-            "q_max": q.max().item(),
-            "q_min": q.min().item(),
-            "q_mean": q.mean().item(),
+            "q max": q.max().item(),
+            "q min": q.min().item(),
+            "q mean": q.mean().item(),
         }
 
     def compute_skill_value_loss(
