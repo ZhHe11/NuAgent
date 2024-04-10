@@ -80,7 +80,8 @@ import jax
 import jax.numpy as jnp
 
 from flax.core.frozen_dict import FrozenDict
-from flax.core import freeze
+
+# from flax.core import freeze
 
 
 def random_crop(img, crop_from, padding):
@@ -174,7 +175,20 @@ class GCDataset:
         goal_indx = np.where(np.random.rand(batch_size) < p_currgoal, indx, goal_indx)
         return goal_indx
 
-    def sample(self, batch_size: int, indx=None, evaluation=False):
+    def sample(
+        self, batch_size: int, indx: np.ndarray = None, evaluation: bool = False
+    ) -> Dict[str, jnp.array]:
+        """Sample a batch of data for evaluation or traning.
+
+        Args:
+            batch_size (int): Batch size.
+            indx (np.ndarray, optional): Index array. Defaults to None.
+            evaluation (bool, optional): Evaluation mode or not. Defaults to False.
+
+        Returns:
+            Dict[str, jnp.array]: A dict of batched data.
+        """
+
         if indx is None:
             indx = np.random.randint(self.dataset.size - 1, size=batch_size)
 
@@ -185,7 +199,7 @@ class GCDataset:
 
         batch["rewards"] = success.astype(float) * self.reward_scale + self.reward_shift
         batch["masks"] = 1.0 - success.astype(float)
-        batch["goals"] = jax.tree_map(
+        batch["goals"] = tree.map_structure(
             lambda arr: arr[goal_indx], self.dataset["observations"]
         )
 
@@ -198,7 +212,7 @@ class GCDataset:
                     [crop_froms, np.zeros((batch_size, 1), dtype=np.int32)], axis=1
                 )
                 for key in aug_keys:
-                    batch[key] = jax.tree_map(
+                    batch[key] = tree.map_structure(
                         lambda arr: np.array(
                             batched_random_crop(arr, crop_froms, padding)
                         )
@@ -208,8 +222,6 @@ class GCDataset:
                     )
 
         if isinstance(batch["goals"], FrozenDict):
-            # Freeze the other observations
-            batch["observations"] = freeze(batch["observations"])
-            batch["next_observations"] = freeze(batch["next_observations"])
+            raise RuntimeError("Unexcepted data type, goals should not be a FrozenDict")
 
         return batch

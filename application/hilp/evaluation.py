@@ -92,6 +92,7 @@ def add_episode_info(env_name, env, info, trajectory):
         raise NotImplementedError
 
 
+import torch
 from .learner import HILPAgent
 
 
@@ -106,8 +107,6 @@ def evaluate_with_trajectories(
     policy_type: str = "goal_skill",
     planning_info: Dict[str, Any] = None,
 ) -> Dict[str, float]:
-    policy_fn = agent.sample_skill_actions
-
     if policy_type == "goal_skill_planning":
         planning_info["examples"]["phis"] = np.array(
             agent.get_phi(planning_info["examples"]["observations"])
@@ -134,13 +133,19 @@ def evaluate_with_trajectories(
             policy_goal = obs_goal
 
             if policy_type == "goal_skill":
-                phi_obs, phi_goal = agent.get_phi(np.array([policy_obs, policy_goal]))
-                skill = (phi_goal - phi_obs) / np.linalg.norm(phi_goal - phi_obs)
-                action = policy_fn(
-                    observations=policy_obs, skills=skill, temperature=0.0
+                with torch.no_grad():
+                    phi_obs, phi_goal = agent.get_phi(
+                        np.array([policy_obs, policy_goal])
+                    )
+                skill = (phi_goal - phi_obs) / torch.linalg.norm(phi_goal - phi_obs)
+                action = agent.sample_skill_actions(
+                    observations=policy_obs, skills=skill, temperature=0.01
                 )
             elif policy_type == "goal_skill_planning":
-                phi_obs, phi_goal = agent.get_phi(np.array([policy_obs, policy_goal]))
+                with torch.no_grad():
+                    phi_obs, phi_goal = agent.get_phi(
+                        np.array([policy_obs, policy_goal])
+                    )
 
                 for k in range(planning_info["num_recursions"]):
                     ex_phis = planning_info["examples"]["phis"]
@@ -152,13 +157,11 @@ def evaluate_with_trajectories(
                         axis=0
                     )
                 way_skill = (phi_goal - phi_obs) / np.linalg.norm(phi_goal - phi_obs)
-                action = policy_fn(
-                    observations=policy_obs, skills=way_skill, temperature=0.0
+                action = agent.sample_skill_actions(
+                    observations=policy_obs, skills=way_skill, temperature=0.01
                 )
             else:
                 raise NotImplementedError
-
-            action = np.array(action)
             next_observation, reward, done, info = env_step(env_name, env, action)
 
             step += 1

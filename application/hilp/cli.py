@@ -217,9 +217,6 @@ def main(args: Namespace):
     eval_logger.close()
 
 
-import torch
-
-
 def get_command_parser():
     parser = ArgumentParser("Training HILP")
 

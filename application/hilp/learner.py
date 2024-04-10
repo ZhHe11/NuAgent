@@ -23,6 +23,9 @@ def expectile_loss(adv: torch.Tensor, diff: torch.Tensor, expectile: float = 0.7
     return w * (diff**2)
 
 
+import jax
+
+
 class HILPAgent(nn.Module):
     def __init__(
         self,
@@ -53,11 +56,15 @@ class HILPAgent(nn.Module):
         self.optimizer = torch.optim.Adam(self.parameters())
 
     def create_networks(self, load_path: str = None):
-        value = GoalConditionedPhiValue(self.obs_dim, self.goal_dim)
-        skill_value = GoalConditionedValue(self.obs_dim, self.goal_dim)
-        skill_critic = GoalConditionedCritic(self.obs_dim, self.goal_dim, self.act_dim)
+        value = GoalConditionedPhiValue(
+            self.obs_dim, self.goal_dim, self.config.skill_dim
+        )
+        skill_value = GoalConditionedValue(self.obs_dim, self.config.skill_dim)
+        skill_critic = GoalConditionedCritic(
+            self.obs_dim, self.config.skill_dim, self.act_dim
+        )
 
-        skill_actor = Actor(self.obs_dim, self.goal_dim, self.act_dim)
+        skill_actor = Actor(self.obs_dim, self.config.skill_dim, self.act_dim)
         return {
             "value": value,
             "target_value": copy.deepcopy(value),
@@ -68,7 +75,7 @@ class HILPAgent(nn.Module):
             "skill_actor": skill_actor,
         }
 
-    def get_phi(self, observations: torch.Tensor) -> torch.Tensor:
+    def get_phi(self, observations: Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
         """Return embeded observation as goal.
 
         Args:
@@ -78,7 +85,11 @@ class HILPAgent(nn.Module):
             torch.Tensor: Embedded observations as goals
         """
 
-        phi = self.networks["value"](observations)
+        if isinstance(observations, np.ndarray):
+            observations = torch.from_numpy(observations).to(
+                dtype=torch.float32, device=self.config.device
+            )
+        phi = self.networks["value"].get_phi(observations)
         return phi
 
     def target_update(self, tau: float = 0.05):
@@ -93,10 +104,12 @@ class HILPAgent(nn.Module):
         goals: torch.Tensor = None,
         actions: torch.Tensor = None,
     ) -> torch.Tensor:
-        if method in ["value", "skill_value", "actor"]:
+        if method in ["value", "skill_value", "skill_actor"]:
             return self.networks[method](observations, goals)
-        else:
+        elif method in ["skill_critic"]:
             return self.networks[method](observations, goals, actions)
+        else:
+            raise ValueError(f"unexpected method: {method}")
 
     @torch.no_grad()
     def compute_target(
@@ -121,10 +134,9 @@ class HILPAgent(nn.Module):
         adv = q - v
 
         exp_a = adv * self.config.skill_temperature
-        exp_a = torch.minimum(exp_a, 100.0)
+        exp_a = torch.clamp(exp_a, max=100.0)
 
-        logits = self("skill_actor", batch["observations"], batch["skills"])
-        dist = torch.distributions.categorical.Categorical(logits=logits)
+        dist = self("skill_actor", batch["observations"], batch["skills"])
         log_probs = dist.log_prob(batch["actions"]).squeeze(-1)
         actor_loss = -(exp_a * log_probs).mean()
         entropy = dist.entropy().mean()
@@ -144,9 +156,9 @@ class HILPAgent(nn.Module):
             "skill_value", batch["next_observations"], batch["skills"]
         ).squeeze(-1)
 
-        target_q = batch["rewards"] + self.config["skill_discount"] * next_v
+        target_q = batch["rewards"] + self.config.skill_discount * next_v
         q = self(
-            "skill_critic", batch["observation"], batch["skills"], batch["actions"]
+            "skill_critic", batch["observations"], batch["skills"], batch["actions"]
         ).squeeze(-1)
         critic_loss = ((q - target_q) ** 2).mean()
         return critic_loss, {
@@ -156,20 +168,13 @@ class HILPAgent(nn.Module):
             "q_mean": q.mean().item(),
         }
 
-    def compute_skill_value_loss(self, batch):
-        q1, q2 = self.network(
-            batch["observations"],
-            batch["skills"],
-            batch["actions"],
-            method="skill_target_critic",
-        )
-        q = np.minimum(q1, q2)
-        v = self.network(
-            batch["observations"],
-            batch["skills"],
-            method="skill_value",
-            params=network_params,
-        )
+    def compute_skill_value_loss(
+        self, batch: Dict[str, torch.Tensor]
+    ) -> Tuple[torch.Tensor, Dict[str, float]]:
+        q = self.compute_target(
+            "skill_critic", batch["observations"], batch["skills"], batch["actions"]
+        ).squeeze()
+        v = self("skill_value", batch["observations"], batch["skills"]).squeeze()
         adv = q - v
         value_loss = expectile_loss(adv, q - v, self.config.skill_expectile).mean()
 
@@ -185,20 +190,46 @@ class HILPAgent(nn.Module):
             "accept prob": (adv >= 0).float().mean().item(),
         }
 
-    def compute_value_loss(self, batch):
+    def compute_value_loss(
+        self, batch: Dict[str, torch.Tensor]
+    ) -> Tuple[torch.Tensor, Dict[str, float]]:
         # masks are 0 if terminal, 1 otherwise
         batch["masks"] = 1.0 - batch["rewards"]
         # rewards are 0 if terminal, -1 otherwise
         batch["rewards"] = batch["rewards"] - 1.0
 
-        next_v = self.compute_target(
+        next_v_target = self.compute_target(
             "value", batch["next_observations"], batch["goals"]
+        ).squeeze()
+        q_target = (
+            batch["rewards"] + self.config.discount * batch["masks"] * next_v_target
         )
-        q = batch["rewards"] + self.config.discounte * batch["masks"] * next_v
+        v_target = self.compute_target(
+            "value", batch["observations"], batch["goals"]
+        ).squeeze()
+        adv = q_target - v_target
+
+        v = self("value", batch["observations"], batch["goals"])
+        value_loss = expectile_loss(adv, q_target - v, self.config.expectile).mean()
+
+        return value_loss, {
+            "value_loss": value_loss.item(),
+            "v max": v.max().item(),
+            "v min": v.min().item(),
+            "v mean": v.mean().item(),
+            "abs adv mean": adv.abs().mean().item(),
+            "adv mean": adv.mean().item(),
+            "adv min": adv.min().item(),
+            "adv max": adv.max().item(),
+            "accept prob": (adv >= 0).float().mean().item(),
+        }
 
     def to_torch(self, batch: Dict[str, np.ndarray]) -> Dict[str, torch.Tensor]:
         for k, v in batch.items():
-            batch[k] = torch.from_numpy(v)
+            if isinstance(v, np.ndarray):
+                batch[k] = torch.from_numpy(v).to(
+                    dtype=torch.float32, device=self.config.device
+                )
         return batch
 
     def update(self, batch: Dict[str, np.ndarray]) -> Dict[str, float]:
@@ -208,6 +239,20 @@ class HILPAgent(nn.Module):
         value_loss, value_info = self.compute_value_loss(batch)
         for k, v in value_info.items():
             info[f"value/{k}"] = v
+
+        # for skill policy
+        bsize = batch["observations"].shape[0]
+        with torch.no_grad():
+            batch["phis"] = self.get_phi(batch["observations"])
+            batch["next_phis"] = self.get_phi(batch["next_observations"])
+        random_skills = np.random.randn(bsize, self.config.skill_dim)
+        batch["skills"] = random_skills / np.linalg.norm(
+            random_skills, axis=1, keepdims=True
+        )
+        batch["rewards"] = ((batch["next_phis"] - batch["phis"]) * batch["skills"]).sum(
+            axis=1
+        )
+        batch = self.to_torch(batch)
 
         skill_value_loss, skill_value_info = self.compute_skill_value_loss(batch)
         for k, v in skill_value_info.items():
@@ -228,10 +273,18 @@ class HILPAgent(nn.Module):
     @torch.no_grad()
     def sample_skill_actions(
         self,
-        observations: torch.Tensor,
-        skills: torch.Tensor = None,
+        observations: Union[np.ndarray, torch.Tensor],
+        skills: Union[np.ndarray, torch.Tensor] = None,
         temperature: float = 1.0,
     ) -> np.ndarray:
+        if isinstance(observations, np.ndarray):
+            observations = torch.from_numpy(observations).to(
+                dtype=torch.float32, device=self.config.device
+            )
+        if skills is not None and isinstance(skills, np.ndarray):
+            skills = torch.from_numpy(skills).to(
+                dtype=torch.float32, device=self.config.device
+            )
         actions = self.networks["skill_actor"].compute_actions(
             observations, skills, temperature
         )
