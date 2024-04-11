@@ -68,6 +68,48 @@ class LayerNormMLP(nn.Module):
         return self.net(x)
 
 
+# see the use of model ensembling: https://pytorch.org/tutorials/intermediate/ensembling.html
+from typing import List
+
+import copy
+
+from functools import partial
+from torch import vmap
+from torch.func import stack_module_state, functional_call, grad
+
+
+class ModelEnsembling(nn.Module):
+    def __init__(self, models: List[nn.Module]):
+        super().__init__()
+
+        # Construct a "stateless" version of one of the models.
+        # It is "stateless" in the sense that the parameters are
+        #   meta Tensors and do not have storage.
+        base_net = copy.deepcopy(models[0]).to("meta")
+        self.vmap_params, self.vmap_buffers = stack_module_state(models)
+        self.vmap_params = {
+            k: nn.Parameter(v, requires_grad=True) for k, v in self.vmap_params.items()
+        }
+
+        # wrap tensor as parameter
+        for k, v in self.vmap_params.items():
+            self.register_parameter(k.replace(".", "_"), v)
+
+        for k, v in self.vmap_buffers.items():
+            self.register_buffer(k.replace(".", "_"), v)
+
+        def fmodel(vmap_params, vmap_buffers, args, kwargs):
+            return functional_call(base_net, (vmap_params, vmap_buffers), args, kwargs)
+
+        self.fmodel = fmodel
+
+    def forward(self, *args, **kwargs):
+        rets_vmap = vmap(self.fmodel, in_dims=(0, 0, None, None))(
+            self.vmap_params, self.vmap_buffers, args, kwargs
+        )
+        return rets_vmap
+
+
 class GoalConditionedValue(nn.Module):
     def __init__(
         self,
@@ -75,13 +117,23 @@ class GoalConditionedValue(nn.Module):
         goal_dim: int,
         hidden_dims: Sequence[int] = (256, 256),
         norm: bool = True,
+        ensemble_num: int = 2,
+        encoder: nn.Module = None,
     ):
         super().__init__()
-        self.net = MLP(
-            obs_dim + goal_dim,
-            hidden_channels=hidden_dims + (1,),
-            norm_layer=nn.LayerNorm if norm else None,
-        )
+        _nets = [
+            MLP(
+                obs_dim + goal_dim,
+                hidden_channels=hidden_dims + (1,),
+                norm_layer=nn.LayerNorm if norm else None,
+            )
+            for _ in range(ensemble_num)
+        ]
+        net = ModelEnsembling(_nets)
+        if encoder is not None:
+            self.net = nn.Sequential([encoder(), net])
+        else:
+            self.net = net
 
     def forward(
         self, observations: torch.Tensor, goals: torch.Tensor = None
@@ -100,14 +152,24 @@ class GoalConditionedPhiValue(nn.Module):
         skill_dim: int,
         hidden_dims: Sequence[int] = (256, 256),
         norm: bool = True,
+        ensemble_num: int = 2,
+        encoder: nn.Module = None,
     ):
         super().__init__()
         assert obs_dim == goal_dim, (goal_dim, obs_dim)
-        self.net = MLP(
-            obs_dim,
-            hidden_channels=hidden_dims + (skill_dim,),
-            norm_layer=nn.LayerNorm if norm else None,
-        )
+        _nets = [
+            MLP(
+                obs_dim,
+                hidden_channels=hidden_dims + (skill_dim,),
+                norm_layer=nn.LayerNorm if norm else None,
+            )
+            for _ in range(ensemble_num)
+        ]
+        net = ModelEnsembling(_nets)
+        if encoder is not None:
+            self.net = nn.Sequential([encoder(), net])
+        else:
+            self.net = net
 
     def get_phi(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)
