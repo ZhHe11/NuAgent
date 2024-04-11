@@ -5,7 +5,7 @@ from torch import nn
 from torch import optim
 
 from hilp.networks import MLP
-from hilp.networks import ModelEnsembling, GoalConditionedValue
+from hilp.networks import ModelEnsembling
 
 
 @pytest.mark.parametrize("num_ensemble", (1, 2, 4))
@@ -35,10 +35,6 @@ def test_model_ensembling_inference(num_ensemble: int, out_dim: int):
     )
 
 
-from functools import partial
-from torch.func import functional_call, grad
-
-
 def test_model_ensembling_training():
     in_channels = 4
     out_dim = 2
@@ -65,6 +61,42 @@ def test_model_ensembling_training():
         loss = ((pred - target) ** 2).mean()
         loss.backward()
         for p in ensembler.parameters():
+            assert p.grad is not None
+        optimizer.step()
+        if loss.cpu().item() < 1e-16:
+            break
+
+
+from typing import Any
+
+from hilp.networks import GoalConditionedValue
+
+
+@pytest.mark.parametrize("encoder", (None,))
+@pytest.mark.parametrize("ensemble_num", (1, 2, 4))
+def test_goal_conditioned_with_model_ensemble(ensemble_num: int, encoder: Any):
+    obs_dim, goal_dim = 2, 2
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    goal_value_func = GoalConditionedValue(
+        obs_dim, goal_dim, hidden_dims=(64, 64), ensemble_num=ensemble_num, encoder=None
+    )
+    goal_value_func.to(device)
+
+    obs = torch.rand(2, obs_dim, device=device)
+    goal = torch.rand(2, goal_dim, device=device)
+    target = torch.rand(2, 1, device=device)
+
+    optimizer = optim.Adam(goal_value_func.parameters(), lr=1e-3)
+
+    while True:
+        optimizer.zero_grad()
+        pred = goal_value_func(obs, goal)
+        loss = ((pred - target) ** 2).mean()
+        loss.backward()
+        for p in goal_value_func.parameters():
+            assert p.grad is not None
+        for p in goal_value_func.ensembler.parameters():
             assert p.grad is not None
         optimizer.step()
         if loss.cpu().item() < 1e-16:

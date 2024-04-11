@@ -130,6 +130,8 @@ class GoalConditionedValue(nn.Module):
             for _ in range(ensemble_num)
         ]
         net = ModelEnsembling(_nets)
+        # for test only
+        self.ensembler = net
         if encoder is not None:
             self.net = nn.Sequential([encoder(), net])
         else:
