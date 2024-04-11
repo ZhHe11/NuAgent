@@ -263,6 +263,7 @@ class Actor(nn.Module):
         mean = nn.Linear(hidden_dims[-1], act_dim, bias=True)
         if state_dependent_std:
             log_stds = nn.Linear(hidden_dims[-1], act_dim, bias=True)
+            # XXX(ming): very important to avoid expose!
             nn.init.xavier_uniform_(log_stds.weight)
         else:
             log_stds = torch.autograd.Variable(torch.rand(act_dim))
