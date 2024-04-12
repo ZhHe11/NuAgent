@@ -238,29 +238,28 @@ class RNDNet(nn.Module):
         self,
         obs_dim: int,
         goal_dim: int,
-        rep_dim: int,
+        rep_dim: int = 32,
         hidden_dims: Sequence[int] = (256, 256),
         norm: bool = True,
+        encoder: nn.Module = None,
     ):
         super().__init__()
-        self.net = MLP(
+        net = MLP(
             obs_dim + goal_dim,
             hidden_channels=hidden_dims + [rep_dim],
             norm_layer=nn.LayerNorm if norm else None,
         )
+        if encoder is not None:
+            net = nn.Sequential([encoder(), net])
+        self.target_net = copy.deepcopy(net)
+        self.net = net
 
-    def foward(
-        self, observations: torch.Tensor, goals: torch.Tensor = None
-    ) -> torch.Tensor:
-        if goals is not None:
-            rets = self.net(observations)
-        else:
-            rets = self.net(torch.concat([observations, goals], dim=-1))
-        rets = (rets**2).sum(-1)
-        return rets
-
-
-import numpy as np
+    def foward(self, observations: torch.Tensor, goals: torch.Tensor) -> torch.Tensor:
+        net_input = torch.concat([observations, goals], dim=-1)
+        preds = self.net(net_input)
+        target = self.target_net(net_input)
+        score = -((preds - target) ** 2).sum(-1)
+        return score
 
 
 class Actor(nn.Module):

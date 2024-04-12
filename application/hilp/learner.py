@@ -16,6 +16,7 @@ from .networks import (
     GoalConditionedValue,
     GoalConditionedCritic,
     Actor,
+    RNDNet,
 )
 
 
@@ -73,6 +74,9 @@ class HILPAgent(nn.Module):
         skill_actor = Actor(self.obs_dim, self.config.skill_dim, self.act_dim).to(
             self.config.device
         )
+        rnd_net = RNDNet(self.obs_dim, self.goal_dim, self.config.rnd_dim).to(
+            self.config.device
+        )
 
         return nn.ModuleDict(
             {
@@ -83,6 +87,7 @@ class HILPAgent(nn.Module):
                 "skill_critic": skill_critic,
                 "target_skill_critic": copy.deepcopy(skill_critic),
                 "skill_actor": skill_actor,
+                "uncertainty_net": rnd_net,
             }
         )
 
@@ -118,7 +123,7 @@ class HILPAgent(nn.Module):
         goals: torch.Tensor = None,
         actions: torch.Tensor = None,
     ) -> torch.Tensor:
-        if method in ["value", "skill_value", "skill_actor"]:
+        if method in ["value", "skill_value", "skill_actor", "uncertainty_net"]:
             return self.networks[method](observations, goals)
         elif method in ["skill_critic"]:
             return self.networks[method](observations, goals, actions)
@@ -137,6 +142,19 @@ class HILPAgent(nn.Module):
             return self.networks[f"target_{method}"](observations, goals)
         else:
             return self.networks[f"target_{method}"](observations, goals, actions)
+
+    def compute_uncertainty_loss(
+        self, batch: Dict[str, torch.Tensor]
+    ) -> Tuple[torch.Tensor, Dict[str, float]]:
+        # FIXME(ming): should be vmap here
+        preds = self("uncertainty_net", batch["observations"], batch["goals"])
+        loss = preds.mean()
+        return loss, {
+            "loss": loss.cpu().item(),
+            "pred min": preds.min().item(),
+            "pred max": preds.max().item(),
+            "pred mean": preds.mean().item(),
+        }
 
     def compute_skill_actor_loss(
         self, batch: Dict[str, torch.Tensor]
@@ -231,6 +249,22 @@ class HILPAgent(nn.Module):
             "value", batch["next_observations"], batch["goals"]
         ).squeeze(-1)
 
+        # considering uncertainty here
+        if self.config.use_rnd:
+            with torch.no_grad():
+                regs: torch.Tensor = self(
+                    "uncertainty_net", batch["next_observations"], batch["goals"]
+                )
+            _shape = [1] * len(next_v_target_ensemble.shape)
+            _shape[0] = next_v_target_ensemble.shape[0]
+            regs = regs.tile(tuple(_shape))
+            # XXX(ming): I do not ensure whether we need to examplifier the reg
+            next_v_target_ensemble = torch.where(
+                regs < next_v_target_ensemble,
+                next_v_target_ensemble + regs,
+                next_v_target_ensemble,
+            )
+
         q_target = (
             batch["rewards"]
             + self.config.discount * batch["masks"] * next_v_target_ensemble.min(0)[0]
@@ -239,6 +273,17 @@ class HILPAgent(nn.Module):
         v_target_ensemble = self.compute_target(
             "value", batch["observations"], batch["goals"]
         ).squeeze(-1)
+        if self.config.use_rnd:
+            with torch.no_grad():
+                regs: torch.Tensor = self(
+                    "uncertainty_net", batch["observations"], batch["goals"]
+                )
+            _shape = [1] * len(v_target_ensemble.shape)
+            _shape[0] = v_target_ensemble.shape[0]
+            regs = regs.tile(tuple(_shape))
+            v_target_ensemble = torch.where(
+                regs < v_target_ensemble, regs + v_target_ensemble, v_target_ensemble
+            )
 
         adv = q_target - v_target_ensemble.mean(0)
 
@@ -324,6 +369,15 @@ class HILPAgent(nn.Module):
         logger.debug(f"skill_actor_info: {skill_actor_info}")
 
         loss = value_loss + skill_value_loss + skill_critic_loss + skill_actor_loss
+
+        if self.config.use_rnd:
+            uncertainty_loss, uncertainty_loss_info = self.compute_uncertainty_loss(
+                batch
+            )
+            for k, v in uncertainty_loss_info.items():
+                info[f"uncertainty/{k}"] = v
+            loss = loss + uncertainty_loss
+            logger.debug(f"uncertainty info: {uncertainty_loss_info}")
 
         self.optimizer.zero_grad()
         loss.backward()
