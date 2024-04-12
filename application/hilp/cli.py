@@ -215,7 +215,10 @@ def main(args: Namespace):
     eval_logger.close()
 
 
-def get_command_parser():
+from typing import Sequence
+
+
+def get_command_parser(args: Sequence[str] = None):
     parser = ArgumentParser("Training HILP")
 
     parser.add_argument("--env-name", type=str, help="environment name", required=True)
@@ -263,7 +266,7 @@ def get_command_parser():
 
     parser.add_argument("--device", type=str, default="cpu")
 
-    args = parser.parse_args()
+    args = parser.parse_args(args)
 
     args.wandb = default_wandb_config()
 

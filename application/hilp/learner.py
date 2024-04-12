@@ -62,13 +62,13 @@ class HILPAgent(nn.Module):
         """
 
         value = GoalConditionedPhiValue(
-            self.obs_dim, self.goal_dim, self.config.skill_dim
+            self.obs_dim, self.goal_dim, self.config.skill_dim, ensemble_num=2
         ).to(self.config.device)
-        skill_value = GoalConditionedValue(self.obs_dim, self.config.skill_dim).to(
-            self.config.device
-        )
+        skill_value = GoalConditionedValue(
+            self.obs_dim, self.config.skill_dim, ensemble_num=1
+        ).to(self.config.device)
         skill_critic = GoalConditionedCritic(
-            self.obs_dim, self.config.skill_dim, self.act_dim
+            self.obs_dim, self.config.skill_dim, self.act_dim, ensemble_num=2
         ).to(self.config.device)
         skill_actor = Actor(self.obs_dim, self.config.skill_dim, self.act_dim).to(
             self.config.device
@@ -143,12 +143,14 @@ class HILPAgent(nn.Module):
     ) -> Tuple[torch.Tensor, Dict[str, float]]:
         with torch.no_grad():
             v = self("skill_value", batch["observations"], batch["skills"]).squeeze(-1)
-        q = self.compute_target(
+        q_ensemble = self.compute_target(
             "skill_critic", batch["observations"], batch["skills"], batch["actions"]
         ).squeeze(-1)
+        assert q_ensemble.shape[0] == 2, "support only ensemble = 2"
+        q = q_ensemble.min(0)[0]
         adv = q - v
 
-        exp_a = adv * self.config.skill_temperature
+        exp_a = torch.exp(adv * self.config.skill_temperature)
         exp_a = torch.clamp(exp_a, max=100.0)
 
         dist: torch.distributions.Distribution = self(
@@ -156,8 +158,7 @@ class HILPAgent(nn.Module):
         )
         log_probs = dist.log_prob(batch["actions"]).squeeze(-1)
         assert exp_a.size() == log_probs.size(), (exp_a.size(), log_probs.size())
-        # actor_loss = -(exp_a * log_probs).mean()
-        actor_loss = -log_probs.mean()
+        actor_loss = -(exp_a * log_probs).mean()
         entropy = dist.entropy().mean()
 
         info = {
@@ -174,16 +175,18 @@ class HILPAgent(nn.Module):
     def compute_skill_critic_loss(
         self, batch: Dict[str, torch.Tensor]
     ) -> Tuple[torch.Tensor, Dict[str, float]]:
-        # XXX(ming): here is different from the original implementation, which is not use target net
-        next_v = self.compute_target(
-            "skill_value", batch["next_observations"], batch["skills"]
-        ).squeeze(-1)
-
-        target_q = batch["rewards"] + self.config.skill_discount * next_v
-        q = self(
+        # use skill value function to compute q(s,g)
+        with torch.no_grad():
+            next_v = self(
+                "skill_value", batch["next_observations"], batch["skills"]
+            ).squeeze(-1)
+        q = batch["rewards"] + self.config.skill_discount * next_v
+        q_pred__ensemble = self(
             "skill_critic", batch["observations"], batch["skills"], batch["actions"]
         ).squeeze(-1)
-        critic_loss = ((q - target_q) ** 2).mean()
+        critic_loss = (
+            (q_pred__ensemble[0] - q) ** 2 + (q_pred__ensemble[1] - q) ** 2
+        ).mean()
         return critic_loss, {
             "critic_loss": critic_loss,
             "q max": q.max().item(),
@@ -194,9 +197,12 @@ class HILPAgent(nn.Module):
     def compute_skill_value_loss(
         self, batch: Dict[str, torch.Tensor]
     ) -> Tuple[torch.Tensor, Dict[str, float]]:
-        q = self.compute_target(
+        # use target critic to estimat advantages, reducing variance
+        q_ensemble = self.compute_target(
             "skill_critic", batch["observations"], batch["skills"], batch["actions"]
         ).squeeze()
+        assert q_ensemble.shape[0] == 2, "support only ensemble_num = 2"
+        q = q_ensemble.min(0)[0]
         v = self("skill_value", batch["observations"], batch["skills"]).squeeze()
         adv = q - v
         value_loss = expectile_loss(adv, q - v, self.config.skill_expectile).mean()
@@ -221,19 +227,39 @@ class HILPAgent(nn.Module):
         # rewards are 0 if terminal, -1 otherwise
         batch["rewards"] = batch["rewards"] - 1.0
 
-        next_v_target = self.compute_target(
+        next_v_target_ensemble = self.compute_target(
             "value", batch["next_observations"], batch["goals"]
-        ).squeeze()
-        q_target = (
-            batch["rewards"] + self.config.discount * batch["masks"] * next_v_target
-        )
-        v_target = self.compute_target(
-            "value", batch["observations"], batch["goals"]
-        ).squeeze()
-        adv = q_target - v_target
+        ).squeeze(-1)
 
-        v = self("value", batch["observations"], batch["goals"])
-        value_loss = expectile_loss(adv, q_target - v, self.config.expectile).mean()
+        q_target = (
+            batch["rewards"]
+            + self.config.discount * batch["masks"] * next_v_target_ensemble.min(0)[0]
+        )
+
+        v_target_ensemble = self.compute_target(
+            "value", batch["observations"], batch["goals"]
+        ).squeeze(-1)
+
+        adv = q_target - v_target_ensemble.mean(0)
+
+        v_ensemble = self("value", batch["observations"], batch["goals"]).squeeze(-1)
+        v = v_ensemble.mean(0)
+        q_target_1 = (
+            batch["rewards"]
+            + self.config.discount * batch["masks"] * next_v_target_ensemble[0]
+        )
+        q_target_2 = (
+            batch["rewards"]
+            + self.config.discount * batch["masks"] * next_v_target_ensemble[1]
+        )
+
+        value_loss1 = expectile_loss(
+            adv, q_target_1 - v_ensemble[0], self.config.expectile
+        ).mean()
+        value_loss2 = expectile_loss(
+            adv, q_target_2 - v_ensemble[1], self.config.expectile
+        ).mean()
+        value_loss = value_loss1 + value_loss2
 
         return value_loss, {
             "value_loss": value_loss.item(),

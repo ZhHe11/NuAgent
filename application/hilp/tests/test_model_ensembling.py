@@ -63,7 +63,8 @@ def test_model_ensembling_training():
         for p in ensembler.parameters():
             assert p.grad is not None
         optimizer.step()
-        if loss.cpu().item() < 1e-16:
+        print(loss)
+        if loss.cpu().item() < 1e-10:
             break
 
 
@@ -99,5 +100,6 @@ def test_goal_conditioned_with_model_ensemble(ensemble_num: int, encoder: Any):
         for p in goal_value_func.ensembler.parameters():
             assert p.grad is not None
         optimizer.step()
-        if loss.cpu().item() < 1e-16:
+        print(loss)
+        if loss.cpu().item() < 1e-10:
             break

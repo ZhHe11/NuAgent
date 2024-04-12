@@ -21,24 +21,12 @@ from .dataset import Dataset
 
 # @jax.jit
 def get_traj_v(agent, trajectory):
-    # def get_v(s, g):
-    #     v1, v2 = agent.network(
-    #         jax.tree_map(lambda x: x[None], s),
-    #         jax.tree_map(lambda x: x[None], g),
-    #         method="value",
-    #     )
-    #     return (v1 + v2) / 2
-
-    # observations = trajectory["observations"]
-    # all_values = jax.vmap(jax.vmap(get_v, in_axes=(None, 0)), in_axes=(0, None))(
-    #     observations, observations
-    # )
     def get_v(s, g):
         v = agent(
             "value",
             tree.map_structure(lambda x: x[None], s),
             tree.map_structure(lambda x: x[None], g),
-        )
+        ).mean(0)
         return v
 
     observations = tree.map_structure(
@@ -68,7 +56,7 @@ def get_v_goal(agent, goal, observations):
         lambda x: torch.from_numpy(x).float().to(agent.config.device), goal
     )
     with torch.no_grad():
-        v = agent("value", observations, goal)
+        v = agent("value", observations, goal).mean(0)
     return v.cpu().numpy()
 
 

@@ -129,7 +129,10 @@ class GoalConditionedValue(nn.Module):
             )
             for _ in range(ensemble_num)
         ]
-        net = ModelEnsembling(_nets)
+        if ensemble_num > 1:
+            net = ModelEnsembling(_nets)
+        else:
+            net = _nets[0]
         # for test only
         self.ensembler = net
         if encoder is not None:
@@ -167,14 +170,17 @@ class GoalConditionedPhiValue(nn.Module):
             )
             for _ in range(ensemble_num)
         ]
-        net = ModelEnsembling(_nets)
+        if ensemble_num > 1:
+            net = ModelEnsembling(_nets)
+        else:
+            net = _nets[0]
         if encoder is not None:
             self.net = nn.Sequential([encoder(), net])
         else:
             self.net = net
 
     def get_phi(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(x)
+        return self.net(x)[0]
 
     def forward(self, observations: torch.Tensor, goals: torch.Tensor) -> torch.Tensor:
         phi_s = self.net(observations)
@@ -193,13 +199,26 @@ class GoalConditionedCritic(nn.Module):
         act_dim: int,
         hidden_dims: Sequence[int] = (256, 256),
         norm: bool = True,
+        ensemble_num: int = 2,
+        encoder: nn.Module = None,
     ):
         super().__init__()
-        self.net = MLP(
-            obs_dim + goal_dim + act_dim,
-            hidden_channels=hidden_dims + (1,),
-            norm_layer=nn.LayerNorm if norm else None,
-        )
+        _nets = [
+            MLP(
+                obs_dim + goal_dim + act_dim,
+                hidden_channels=hidden_dims + (1,),
+                norm_layer=nn.LayerNorm if norm else None,
+            )
+            for _ in range(ensemble_num)
+        ]
+        if ensemble_num > 1:
+            net = ModelEnsembling(_nets)
+        else:
+            net = _nets[0]
+        if encoder is not None:
+            self.net = nn.Sequential([encoder(), net])
+        else:
+            self.net = net
 
     def forward(
         self,
@@ -267,7 +286,6 @@ class Actor(nn.Module):
             nn.init.xavier_uniform_(log_stds.weight)
         else:
             log_stds = torch.autograd.Variable(torch.rand(act_dim))
-        # log_stds = torch.clip(log_stds, log_std_min, log_std_max)
         self.mean_layer = mean
         self.log_std_layer = log_stds
 
@@ -284,10 +302,6 @@ class Actor(nn.Module):
         x = self.net(torch.concat([observations, goals], dim=-1))
         mean = self.mean_layer(x)
         log_std = self.log_std_layer(x)
-        # import pdb; pdb.set_trace()
-        # dist = torch.distributions.MultivariateNormal(
-        #     loc=mean, scale_tril=torch.exp(log_std) * temperature
-        # )
         dist = torch.distributions.Independent(
             torch.distributions.Normal(
                 loc=mean, scale=torch.exp(log_std) * temperature
