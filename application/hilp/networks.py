@@ -7,8 +7,9 @@ from torch.nn import functional as F
 from torchvision.ops import MLP
 
 
-def default_init(weights: torch.Tensor):
-    nn.init.kaiming_uniform_(weights)
+def default_init(m):
+    if isinstance(m, nn.Linear):
+        nn.init.xavier_uniform_(m.weight, gain=0.04)
 
 
 class DiscreteCritic(nn.Module):
@@ -262,6 +263,24 @@ class RNDNet(nn.Module):
         return score
 
 
+class IndependentStd(nn.Module):
+    def __init__(self, out_dim: int) -> None:
+        super().__init__()
+        weight = nn.Parameter(
+            torch.zeros((1, out_dim), dtype=torch.float32), requires_grad=True
+        )
+        self.register_parameter("independent_std", weight)
+
+    def forward(self, x: torch.Tensor):
+        if len(x.shape) > 1:
+            ret = torch.ones((x.size(0), 1), dtype=x.dtype, device=x.device).matmul(
+                self.independent_std
+            )
+        else:
+            ret = self.independent_std.squeeze(0)
+        return ret
+
+
 class Actor(nn.Module):
     def __init__(
         self,
@@ -271,6 +290,9 @@ class Actor(nn.Module):
         hidden_dims: Sequence[int] = (256, 256),
         norm: bool = True,
         state_dependent_std: bool = True,
+        log_std_min: float = -20,
+        log_std_max: float = 2,
+        tanh_squash_distribution: bool = False,
     ):
         super().__init__()
         self.net = MLP(
@@ -278,15 +300,26 @@ class Actor(nn.Module):
             hidden_channels=hidden_dims,
             norm_layer=nn.LayerNorm if norm else None,
         )
+
         mean = nn.Linear(hidden_dims[-1], act_dim, bias=True)
         if state_dependent_std:
             log_stds = nn.Linear(hidden_dims[-1], act_dim, bias=True)
             # XXX(ming): very important to avoid expose!
-            nn.init.xavier_uniform_(log_stds.weight)
+            # nn.init.xavier_uniform_(log_stds.weight, gain=0.04)
+            log_std_layer = log_stds
         else:
-            log_stds = torch.autograd.Variable(torch.rand(act_dim))
+            # log_stds = torch.autograd.Variable(torch.zeros((1, act_dim)))
+            # log_std_layer = lambda x: torch.ones((x.size(0), 1), dtype=x.dtype, device=x.device).matmul(log_stds.to())
+            log_std_layer = IndependentStd(act_dim)
+
         self.mean_layer = mean
-        self.log_std_layer = log_stds
+        self.log_std_min = log_std_min
+        self.log_std_max = log_std_max
+        self.tanh_squash_distribution = tanh_squash_distribution
+        self.log_std_layer = log_std_layer
+
+        # apply initialize
+        self.apply(default_init)
 
     def compute_actions(
         self, observations: torch.Tensor, goals: torch.Tensor, temperature: float = 1.0
@@ -300,11 +333,14 @@ class Actor(nn.Module):
     ) -> torch.distributions.Distribution:
         x = self.net(torch.concat([observations, goals], dim=-1))
         mean = self.mean_layer(x)
-        log_std = self.log_std_layer(x)
+        log_std = torch.clip(self.log_std_layer(x), self.log_std_min, self.log_std_max)
+        assert mean.shape == log_std.shape, (mean.shape, log_std.shape)
         dist = torch.distributions.Independent(
             torch.distributions.Normal(
                 loc=mean, scale=torch.exp(log_std) * temperature
             ),
             1,
         )
+        if self.tanh_squash_distribution:
+            raise NotImplementedError
         return dist

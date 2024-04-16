@@ -244,6 +244,10 @@ def get_command_parser(args: Sequence[str] = None):
     parser.add_argument("--total-steps", type=int, default=1000000)
 
     parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--value-hidden-dim", type=int, default=512)
+    parser.add_argument("--value-num-layers", type=int, default=3)
+    parser.add_argument("--actor-hidden-dim", type=int, default=512)
+    parser.add_argument("--actor-num-layers", type=int, default=3)
     parser.add_argument("--discount", type=float, default=0.99)
     parser.add_argument("--tau", type=float, default=0.005)
     parser.add_argument("--expectile", type=float, default=0.95)
@@ -269,5 +273,7 @@ def get_command_parser(args: Sequence[str] = None):
     args = parser.parse_args(args)
 
     args.wandb = default_wandb_config()
+    args.value_hidden_dims = tuple([args.value_hidden_dim] * args.value_num_layers)
+    args.actor_hidden_dims = tuple([args.actor_hidden_dim] * args.actor_num_layers)
 
     return args

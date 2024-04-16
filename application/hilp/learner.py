@@ -63,33 +63,49 @@ class HILPAgent(nn.Module):
         """
 
         value = GoalConditionedPhiValue(
-            self.obs_dim, self.goal_dim, self.config.skill_dim, ensemble_num=2
+            self.obs_dim,
+            self.goal_dim,
+            self.config.skill_dim,
+            hidden_dims=self.config.value_hidden_dims,
+            ensemble_num=2,
         ).to(self.config.device)
         skill_value = GoalConditionedValue(
-            self.obs_dim, self.config.skill_dim, ensemble_num=1
+            self.obs_dim,
+            self.config.skill_dim,
+            hidden_dims=self.config.value_hidden_dims,
+            ensemble_num=1,
         ).to(self.config.device)
         skill_critic = GoalConditionedCritic(
-            self.obs_dim, self.config.skill_dim, self.act_dim, ensemble_num=2
+            self.obs_dim,
+            self.config.skill_dim,
+            self.act_dim,
+            hidden_dims=self.config.value_hidden_dims,
+            ensemble_num=2,
         ).to(self.config.device)
-        skill_actor = Actor(self.obs_dim, self.config.skill_dim, self.act_dim).to(
-            self.config.device
-        )
-        rnd_net = RNDNet(self.obs_dim, self.goal_dim, self.config.rnd_dim).to(
-            self.config.device
-        )
+        skill_actor = Actor(
+            self.obs_dim,
+            self.config.skill_dim,
+            self.act_dim,
+            hidden_dims=self.config.actor_hidden_dims,
+            state_dependent_std=False,
+            log_std_min=-5.0,
+        ).to(self.config.device)
+        nets = {
+            "value": value,
+            "target_value": copy.deepcopy(value),
+            "skill_value": skill_value,
+            "target_skill_value": copy.deepcopy(skill_value),
+            "skill_critic": skill_critic,
+            "target_skill_critic": copy.deepcopy(skill_critic),
+            "skill_actor": skill_actor,
+        }
+        if self.config.use_rnd:
+            rnd_net = RNDNet(self.obs_dim, self.goal_dim, self.config.rnd_dim).to(
+                self.config.device
+            )
+            nets["uncertainty_net"] = rnd_net
 
-        return nn.ModuleDict(
-            {
-                "value": value,
-                "target_value": copy.deepcopy(value),
-                "skill_value": skill_value,
-                "target_skill_value": copy.deepcopy(skill_value),
-                "skill_critic": skill_critic,
-                "target_skill_critic": copy.deepcopy(skill_critic),
-                "skill_actor": skill_actor,
-                "uncertainty_net": rnd_net,
-            }
-        )
+        return nn.ModuleDict(nets)
 
     def get_phi(self, observations: Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
         """Return embeded observation as goal.

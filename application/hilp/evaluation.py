@@ -158,7 +158,7 @@ def evaluate_with_trajectories(
                     )
                 way_skill = (phi_goal - phi_obs) / np.linalg.norm(phi_goal - phi_obs)
                 action = agent.sample_skill_actions(
-                    observations=policy_obs, skills=way_skill, temperature=0.01
+                    observations=policy_obs, skills=way_skill, temperature=0.001
                 )
             else:
                 raise NotImplementedError
