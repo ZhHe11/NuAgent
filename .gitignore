@@ -131,3 +131,4 @@ dmypy.json
 runs/
 .vscode/
 exp/
+mujoco*/
