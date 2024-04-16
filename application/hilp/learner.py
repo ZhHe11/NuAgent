@@ -68,20 +68,20 @@ class HILPAgent(nn.Module):
             self.config.skill_dim,
             hidden_dims=self.config.value_hidden_dims,
             ensemble_num=2,
-        ).to(self.config.device)
+        )
         skill_value = GoalConditionedValue(
             self.obs_dim,
             self.config.skill_dim,
             hidden_dims=self.config.value_hidden_dims,
             ensemble_num=1,
-        ).to(self.config.device)
+        )
         skill_critic = GoalConditionedCritic(
             self.obs_dim,
             self.config.skill_dim,
             self.act_dim,
             hidden_dims=self.config.value_hidden_dims,
             ensemble_num=2,
-        ).to(self.config.device)
+        )
         skill_actor = Actor(
             self.obs_dim,
             self.config.skill_dim,
@@ -89,7 +89,7 @@ class HILPAgent(nn.Module):
             hidden_dims=self.config.actor_hidden_dims,
             state_dependent_std=False,
             log_std_min=-5.0,
-        ).to(self.config.device)
+        )
         nets = {
             "value": value,
             "target_value": copy.deepcopy(value),
@@ -100,9 +100,7 @@ class HILPAgent(nn.Module):
             "skill_actor": skill_actor,
         }
         if self.config.use_rnd:
-            rnd_net = RNDNet(self.obs_dim, self.goal_dim, self.config.rnd_dim).to(
-                self.config.device
-            )
+            rnd_net = RNDNet(self.obs_dim, self.goal_dim)
             nets["uncertainty_net"] = rnd_net
 
         return nn.ModuleDict(nets)

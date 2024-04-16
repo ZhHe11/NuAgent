@@ -112,10 +112,7 @@ def main(args: Namespace):
     ):
         batch = train_dataset.sample(args.batch_size)
 
-        if args.use_rnd:
-            raise NotImplementedError
-        else:
-            update_info = agent.update(batch)
+        update_info = agent.update(batch)
 
         if i % args.log_interval == 0:
             train_metrics = {f"training/{k}": v for k, v in update_info.items()}

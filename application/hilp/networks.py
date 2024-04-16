@@ -247,18 +247,26 @@ class RNDNet(nn.Module):
         super().__init__()
         net = MLP(
             obs_dim + goal_dim,
-            hidden_channels=hidden_dims + [rep_dim],
+            hidden_channels=hidden_dims + (rep_dim,),
             norm_layer=nn.LayerNorm if norm else None,
         )
         if encoder is not None:
             net = nn.Sequential([encoder(), net])
-        self.target_net = copy.deepcopy(net)
         self.net = net
 
-    def foward(self, observations: torch.Tensor, goals: torch.Tensor) -> torch.Tensor:
+        target_net = MLP(
+            obs_dim + goal_dim,
+            hidden_channels=hidden_dims + (rep_dim,),
+            norm_layer=nn.LayerNorm if norm else None,
+        )
+        if encoder is not None:
+            target_net = nn.Sequential([encoder(), net])
+        self.target_net = target_net
+
+    def forward(self, observations: torch.Tensor, goals: torch.Tensor) -> torch.Tensor:
         net_input = torch.concat([observations, goals], dim=-1)
         preds = self.net(net_input)
-        target = self.target_net(net_input)
+        target = self.target_net(net_input).detach()
         score = -((preds - target) ** 2).sum(-1)
         return score
 
