@@ -162,7 +162,8 @@ class HILPAgent(nn.Module):
     ) -> Tuple[torch.Tensor, Dict[str, float]]:
         # FIXME(ming): should be vmap here
         preds = self("uncertainty_net", batch["observations"], batch["goals"])
-        loss = preds.mean()
+        # cause preds is a negative
+        loss = -preds.mean()
         return loss, {
             "loss": loss.cpu().item(),
             "pred min": preds.min().item(),
