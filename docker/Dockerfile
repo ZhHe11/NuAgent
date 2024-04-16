@@ -62,6 +62,7 @@ RUN echo "\
 index-url = https://mirror.sjtu.edu.cn/pypi/web/simple\
 " > /root/.config/pip/pip.conf
 
+RUN pip3 install --upgrade "jax[cuda11_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html && pip3 install --upgrade flax && pip3 install patchelf
 RUN pip3 install --no-cache-dir -r requirements.txt --no-deps
 
 # Delay moving in the entire code until the very end.
