@@ -1,15 +1,18 @@
 from typing import Dict
 
+import gym
 import torch
 
 from torch import nn
 from torch.nn import functional as F
 
 
-def _clip_actions(algo: nn.Module, actions: torch.Tensor) -> torch.Tensor:
+def _clip_actions(
+    algo: nn.Module, action_space: gym.Space, actions: torch.Tensor
+) -> torch.Tensor:
     epsilon = 1e-6
-    lower = torch.from_numpy(algo._env_spec.action_space.low).to(algo.device) + epsilon
-    upper = torch.from_numpy(algo._env_spec.action_space.high).to(algo.device) - epsilon
+    lower = torch.from_numpy(action_space.low).to(algo.config.device) + epsilon
+    upper = torch.from_numpy(action_space.high).to(algo.config.device) - epsilon
 
     clip_up = (actions > upper).float()
     clip_down = (actions < lower).float()
@@ -21,7 +24,7 @@ def _clip_actions(algo: nn.Module, actions: torch.Tensor) -> torch.Tensor:
 
 def compute_loss_qf(
     algo: nn.Module,
-    tensors: Dict[str, torch.Tensor],
+    action_space: gym.Space,
     batch: Dict[str, torch.Tensor],
     obs: torch.Tensor,
     actions: torch.Tensor,
@@ -33,8 +36,7 @@ def compute_loss_qf(
     with torch.no_grad():
         alpha = algo.log_alpha.param.exp()
 
-    q1_pred = algo.qf1(obs, actions).flatten()
-    q2_pred = algo.qf2(obs, actions).flatten()
+    q_ensemble: torch.Tensor = algo.qf(obs, actions).squeeze(-1)
 
     next_action_dists, *_ = policy(next_obs)
     if hasattr(next_action_dists, "rsample_with_pre_tanh_value"):
@@ -47,37 +49,46 @@ def compute_loss_qf(
         )
     else:
         new_next_actions = next_action_dists.rsample()
-        new_next_actions = _clip_actions(algo, new_next_actions)
+        new_next_actions = _clip_actions(algo, action_space, new_next_actions)
         new_next_action_log_probs = next_action_dists.log_prob(new_next_actions)
 
-    target_q_values = torch.min(
-        algo.target_qf1(next_obs, new_next_actions).flatten(),
-        algo.target_qf2(next_obs, new_next_actions).flatten(),
+    target_q_values: torch.Tensor = (
+        algo.target_qf(next_obs, new_next_actions).squeeze(-1).min(dim=0)[0]
+    )
+
+    assert target_q_values.shape == new_next_action_log_probs.shape, (
+        target_q_values.shape,
+        new_next_action_log_probs.shape,
     )
     target_q_values = target_q_values - alpha * new_next_action_log_probs
-    target_q_values = target_q_values * algo.discount
+    target_q_values = target_q_values * algo.config.discount
 
     with torch.no_grad():
+        assert rewards.shape == target_q_values.shape == dones.shape, (
+            rewards.shape,
+            target_q_values.shape,
+            dones.shape,
+        )
         q_target = rewards + target_q_values * (1.0 - dones)
+        q_target_ensemble = torch.ones(
+            q_ensemble.size(0), 1, requires_grad=False
+        ).matmul(q_target.unsqueeze(0))
 
-    # critic loss weight: 0.5
-    loss_qf1 = F.mse_loss(q1_pred, q_target) * 0.5
-    loss_qf2 = F.mse_loss(q2_pred, q_target) * 0.5
-
-    tensors.update(
-        {
-            "QTargetsMean": q_target.mean(),
-            "QTdErrsMean": ((q_target - q1_pred).mean() + (q_target - q2_pred).mean())
-            / 2,
-            "LossQf1": loss_qf1,
-            "LossQf2": loss_qf2,
-        }
+    assert q_ensemble.shape == q_target_ensemble.shape, (
+        q_ensemble.shape,
+        q_target_ensemble.shape,
     )
+    loss = F.mse_loss(q_ensemble.flatten(), q_target_ensemble.flatten()) * 0.5
+
+    return loss, {
+        "QTargetsMean": q_target.mean().cpu().item(),
+        "QTdErrsMean": (q_target_ensemble.flatten() - q_ensemble.flatten()).mean(),
+        "LossQf": loss.cpu().item(),
+    }
 
 
 def compute_loss_sacp(
     algo: nn.Module,
-    tensors: Dict[str, torch.Tensor],
     batch: Dict[str, torch.Tensor],
     obs: torch.Tensor,
     policy: nn.Module,
@@ -96,19 +107,10 @@ def compute_loss_sacp(
         new_actions = _clip_actions(algo, new_actions)
         new_action_log_probs = action_dists.log_prob(new_actions)
 
-    min_q_values = torch.min(
-        algo.qf1(obs, new_actions).flatten(),
-        algo.qf2(obs, new_actions).flatten(),
-    )
+    q_values_ensemble: torch.Tensor = algo.qf(obs, new_actions)
+    min_q_values = q_values_ensemble.min(dim=0)[0]
 
     loss_sacp = (alpha * new_action_log_probs - min_q_values).mean()
-
-    tensors.update(
-        {
-            "SacpNewActionLogProbMean": new_action_log_probs.mean(),
-            "LossSacp": loss_sacp,
-        }
-    )
 
     batch.update(
         {
@@ -116,10 +118,14 @@ def compute_loss_sacp(
         }
     )
 
+    return loss_sacp, {
+        "SacpNewActionLogProbMean": new_action_log_probs.mean(),
+        "LossSacp": loss_sacp.cpu().item(),
+    }
+
 
 def compute_loss_alpha(
     algo: nn.Module,
-    tensors: Dict[str, torch.Tensor],
     batch: Dict[str, torch.Tensor],
 ):
     loss_alpha = (
@@ -127,18 +133,7 @@ def compute_loss_alpha(
         * (batch["new_action_log_probs"].detach() + algo._target_entropy)
     ).mean()
 
-    tensors.update(
-        {
-            "Alpha": algo.log_alpha.param.exp(),
-            "LossAlpha": loss_alpha,
-        }
-    )
-
-
-def update_targets(algo):
-    """Update parameters in the target q-functions."""
-    target_qfs = [algo.target_qf1, algo.target_qf2]
-    qfs = [algo.qf1, algo.qf2]
-    for target_qf, qf in zip(target_qfs, qfs):
-        for t_param, param in zip(target_qf.parameters(), qf.parameters()):
-            t_param.data.copy_(t_param.data * (1.0 - algo.tau) + param.data * algo.tau)
+    return loss_alpha, {
+        "Alpha": algo.log_alpha.param.exp(),
+        "LossAlpha": loss_alpha.cpu().item(),
+    }

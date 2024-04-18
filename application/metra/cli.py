@@ -1,88 +1,94 @@
 import os
-import time
-import glob
-import pickle
 import datetime
+import tempfile
 
-from functools import partial
-from argparse import ArgumentParser, Namespace
+from argparse import Namespace
 
-import numpy as np
 import wandb
 import tqdm
-import tree
-
-from torch import nn
-from uniagent.utils.wandb import setup_wandb, default_wandb_config
+import torch
 
 
-from .learner import MetraAgent
+from uniagent.data.collector import Collector
+
+from .cmd_utils import get_exp_name, set_seed
+from .envs import make_env, eval_episodes
 
 
 def main(args: Namespace):
-    raise NotImplementedError
+    global_start_time = int(datetime.datetime.now().timestamp())
+    exp_name, _ = get_exp_name(global_start_time)
 
+    if "WANDB_API_KEY" in os.environ:
+        wandb_output_dir = tempfile.mkdtemp()
+        wandb.init(
+            project="metra",
+            entity="",
+            group=args.run_group,
+            name=exp_name,
+            config=vars(args),
+            dir=wandb_output_dir,
+        )
 
-from typing import Sequence
-from application.hilp.cli import get_command_parser as hilp_command_parser
+    if args.n_thread is not None:
+        torch.set_num_threads(args.n_thread)
 
+    set_seed(args.seed)
 
-def get_command_parser(args: Sequence[str] = None):
-    parser = ArgumentParser("Training HILP")
+    env = make_env(args, args.max_path_length)
 
-    parser.add_argument("--env-name", type=str, help="environment name", required=True)
-    parser.add_argument("--width", type=int, default=200, help="window size, the width")
-    parser.add_argument(
-        "--height", type=int, default=200, help="window size, the height"
+    obs_dim = env.spec.observation_space.flat_dim
+    action_dim = env.spec.action_space.flat_dim
+
+    args.save_dir = os.path.join(
+        args.save_dir,
+        wandb.run.project,
+        wandb.config.exp_prefix,
+        wandb.config.experiment_id,
     )
 
-    parser.add_argument(
-        "--save-dir", type=str, default="exp/", help="experiment logging directory"
-    )
-    parser.add_argument("--restore-path", type=str, default=None)
-    parser.add_argument(
-        "--run-group", type=str, default="debug", help="naming experiment group"
-    )
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--eval-episodes", type=int, default=50)
-    parser.add_argument("--num-video-episodes", type=int, default=2)
-    parser.add_argument("--log-interval", type=int, default=1000)
-    parser.add_argument("--eval-interval", type=int, default=100000)
-    parser.add_argument("--save-interval", type=int, default=1000000)
-    parser.add_argument("--batch-size", type=int, default=1024)
-    parser.add_argument("--total-steps", type=int, default=1000000)
+    if args.algo == "metra":
+        from .learner import MetraAgent, create_replay_buffer
 
-    parser.add_argument("--lr", type=float, default=3e-4)
-    parser.add_argument("--value-hidden-dim", type=int, default=512)
-    parser.add_argument("--value-num-layers", type=int, default=3)
-    parser.add_argument("--actor-hidden-dim", type=int, default=512)
-    parser.add_argument("--actor-num-layers", type=int, default=3)
-    parser.add_argument("--discount", type=float, default=0.99)
-    parser.add_argument("--tau", type=float, default=0.005)
-    parser.add_argument("--expectile", type=float, default=0.95)
-    parser.add_argument("--use-layer-norm", type=int, default=1)
-    parser.add_argument("--option-dim", type=int, default=32)
-    parser.add_argument("--skill-expectile", type=float, default=0.9)
-    parser.add_argument("--skill-temperature", type=float, default=10.0)
-    parser.add_argument("--skill-discount", type=float, default=0.99)
-    parser.add_argument("--p-currgoal", type=float, default=0.0)
-    parser.add_argument("--p-trajgoal", type=float, default=0.625)
-    parser.add_argument("--p-randomgoal", type=float, default=0.375)
+        agent = MetraAgent(
+            args,
+            obs_dim=obs_dim,
+            goal_dim=args.option_dim,
+            act_dim=action_dim,
+            load_path=args.load_path,
+        )
+        buffer = create_replay_buffer(env)
+    elif args.algo == "dads":
+        from .baselines.dads import DADSAgent, create_replay_buffer
 
-    parser.add_argument("--planning-num-recursions", type=int, default=0)
-    parser.add_argument("--planning-num_states", type=int, default=50000)
-    parser.add_argument("--planning-num-knns", type=int, default=50)
+        agent = DADSAgent(
+            args, obs_dim=obs_dim, goal_dim=args.option_dim, act_dim=action_dim
+        )
+        buffer = create_replay_buffer(env)
 
-    parser.add_argument("--encoder", type=str, default=None)
-    parser.add_argument("--p-aug", type=float, default=None)
-    parser.add_argument("--use-rnd", type=int, default=0)
+    agent.to(args.device)
 
-    parser.add_argument("--device", type=str, default="cpu")
+    def action_interface_wrapper(agent):
+        def f(observation):
+            with torch.no_grad():
+                action = agent(observation)
+            return action.cpu().numpy()
 
-    args = parser.parse_args(args)
+    collector = Collector(buffer, env, action_interface_wrapper(agent))
 
-    args.wandb = default_wandb_config()
-    args.value_hidden_dims = tuple([args.value_hidden_dim] * args.value_num_layers)
-    args.actor_hidden_dims = tuple([args.actor_hidden_dim] * args.actor_num_layers)
+    for i in tqdm.tqdm(
+        range(1, args.total_steps + 1), smoothing=0.1, dynamic_ncols=True
+    ):
+        collector.collect(env)
+        batch = collector.sample(args.batch_size, to_torch=True, device=args.device)
+        loss_info = agent.update(batch, action_space=env.spec.action_space)
 
-    return args
+        if i % args.log_interval == 0:
+            wandb.log(loss_info, step=i)
+
+        if i == 1 or i % args.eval_interval == 0:
+            eval_metrics = eval_episodes(env, action_interface_wrapper(agent))
+            wandb.log(eval_metrics, step=i)
+
+        if i % args.save_interval == 0:
+            pass
