@@ -108,9 +108,6 @@ class ReplayArray:
         if use_copy:
             item_ = item_.copy()
 
-        assert (
-            item_.dtype == self.dtype
-        ), f"expected dtype is: {self.dtype} while got {item_.dtype}"
         if item_.shape == self.inner_shape:
             self.data[flag] = item_
             flag = 0 if flag + 1 == self.capacity else flag + 1

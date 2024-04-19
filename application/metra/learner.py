@@ -30,7 +30,8 @@ def create_replay_buffer(args: Namespace, env: gym.Env) -> ReplayBuffer:
             "reward": ((), np.float32),
             "done": ((), bool),
             # always in vector
-            "option": ((args.option_dim, np.float32)),
+            "option": ((args.option_dim,), np.float32),
+            "next_observation": (env.observation_space.shape, np.float32),
         },
     )
 
@@ -74,7 +75,7 @@ class MetraAgent(HILPAgent, ExpManager):
 
     def create_networks(self, load_path: str = None) -> nn.ModuleDict:
         qf = ContinuousMLPQFunctionEx(
-            self.obs_dim,
+            self.obs_dim + self.goal_dim,
             self.act_dim,
             hidden_dims=self.config.value_hidden_dims,
             ensemble_num=2,
@@ -107,6 +108,18 @@ class MetraAgent(HILPAgent, ExpManager):
         }
 
         return nn.ModuleDict(networks)
+
+    def forward(
+        self,
+        method: str,
+        observations: torch.Tensor,
+        options: torch.Tensor = None,
+        actions: torch.Tensor = None,
+    ) -> torch.Tensor:
+        if method in ["option_policy"]:
+            return self.networks[method](observations, options)
+        else:
+            return self.networks[method](observations, actions)
 
     def create_dist_predictor(self):
         if self.config.use_dist_predictor:
@@ -202,8 +215,11 @@ class MetraAgent(HILPAgent, ExpManager):
 
     @torch.no_grad()
     def sample_option(self, observation: np.ndarray) -> np.ndarray:
-        observation = torch.from_numpy(observation).float().to(self.config.device)
-        option = self.option_planner.sample_option(observation)
+        if self.config.use_option_planner:
+            observation = torch.from_numpy(observation).float().to(self.config.device)
+            option = self.option_planner.sample_option(observation)
+        else:
+            option = np.random.randn(self.config.option_dim)
         return option
 
     @torch.no_grad()
@@ -211,14 +227,14 @@ class MetraAgent(HILPAgent, ExpManager):
         observation = torch.from_numpy(observation).float().to(self.config.device)
         option = torch.from_numpy(option).float().to(self.config.device)
         dist: torch.distributions.Distribution = self(
-            "option_actor", observation, option
+            "option_policy", observation, option
         )
         action = dist.sample()
         return action.cpu().numpy()
 
     def cal_rewards(self, batch: Dict[str, torch.Tensor]):
-        obs = batch["observations"]
-        next_obs = batch["next_observations"]
+        obs = batch["observation"]
+        next_obs = batch["next_observation"]
 
         if self.config.use_inner_product:
             cur_z = self.traj_encoder(obs).mean
@@ -228,24 +244,31 @@ class MetraAgent(HILPAgent, ExpManager):
             # for discrete environment only now
             if self.config.discrete_option:
                 masks = (
-                    (batch["options"] - batch["options"].mean(dim=1, keepdim=True))
+                    (batch["option"] - batch["option"].mean(dim=1, keepdim=True))
                     * self.dim_option
                     / (self.dim_option - 1 if self.dim_option != 1 else 1)
                 )
                 rewards = (target_z * masks).sum(dim=1)
             else:
-                rewards = (target_z * batch["options"]).sum(dim=1)
+                assert target_z.shape == batch["option"].shape, (
+                    target_z.shape,
+                    batch["option"].shape,
+                )
+                rewards = (target_z * batch["option"]).sum(dim=1)
 
             batch.update({"cur_z": cur_z, "next_z": next_z})
         else:
             target_dists = self.traj_encoder(next_obs)
             if self.config.discrete_option:
                 logits = target_dists.mean
+                import pdb
+
+                pdb.set_trace()
                 rewards = -torch.nn.functional.cross_entropy(
-                    logits, batch["options"].argmax(dim=1), reduce="none"
+                    logits, batch["option"].argmax(dim=1), reduce="none"
                 )
             else:
-                rewards = target_dists.log_prob(batch["options"])
+                rewards = target_dists.log_prob(batch["option"])
 
         info = {"PureRewardMean": rewards.mean(), "UreRewardStd": rewards.std()}
 
@@ -263,23 +286,24 @@ class MetraAgent(HILPAgent, ExpManager):
 
     def compute_loss_qf(self, action_space: gym.Space, batch: Dict[str, torch.Tensor]):
         processed_cat_obs = self._get_concat_obs(
-            self.option_policy.process_observations(batch["observations"]),
-            batch["options"],
+            self.option_policy.process_observations(batch["observation"]),
+            batch["option"],
         )
+        # FIXME(ming): use next_option, not option
         next_processed_cat_obs = self._get_concat_obs(
-            self.option_policy.process_observations(batch["next_obs"]),
-            batch["next_options"],
+            self.option_policy.process_observations(batch["next_observation"]),
+            batch["option"],
         )
 
         loss, info = sac_utils.compute_loss_qf(
             self,
-            batch,
             action_space=action_space,
+            batch=batch,
             obs=processed_cat_obs,
-            actions=batch["actions"],
+            actions=batch["action"],
             next_obs=next_processed_cat_obs,
-            dones=batch["dones"],
-            rewards=batch["rewards"] * self._reward_scale_factor,
+            dones=batch["done"],
+            rewards=batch["reward"] * self.config.sac_scale_reward,
             policy=self.option_policy,
         )
 
@@ -292,13 +316,16 @@ class MetraAgent(HILPAgent, ExpManager):
 
         return loss, info
 
-    def _get_concat_obs(self, obs):
-        raise NotImplementedError
+    def _get_concat_obs(self, obs, option):
+        assert (
+            len(obs.shape) == len(option.shape) and obs.shape[0] == option.shape[0]
+        ), (obs.shape, option.shape)
+        return torch.concat([obs, option], dim=-1)
 
     def compute_loss_op(self, batch: Dict[str, torch.Tensor]):
         processed_cat_obs = self._get_concat_obs(
-            self.option_policy.process_observations(batch["observations"]),
-            batch["options"],
+            self.option_policy.process_observations(batch["observation"]),
+            batch["option"],
         )
         loss, info = sac_utils.compute_loss_sacp(
             self,
@@ -323,8 +350,8 @@ class MetraAgent(HILPAgent, ExpManager):
         rewards, info = self.cal_rewards(batch)
         loss_info.update(info)
 
-        obs = batch["observations"]
-        next_obs = batch["next_observations"]
+        obs = batch["observation"]
+        next_obs = batch["next_observation"]
 
         if self.config.dual_dist == "s2_from_s":
             s2_dist = self.dist_predictor(obs)
@@ -371,7 +398,7 @@ class MetraAgent(HILPAgent, ExpManager):
                 raise NotImplementedError
 
             cst_penalty = cst_dist - torch.square(phi_y - phi_x).mean(dim=1)
-            cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)
+            cst_penalty = torch.clamp(cst_penalty, max=self.config.dual_slack)
             te_obj = rewards + dual_lam.detach() * cst_penalty
 
             batch["cst_penalty"] = cst_penalty
@@ -403,7 +430,7 @@ class MetraAgent(HILPAgent, ExpManager):
             lam_loss = 0
 
         with torch.no_grad():
-            batch["rewards"] = self.cal_rewards(batch)
+            batch["reward"], _ = self.cal_rewards(batch)
 
         qf_loss, qf_loss_info = self.compute_loss_qf(kwargs["action_space"], batch)
         loss_info.update({f"QF/{k}": v for k, v in qf_loss_info.items()})

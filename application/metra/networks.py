@@ -55,6 +55,7 @@ class ContinuousMLPQFunctionEx(nn.Module):
 
 class GaussianMLP(Actor):
     def forward(self, x: torch.Tensor) -> torch.distributions.Distribution:
+        x = self.net(x)
         mean = self.mean_layer(x)
         log_std = torch.clip(self.log_std_layer(x), self.log_std_min, self.log_std_max)
         assert mean.shape == log_std.shape, (mean.shape, log_std.shape)

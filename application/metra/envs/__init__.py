@@ -1,4 +1,6 @@
 from argparse import Namespace
+from .consistent_normalized_env import consistent_normalize
+from .plot import get_normalizer_preset
 
 
 def make_env(args: Namespace, max_path_length: int):
@@ -60,3 +62,28 @@ def make_env(args: Namespace, max_path_length: int):
         env = MyKitchenEnv(log_per_goal=True)
     else:
         raise NotImplementedError
+
+    if args.frame_stack is not None:
+        from envs.custom_dmc_tasks.pixel_wrappers import FrameStackWrapper
+
+        env = FrameStackWrapper(env, args.frame_stack)
+
+    normalizer_type = args.normalizer_type
+    normalizer_kwargs = {}
+
+    if normalizer_type == "off":
+        env = consistent_normalize(env, normalize_obs=False, **normalizer_kwargs)
+    elif normalizer_type == "preset":
+        normalizer_name = args.env
+        normalizer_mean, normalizer_std = get_normalizer_preset(
+            f"{normalizer_name}_preset"
+        )
+        env = consistent_normalize(
+            env,
+            normalize_obs=True,
+            mean=normalizer_mean,
+            std=normalizer_std,
+            **normalizer_kwargs,
+        )
+
+    return env

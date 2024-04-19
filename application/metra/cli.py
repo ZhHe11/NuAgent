@@ -10,6 +10,7 @@ import torch
 
 
 from uniagent.data.collector import Collector
+from uniagent.utils.wandb import setup_wandb
 
 from .cmd_utils import get_exp_name, set_seed
 from .envs import make_env
@@ -18,7 +19,7 @@ from .envs.evaluation import eval_random_option_generation
 
 def main(args: Namespace):
     global_start_time = int(datetime.datetime.now().timestamp())
-    exp_name, _ = get_exp_name(global_start_time)
+    exp_name, _ = get_exp_name(args, global_start_time)
 
     if "WANDB_API_KEY" in os.environ:
         wandb_output_dir = tempfile.mkdtemp()
@@ -40,6 +41,11 @@ def main(args: Namespace):
 
     obs_dim = env.spec.observation_space.flat_dim
     action_dim = env.spec.action_space.flat_dim
+
+    args.wandb["project"] = "hilp_gcrl"
+    args.wandb["name"] = args.wandb["exp_descriptor"] = exp_name
+    args.wandb["group"] = args.wandb["exp_prefix"] = args.run_group
+    setup_wandb(args, dict(), **args.wandb)
 
     args.save_dir = os.path.join(
         args.save_dir,
@@ -73,7 +79,7 @@ def main(args: Namespace):
         def f(observation):
             option = agent.sample_option(observation)
             action = agent.sample_action(observation, option)
-            return action.cpu().numpy()
+            return option, action
 
         return f
 

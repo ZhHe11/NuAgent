@@ -96,7 +96,6 @@ def get_command_parser(args: Sequence[str] = None):
     parser.add_argument("--eval-interval", type=int, default=125)
     parser.add_argument("--log-interval", type=int, default=25)
     parser.add_argument("--save-interval", type=int, default=1000)
-    parser.add_argument("--eval-plot-axis", type=float, default=None, nargs="*")
 
     # ------------------task settings--------------
     parser.add_argument(
@@ -140,7 +139,7 @@ def get_command_parser(args: Sequence[str] = None):
     parser.add_argument(
         "--use-inner-product",
         type=int,
-        default=0,
+        default=1,
         choices={0, 1},
         help="whether use inner product for reward calculation",
     )
@@ -160,6 +159,7 @@ def get_command_parser(args: Sequence[str] = None):
     parser.add_argument("--common-lr", type=float, default=1e-4)
     parser.add_argument("--lr-op", type=float, default=None)
     parser.add_argument("--lr-te", type=float, default=None)
+    parser.add_argument("--lr-dual", type=float, default=None)
     parser.add_argument("--alpha", type=float, default=0.01)
     parser.add_argument("--dual-reg", type=int, default=1, choices=[0, 1])
     parser.add_argument("--dual-lam", type=float, default=30)
@@ -167,7 +167,6 @@ def get_command_parser(args: Sequence[str] = None):
     parser.add_argument(
         "--dual-dist", type=str, default="one", choices=["l2", "s2_from_s", "one"]
     )
-    parser.add_argument("--dual-lr", type=float, default=None)
 
     # ----------- sac training settings
     parser.add_argument("--sac-tau", type=float, default=5e-3)
@@ -199,8 +198,8 @@ def get_command_parser(args: Sequence[str] = None):
     parser.add_argument(
         "--use-option-planner",
         type=int,
-        deafult=0,
-        choice={0, 1},
+        default=0,
+        choices={0, 1},
         help="enable option planner model or not",
     )
 
@@ -211,17 +210,7 @@ def get_command_parser(args: Sequence[str] = None):
         default=48,
         help="how many episodes you wanna evaluation for each time",
     )
-    parser.add_argument(
-        "--num-video-repeats", type=int, default=2, help="number of video repeat"
-    )
-    parser.add_argument("--eval-record-video", type=int, default=1)
     parser.add_argument("--eval-plot-axis", type=float, default=None, nargs="*")
-    parser.add_argument(
-        "--video-skip-frames",
-        type=int,
-        default=1,
-        help="skip frame setting for evaluation",
-    )
 
     # ------------for video record when evaluation-----------
     parser.add_argument(
@@ -232,7 +221,7 @@ def get_command_parser(args: Sequence[str] = None):
         help="indicating whether use video rendering for evaluation",
     )
     parser.add_argument(
-        "--video-skip-frames", type=int, default=4, help="frame skipping, defaults to 4"
+        "--video-skip-frames", type=int, default=1, help="frame skipping, defaults to 4"
     )
     parser.add_argument(
         "--num-video-repeats",
@@ -248,5 +237,20 @@ def get_command_parser(args: Sequence[str] = None):
 
     if torch.cuda.is_available() and "cuda" not in args.device:
         args.device = "cuda"
+
+    if args.lr_te is None:
+        args.lr_te = args.common_lr
+
+    if args.lr_op is None:
+        args.lr_op = args.common_lr
+
+    if args.sac_lr_q is None:
+        args.sac_lr_q = args.common_lr
+
+    if args.sac_lr_a is None:
+        args.sac_lr_a = args.common_lr
+
+    if args.lr_dual is None:
+        args.lr_dual = args.common_lr
 
     return args
