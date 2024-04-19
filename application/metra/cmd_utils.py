@@ -45,6 +45,7 @@ import sys
 import random
 import numpy as np
 import warnings
+import torch
 
 
 def set_seed(seed):
@@ -78,59 +79,174 @@ def set_seed(seed):
 def get_command_parser(args: Sequence[str] = None):
     parser = ArgumentParser("Training METRA")
 
-    parser.add_argument("--env-name", type=str, help="environment name", required=True)
-    parser.add_argument("--width", type=int, default=200, help="window size, the width")
-    parser.add_argument(
-        "--height", type=int, default=200, help="window size, the height"
-    )
-
-    parser.add_argument(
-        "--save-dir", type=str, default="exp/", help="experiment logging directory"
-    )
-    parser.add_argument("--restore-path", type=str, default=None)
+    # ---------------logging settings----------------
     parser.add_argument(
         "--run-group", type=str, default="debug", help="naming experiment group"
     )
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--eval-episodes", type=int, default=50)
-    parser.add_argument("--num-video-episodes", type=int, default=2)
-    parser.add_argument("--log-interval", type=int, default=1000)
-    parser.add_argument("--eval-interval", type=int, default=100000)
-    parser.add_argument("--save-interval", type=int, default=1000000)
-    parser.add_argument("--batch-size", type=int, default=1024)
-    parser.add_argument("--total-steps", type=int, default=1000000)
+    parser.add_argument(
+        "--save-dir", type=str, default="exp/", help="experiment logging directory"
+    )
 
-    parser.add_argument("--lr", type=float, default=3e-4)
+    # ------------------general exp settings--------------
+    parser.add_argument("--algo", type=str, default="metra", choices=["metra", "dads"])
+    parser.add_argument(
+        "--normalizer-type", type=str, default="off", choices=["off", "preset"]
+    )
+    parser.add_argument("--restore-path", type=str, default=None)
+    parser.add_argument("--eval-interval", type=int, default=125)
+    parser.add_argument("--log-interval", type=int, default=25)
+    parser.add_argument("--save-interval", type=int, default=1000)
+    parser.add_argument("--eval-plot-axis", type=float, default=None, nargs="*")
+
+    # ------------------task settings--------------
+    parser.add_argument(
+        "--env-name",
+        type=str,
+        default="maze",
+        choices=[
+            "maze",
+            "half_cheetah",
+            "ant",
+            "dmc_cheetah",
+            "dmc_quadruped",
+            "dmc_humanoid",
+            "kitchen",
+        ],
+        help="environment name",
+    )
+    parser.add_argument("--frame-stack", type=int, default=None)
+    parser.add_argument("--max-path-length", type=int, default=200)
+
+    # ---------------------training resource settings----------
+    parser.add_argument(
+        "--seed", type=int, default=42, help="random seed, defaults to magic number 42"
+    )
+    parser.add_argument("--n-thread", type=int, default=1)
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cpu",
+        help="default is cpu, otherwise random cuda when it is available",
+    )
+
+    # -------------------training hyper-parameters settings----------
+    parser.add_argument("--n-epochs", type=int, default=1000000)
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=1024,
+        help="batch size for training",
+    )
+    parser.add_argument(
+        "--use-inner-product",
+        type=int,
+        default=0,
+        choices={0, 1},
+        help="whether use inner product for reward calculation",
+    )
+    parser.add_argument(
+        "--discrete-option",
+        type=int,
+        default=0,
+        choices={0, 1},
+        help="whether the option representation is a discrete mode or not",
+    )
+    parser.add_argument(
+        "--unit-length",
+        type=int,
+        choices={0, 1},
+        help="activated for only continuous options",
+    )
+    parser.add_argument("--common-lr", type=float, default=1e-4)
+    parser.add_argument("--lr-op", type=float, default=None)
+    parser.add_argument("--lr-te", type=float, default=None)
+    parser.add_argument("--alpha", type=float, default=0.01)
+    parser.add_argument("--dual-reg", type=int, default=1, choices=[0, 1])
+    parser.add_argument("--dual-lam", type=float, default=30)
+    parser.add_argument("--dual-slack", type=float, default=1e-3)
+    parser.add_argument(
+        "--dual-dist", type=str, default="one", choices=["l2", "s2_from_s", "one"]
+    )
+    parser.add_argument("--dual-lr", type=float, default=None)
+
+    # ----------- sac training settings
+    parser.add_argument("--sac-tau", type=float, default=5e-3)
+    parser.add_argument("--sac-lr-q", type=float, default=None)
+    parser.add_argument("--sac-lr-a", type=float, default=None)
+    parser.add_argument("--sac-discount", type=float, default=0.99)
+    parser.add_argument("--sac-scale-reward", type=float, default=1.0)
+    parser.add_argument("--sac-target-coef", type=float, default=1.0)
+    parser.add_argument("--buffer-size", type=int, default=300000)
+
+    # ----------------model settings-----------------
+    parser.add_argument(
+        "--option-dim", type=int, default=2, help="option dimension size"
+    )
     parser.add_argument("--value-hidden-dim", type=int, default=512)
     parser.add_argument("--value-num-layers", type=int, default=3)
     parser.add_argument("--actor-hidden-dim", type=int, default=512)
     parser.add_argument("--actor-num-layers", type=int, default=3)
     parser.add_argument("--discount", type=float, default=0.99)
     parser.add_argument("--tau", type=float, default=0.005)
-    parser.add_argument("--expectile", type=float, default=0.95)
     parser.add_argument("--use-layer-norm", type=int, default=1)
-    parser.add_argument("--option-dim", type=int, default=32)
-    parser.add_argument("--skill-expectile", type=float, default=0.9)
-    parser.add_argument("--skill-temperature", type=float, default=10.0)
-    parser.add_argument("--skill-discount", type=float, default=0.99)
-    parser.add_argument("--p-currgoal", type=float, default=0.0)
-    parser.add_argument("--p-trajgoal", type=float, default=0.625)
-    parser.add_argument("--p-randomgoal", type=float, default=0.375)
+    parser.add_argument(
+        "--use-dist-predictor",
+        type=int,
+        default=0,
+        choices={0, 1},
+        help="use distance predictor or not",
+    )
+    parser.add_argument(
+        "--use-option-planner",
+        type=int,
+        deafult=0,
+        choice={0, 1},
+        help="enable option planner model or not",
+    )
 
-    parser.add_argument("--planning-num-recursions", type=int, default=0)
-    parser.add_argument("--planning-num_states", type=int, default=50000)
-    parser.add_argument("--planning-num-knns", type=int, default=50)
+    # --------------evaluation settings----------
+    parser.add_argument(
+        "--num-eval-trajectories",
+        type=int,
+        default=48,
+        help="how many episodes you wanna evaluation for each time",
+    )
+    parser.add_argument(
+        "--num-video-repeats", type=int, default=2, help="number of video repeat"
+    )
+    parser.add_argument("--eval-record-video", type=int, default=1)
+    parser.add_argument("--eval-plot-axis", type=float, default=None, nargs="*")
+    parser.add_argument(
+        "--video-skip-frames",
+        type=int,
+        default=1,
+        help="skip frame setting for evaluation",
+    )
 
-    parser.add_argument("--encoder", type=str, default=None)
-    parser.add_argument("--p-aug", type=float, default=None)
-    parser.add_argument("--use-rnd", type=int, default=0)
-
-    parser.add_argument("--device", type=str, default="cpu")
+    # ------------for video record when evaluation-----------
+    parser.add_argument(
+        "--eval-record-video",
+        type=int,
+        default=1,
+        choices={0, 1},
+        help="indicating whether use video rendering for evaluation",
+    )
+    parser.add_argument(
+        "--video-skip-frames", type=int, default=4, help="frame skipping, defaults to 4"
+    )
+    parser.add_argument(
+        "--num-video-repeats",
+        type=int,
+        default=2,
+        help="how many videos for saving, defaults to 2",
+    )
 
     args = parser.parse_args(args)
-
     args.wandb = default_wandb_config()
     args.value_hidden_dims = tuple([args.value_hidden_dim] * args.value_num_layers)
     args.actor_hidden_dims = tuple([args.actor_hidden_dim] * args.actor_num_layers)
+
+    if torch.cuda.is_available() and "cuda" not in args.device:
+        args.device = "cuda"
 
     return args

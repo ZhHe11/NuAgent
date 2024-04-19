@@ -60,10 +60,3 @@ def make_env(args: Namespace, max_path_length: int):
         env = MyKitchenEnv(log_per_goal=True)
     else:
         raise NotImplementedError
-
-
-from typing import Dict
-
-
-def eval_episodes(env) -> Dict[str, float]:
-    raise NotImplementedError

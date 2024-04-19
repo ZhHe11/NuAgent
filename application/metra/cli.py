@@ -12,7 +12,8 @@ import torch
 from uniagent.data.collector import Collector
 
 from .cmd_utils import get_exp_name, set_seed
-from .envs import make_env, eval_episodes
+from .envs import make_env
+from .envs.evaluation import eval_random_option_generation
 
 
 def main(args: Namespace):
@@ -55,39 +56,42 @@ def main(args: Namespace):
             obs_dim=obs_dim,
             goal_dim=args.option_dim,
             act_dim=action_dim,
-            load_path=args.load_path,
+            load_path=args.restore_path,
         )
-        buffer = create_replay_buffer(env)
+        buffer = create_replay_buffer(args, env)
     elif args.algo == "dads":
         from .baselines.dads import DADSAgent, create_replay_buffer
 
         agent = DADSAgent(
             args, obs_dim=obs_dim, goal_dim=args.option_dim, act_dim=action_dim
         )
-        buffer = create_replay_buffer(env)
+        buffer = create_replay_buffer(args, env)
 
     agent.to(args.device)
 
     def action_interface_wrapper(agent):
         def f(observation):
-            with torch.no_grad():
-                action = agent(observation)
+            option = agent.sample_option(observation)
+            action = agent.sample_action(observation, option)
             return action.cpu().numpy()
+
+        return f
 
     collector = Collector(buffer, env, action_interface_wrapper(agent))
 
-    for i in tqdm.tqdm(
-        range(1, args.total_steps + 1), smoothing=0.1, dynamic_ncols=True
-    ):
-        collector.collect(env)
+    for i in tqdm.tqdm(range(1, args.n_epochs + 1), smoothing=0.1, dynamic_ncols=True):
+        collector.collect(args.batch_size, args.seed)
         batch = collector.sample(args.batch_size, to_torch=True, device=args.device)
-        loss_info = agent.update(batch, action_space=env.spec.action_space)
+        loss_info = agent.run(batch, action_space=env.spec.action_space)
 
         if i % args.log_interval == 0:
             wandb.log(loss_info, step=i)
 
         if i == 1 or i % args.eval_interval == 0:
-            eval_metrics = eval_episodes(env, action_interface_wrapper(agent))
+            eval_metrics = eval_random_option_generation(args, env, agent)
+            import pdb
+
+            pdb.set_trace()
             wandb.log(eval_metrics, step=i)
 
         if i % args.save_interval == 0:

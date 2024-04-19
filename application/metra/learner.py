@@ -8,25 +8,59 @@ import math
 import gym
 import torch
 import numpy as np
+
 from torch import nn
+from gym.spaces import Discrete
 
 from uniagent.data.replay_buffer import ReplayBuffer
 from application.hilp.learner import HILPAgent
 from . import sac_utils
 from .networks import ContinuousMLPQFunctionEx, ParameterModule, GaussianMLP, Policy
+from .exp_utils import ExpManager
 
 
-def create_replay_buffer(env: gym.Env) -> ReplayBuffer:
-    raise NotImplementedError
+def create_replay_buffer(args: Namespace, env: gym.Env) -> ReplayBuffer:
+    return ReplayBuffer(
+        args.buffer_size,
+        shape_and_dtypes={
+            "observation": (env.observation_space.shape, np.float32),
+            "action": ((env.action_space.n,), int)
+            if isinstance(env.action_space, Discrete)
+            else (env.action_space.shape, np.float32),
+            "reward": ((), np.float32),
+            "done": ((), bool),
+            # always in vector
+            "option": ((args.option_dim, np.float32)),
+        },
+    )
+
+
+class RandomOptionPlanner(nn.Module):
+    def __init__(self, config: Namespace) -> None:
+        super().__init__()
+        self.config = copy.deepcopy(config)
+
+    @torch.no_grad()
+    def sample_option(self, observation: np.ndarray):
+        return self(observation).cpu().numpy()
+
+    def forward(self, observation: torch.Tensor = None) -> torch.Tensor:
+        if self.config.discrete_option:
+            z = np.zeros(self.config.option_dim, dtype=np.float32)
+            idx = np.random.choice(self.config.option_dim)
+            z[idx] = 1.0
+        else:
+            z = np.random.randn(self.config.option_dim)
+        return torch.from_numpy(z).to(self.config.device)
 
 
 # configuration needed:
 #   use_inner_product: bool
-#   discrete_goal: bool
+#   discrete_option: bool
 #   dual_dist: str, 's2_from_s',
 #   dual_reg: bool, enable regularizer or not
 #   alpha: float
-class MetraAgent(HILPAgent):
+class MetraAgent(HILPAgent, ExpManager):
     def __init__(
         self,
         config: Namespace,
@@ -35,7 +69,8 @@ class MetraAgent(HILPAgent):
         act_dim: int,
         load_path: str = None,
     ):
-        super().__init__(config, obs_dim, goal_dim, act_dim, load_path)
+        HILPAgent.__init__(self, config, obs_dim, goal_dim, act_dim, load_path)
+        ExpManager.__init__(self)
 
     def create_networks(self, load_path: str = None) -> nn.ModuleDict:
         qf = ContinuousMLPQFunctionEx(
@@ -44,25 +79,44 @@ class MetraAgent(HILPAgent):
             hidden_dims=self.config.value_hidden_dims,
             ensemble_num=2,
         )
-        option_actor = Policy(
+        option_conditioned_policy = Policy(
             self.obs_dim,
             self.goal_dim,
             self.act_dim,
-            hidden_dims=self.config.value_hidden_dims,
+            hidden_dims=self.config.actor_hidden_dims,
         )
+        option_planner = self.create_option_planner()
         log_alpha = ParameterModule(torch.Tensor([np.log(self.config.alpha)]))
         dual_lam = ParameterModule(torch.Tensor([np.log(self.config.dual_lam)]))
+        # for observation representation learning
         traj_encoder = GaussianMLP(self.obs_dim, 0, self.config.option_dim)
+        dist_predictor = self.create_dist_predictor()
+        skill_dynamics = self.create_skill_dynamics_model()
 
         networks = {
             "qf": qf,
             "target_qf": copy.deepcopy(qf),
-            "option_actor": option_actor,
+            "option_policy": option_conditioned_policy,
+            # the phi, for state embedding
             "traj_encoder": traj_encoder,
             "dual_lam": dual_lam,
             "log_alpha": log_alpha,
+            "option_planner": option_planner,
+            "dist_predictor": dist_predictor,
+            "skill_dynamics": skill_dynamics,
         }
 
+        return nn.ModuleDict(networks)
+
+    def create_dist_predictor(self):
+        if self.config.use_dist_predictor:
+            return GaussianMLP(
+                self.obs_dim, 0, self.obs_dim, log_std_min=-6, log_std_max=6
+            )
+        else:
+            return None
+
+    def create_skill_dynamics_model(self):
         if self.config.algo == "dads":
             skill_dynamics = GaussianMLP(
                 self.obs_dim + self.config.option_dim,
@@ -71,19 +125,25 @@ class MetraAgent(HILPAgent):
                 log_std_min=math.log(0.3),
                 log_std_max=math.log(10),
             )
-            networks["skill_dynamics"] = skill_dynamics
+            return skill_dynamics
+        else:
+            return None
 
-        if self.config.use_dist_predictor:
-            networks["dist_predictor"] = GaussianMLP(
-                self.obs_dim, 0, self.obs_dim, log_std_min=-6, log_std_max=6
-            )
-        return nn.ModuleDict(networks)
+    def create_option_planner(self):
+        """Create option planner for option generation, defaults to random model, you can override it"""
+
+        if self.config.use_option_planner:
+            return RandomOptionPlanner()
+        else:
+            return None
 
     def setup_optimizer(self):
         optimizer = {
-            "qf": torch.optim.Adam(self.networks["qf"].parameters(), lr=self.config.lr),
+            "qf": torch.optim.Adam(
+                self.networks["qf"].parameters(), lr=self.config.sac_lr_q
+            ),
             "option_policy": torch.optim.Adam(
-                self.option_policy.parameters(), lr=self.config.lr_op
+                self.option_policy.parameters(), lr=self.config.sac_lr_a
             ),
             "traj_encoder": torch.optim.Adam(
                 self.traj_encoder.parameters(), lr=self.config.lr_te
@@ -101,6 +161,11 @@ class MetraAgent(HILPAgent):
         if self.config.use_dist_predictor:
             optimizer["dist_predictor"] = torch.optim.Adam(
                 self.networks["dist_predictor"].parameters(), lr=self.config.lr_op
+            )
+
+        if self.config.use_option_planner:
+            optimizer["option_planner"] = torch.optim.Adam(
+                self.networks["option_planner"].parameters(), lr=self.config.common_lr
             )
 
     @property
@@ -129,11 +194,29 @@ class MetraAgent(HILPAgent):
 
     @property
     def option_policy(self) -> nn.Module:
-        return self.networks["option_actor"]
+        return self.networks["option_policy"]
+
+    @property
+    def option_planner(self) -> nn.Module:
+        return self.networks["option_planner"]
+
+    @torch.no_grad()
+    def sample_option(self, observation: np.ndarray) -> np.ndarray:
+        observation = torch.from_numpy(observation).float().to(self.config.device)
+        option = self.option_planner.sample_option(observation)
+        return option
+
+    @torch.no_grad()
+    def sample_action(self, observation: np.ndarray, option: np.ndarray) -> np.ndarray:
+        observation = torch.from_numpy(observation).float().to(self.config.device)
+        option = torch.from_numpy(option).float().to(self.config.device)
+        dist: torch.distributions.Distribution = self(
+            "option_actor", observation, option
+        )
+        action = dist.sample()
+        return action.cpu().numpy()
 
     def cal_rewards(self, batch: Dict[str, torch.Tensor]):
-        # batch requires:
-        #   1. options: goals
         obs = batch["observations"]
         next_obs = batch["next_observations"]
 
@@ -143,7 +226,7 @@ class MetraAgent(HILPAgent):
             target_z = next_z - cur_z
 
             # for discrete environment only now
-            if self.config.discrete_goal:
+            if self.config.discrete_option:
                 masks = (
                     (batch["options"] - batch["options"].mean(dim=1, keepdim=True))
                     * self.dim_option
@@ -151,13 +234,12 @@ class MetraAgent(HILPAgent):
                 )
                 rewards = (target_z * masks).sum(dim=1)
             else:
-                inner = (target_z * batch["options"]).sum(dim=1)
-                rewards = inner
+                rewards = (target_z * batch["options"]).sum(dim=1)
 
             batch.update({"cur_z": cur_z, "next_z": next_z})
         else:
             target_dists = self.traj_encoder(next_obs)
-            if self.config.discrete_goal:
+            if self.config.discrete_option:
                 logits = target_dists.mean
                 rewards = -torch.nn.functional.cross_entropy(
                     logits, batch["options"].argmax(dim=1), reduce="none"
