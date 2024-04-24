@@ -38,7 +38,7 @@ def compute_loss_qf(
 
     q_ensemble: torch.Tensor = algo.qf(obs, actions).squeeze(-1)
 
-    next_action_dists, *_ = policy(next_obs)
+    next_action_dists = policy(next_obs)
     if hasattr(next_action_dists, "rsample_with_pre_tanh_value"):
         (
             new_next_actions_pre_tanh,
@@ -69,7 +69,7 @@ def compute_loss_qf(
             target_q_values.shape,
             dones.shape,
         )
-        q_target = rewards + target_q_values * (1.0 - dones)
+        q_target = rewards + target_q_values * (1.0 - dones.float())
         q_target_ensemble = torch.ones(
             q_ensemble.size(0), 1, requires_grad=False
         ).matmul(q_target.unsqueeze(0))
@@ -92,11 +92,12 @@ def compute_loss_sacp(
     batch: Dict[str, torch.Tensor],
     obs: torch.Tensor,
     policy: nn.Module,
+    action_space: gym.Space,
 ):
     with torch.no_grad():
         alpha = algo.log_alpha.param.exp()
 
-    action_dists, *_ = policy(obs)
+    action_dists = policy(obs)
     if hasattr(action_dists, "rsample_with_pre_tanh_value"):
         new_actions_pre_tanh, new_actions = action_dists.rsample_with_pre_tanh_value()
         new_action_log_probs = action_dists.log_prob(
@@ -104,7 +105,7 @@ def compute_loss_sacp(
         )
     else:
         new_actions = action_dists.rsample()
-        new_actions = _clip_actions(algo, new_actions)
+        new_actions = _clip_actions(algo, action_space, new_actions)
         new_action_log_probs = action_dists.log_prob(new_actions)
 
     q_values_ensemble: torch.Tensor = algo.qf(obs, new_actions)
@@ -130,7 +131,7 @@ def compute_loss_alpha(
 ):
     loss_alpha = (
         -algo.log_alpha.param
-        * (batch["new_action_log_probs"].detach() + algo._target_entropy)
+        * (batch["new_action_log_probs"].detach() + algo.target_entropy)
     ).mean()
 
     return loss_alpha, {

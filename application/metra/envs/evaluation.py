@@ -73,7 +73,7 @@ def get_option_colors(options, color_range=4) -> np.ndarray:
 
 
 def generate_options(args: Namespace) -> Tuple[np.ndarray, np.ndarray]:
-    if args.discreate_option:
+    if args.discrete_option:
         # generate options
         eye_options = np.eye(args.option_dim)
         random_options = []
@@ -113,12 +113,29 @@ def generate_options(args: Namespace) -> Tuple[np.ndarray, np.ndarray]:
 from typing import Sequence, Any
 from collections import namedtuple
 
+import tree
 
-Trajectory = namedtuple("Trajectory", "observations,actions,rewards,dones,options")
+
+Trajectory = namedtuple(
+    "Trajectory", "observations,actions,rewards,dones,options,env_info"
+)
 
 
 def process_trajectories(agent: nn.Module, trajectories: Sequence[Trajectory]):
-    raise NotImplementedError
+    ret = 0
+    n = len(trajectories)
+    for traj in trajectories:
+        ret += sum(traj.rewards) / n
+    statistic = {"ave_return": ret}
+    env_infos = [traj.env_info for traj in trajectories]
+    keys = list(env_infos[0][0].keys())
+    rets = []
+    for env_info in env_infos:
+        _rets = {}
+        for k in keys:
+            _rets[k] = np.stack([x[k] for x in env_info])
+        rets.append({"env_infos": _rets})
+    return rets, statistic
 
 
 def get_trajectories(
@@ -128,8 +145,15 @@ def get_trajectories(
     num_eval_traj = len(options) if options is not None else args.num_eval_trajectories
 
     # distinguish from original options, for save
-    for i in num_eval_traj:
-        observations, actions, rewards, dones, option_traj = [], [], [], [], []
+    for i in range(num_eval_traj):
+        observations, actions, rewards, dones, option_traj, env_info = (
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+        )
         obs = env.reset()
         done = False
 
@@ -144,12 +168,13 @@ def get_trajectories(
             rewards.append(rew)
             dones.append(done)
             option_traj.append(option)
+            env_info.append(info)
             obs = next_obs
 
         # save last observation
         observations.append(obs)
         trajectories.append(
-            Trajectory(observations, actions, rewards, dones, option_traj)
+            Trajectory(observations, actions, rewards, dones, option_traj, env_info)
         )
 
     return trajectories
@@ -173,15 +198,17 @@ def eval_random_option_generation(
     )
 
     # TODO(ming): parse trajectories here
-    trajectories = process_trajectories(agent, trajectories)
+    trajectories, info = process_trajectories(agent, trajectories)
 
     with FigManager(agent, "TrajPlot_RandomZ") as fm:
         assert hasattr(
             env, "render_trajectories"
         ), "please ensure you have implemented `render_trajectories` for your environment for rendering"
         env.render_trajectories(
-            trajectories, option_colors, agent.eval_plot_axis, fm.ax
+            trajectories, option_colors, agent.config.eval_plot_axis, fm.ax
         )
+
+    return info
 
     # last_obs = torch.stack([torch.from_numpy(v.observations[-1]).to(agent.config.device) for v in trajectories])
     # option_dists = agent.traj_encoder(last_obs)

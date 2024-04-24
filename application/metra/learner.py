@@ -68,10 +68,15 @@ class MetraAgent(HILPAgent, ExpManager):
         obs_dim: int,
         goal_dim: int,
         act_dim: int,
+        action_space: gym.Space,
         load_path: str = None,
     ):
         HILPAgent.__init__(self, config, obs_dim, goal_dim, act_dim, load_path)
         ExpManager.__init__(self)
+        self.action_space = action_space
+        self.target_entropy = (
+            -np.prod(self.action_space.shape).item() / 2.0 * self.config.sac_target_coef
+        )
 
     def create_networks(self, load_path: str = None) -> nn.ModuleDict:
         qf = ContinuousMLPQFunctionEx(
@@ -117,7 +122,7 @@ class MetraAgent(HILPAgent, ExpManager):
         actions: torch.Tensor = None,
     ) -> torch.Tensor:
         if method in ["option_policy"]:
-            return self.networks[method](observations, options)
+            return self.networks[method](torch.concat([observations, options], dim=-1))
         else:
             return self.networks[method](observations, actions)
 
@@ -180,6 +185,8 @@ class MetraAgent(HILPAgent, ExpManager):
             optimizer["option_planner"] = torch.optim.Adam(
                 self.networks["option_planner"].parameters(), lr=self.config.common_lr
             )
+
+        return optimizer
 
     @property
     def log_alpha(self) -> nn.Module:
@@ -270,7 +277,10 @@ class MetraAgent(HILPAgent, ExpManager):
             else:
                 rewards = target_dists.log_prob(batch["option"])
 
-        info = {"PureRewardMean": rewards.mean(), "UreRewardStd": rewards.std()}
+        info = {
+            "PureRewardMean": rewards.mean().cpu().item(),
+            "UreRewardStd": rewards.std().cpu().item(),
+        }
 
         return rewards, info
 
@@ -332,6 +342,7 @@ class MetraAgent(HILPAgent, ExpManager):
             batch,
             obs=processed_cat_obs,
             policy=self.option_policy,
+            action_space=self.action_space,
         )
         return loss, info
 
@@ -411,6 +422,13 @@ class MetraAgent(HILPAgent, ExpManager):
         loss_info["LossTe"] = loss_te.cpu().item()
 
         return loss_dp + loss_te, loss_info
+
+    def target_update(self):
+        tau = self.config.tau
+        for tp, p in zip(
+            self.networks["target_qf"].parameters(), self.networks["qf"].parameters()
+        ):
+            tp.data.copy_(tau * p + (1 - tau) * tp)
 
     def step_optimizer(self):
         for v in self.optimizer.values():

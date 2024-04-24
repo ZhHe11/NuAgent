@@ -132,3 +132,4 @@ runs/
 .vscode/
 exp/
 mujoco*/
+data

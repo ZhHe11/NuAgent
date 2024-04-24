@@ -45,14 +45,16 @@ def main(args: Namespace):
     args.wandb["project"] = "hilp_gcrl"
     args.wandb["name"] = args.wandb["exp_descriptor"] = exp_name
     args.wandb["group"] = args.wandb["exp_prefix"] = args.run_group
-    setup_wandb(args, dict(), **args.wandb)
 
-    args.save_dir = os.path.join(
-        args.save_dir,
-        wandb.run.project,
-        wandb.config.exp_prefix,
-        wandb.config.experiment_id,
-    )
+    if args.use_wandb:
+        setup_wandb(args, dict(), **args.wandb)
+
+        args.save_dir = os.path.join(
+            args.save_dir,
+            wandb.run.project,
+            wandb.config.exp_prefix,
+            wandb.config.experiment_id,
+        )
 
     if args.algo == "metra":
         from .learner import MetraAgent, create_replay_buffer
@@ -62,6 +64,7 @@ def main(args: Namespace):
             obs_dim=obs_dim,
             goal_dim=args.option_dim,
             act_dim=action_dim,
+            action_space=env.action_space,
             load_path=args.restore_path,
         )
         buffer = create_replay_buffer(args, env)
@@ -85,20 +88,37 @@ def main(args: Namespace):
 
     collector = Collector(buffer, env, action_interface_wrapper(agent))
 
-    for i in tqdm.tqdm(range(1, args.n_epochs + 1), smoothing=0.1, dynamic_ncols=True):
+    info = {"ave_return": 0}
+    tprocess = tqdm.tqdm(
+        range(1, args.n_epochs + 1),
+        smoothing=0.1,
+        dynamic_ncols=True,
+        desc="Training METRA",
+        leave=True,
+    )
+    for i in tprocess:
         collector.collect(args.batch_size, args.seed)
         batch = collector.sample(args.batch_size, to_torch=True, device=args.device)
         loss_info = agent.run(batch, action_space=env.spec.action_space)
+        import pdb
+
+        pdb.set_trace()
+        info.update(loss_info)
 
         if i % args.log_interval == 0:
-            wandb.log(loss_info, step=i)
+            if args.use_wandb:
+                wandb.log(loss_info, step=i)
+            else:
+                pass
 
         if i == 1 or i % args.eval_interval == 0:
             eval_metrics = eval_random_option_generation(args, env, agent)
-            import pdb
-
-            pdb.set_trace()
-            wandb.log(eval_metrics, step=i)
+            info.update(eval_metrics)
+            if args.use_wandb:
+                wandb.log(eval_metrics, step=i)
 
         if i % args.save_interval == 0:
             pass
+
+        str_info = " ".join([f"{k}: {v:.3f}" for k, v in info.items()])
+        tprocess.set_postfix_str(str_info)

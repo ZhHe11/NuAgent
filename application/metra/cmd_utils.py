@@ -86,6 +86,9 @@ def get_command_parser(args: Sequence[str] = None):
     parser.add_argument(
         "--save-dir", type=str, default="exp/", help="experiment logging directory"
     )
+    parser.add_argument(
+        "--use-wandb", type=int, default=1, help="enabling wandb or not"
+    )
 
     # ------------------general exp settings--------------
     parser.add_argument("--algo", type=str, default="metra", choices=["metra", "dads"])

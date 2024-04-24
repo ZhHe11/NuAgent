@@ -47,10 +47,10 @@ class HILPAgent(nn.Module):
         self.config = copy.deepcopy(config)
 
         self.networks = self.create_networks(load_path)
-        self.setup_optimizer()
+        self.optimizer = self.setup_optimizer()
 
     def setup_optimizer(self):
-        self.optimizer = torch.optim.Adam(self.parameters(), self.config.lr)
+        return torch.optim.Adam(self.parameters(), self.config.lr)
 
     def create_networks(self, load_path: str = None) -> nn.ModuleDict:
         """Register a module dict.

@@ -81,3 +81,20 @@ class Policy(Actor):
             return torch.from_numpy(observation).float()
         else:
             raise RuntimeError
+
+    def forward(
+        self, observation_with_goals: torch.Tensor, temperature: float = 1.0
+    ) -> torch.distributions.Distribution:
+        x = self.net(observation_with_goals)
+        mean = self.mean_layer(x)
+        log_std = torch.clip(self.log_std_layer(x), self.log_std_min, self.log_std_max)
+        assert mean.shape == log_std.shape, (mean.shape, log_std.shape)
+        dist = torch.distributions.Independent(
+            torch.distributions.Normal(
+                loc=mean, scale=torch.exp(log_std) * temperature
+            ),
+            1,
+        )
+        if self.tanh_squash_distribution:
+            raise NotImplementedError
+        return dist
