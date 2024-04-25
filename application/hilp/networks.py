@@ -341,7 +341,7 @@ class Actor(nn.Module):
     ) -> torch.distributions.Distribution:
         x = self.net(torch.concat([observations, goals], dim=-1))
         mean = self.mean_layer(x)
-        log_std = torch.clip(self.log_std_layer(x), self.log_std_min, self.log_std_max)
+        log_std = torch.clamp(self.log_std_layer(x), self.log_std_min, self.log_std_max)
         assert mean.shape == log_std.shape, (mean.shape, log_std.shape)
         dist = torch.distributions.Independent(
             torch.distributions.Normal(

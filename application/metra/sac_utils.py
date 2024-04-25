@@ -19,10 +19,10 @@ def _clip_actions(
     with torch.no_grad():
         clip = (upper - actions) * clip_up + (lower - actions) * clip_down
 
-    actions = torch.clip_(actions, lower + epsilon, upper - epsilon)
+    # actions = torch.clamp(actions, lower + epsilon, upper - epsilon)
 
-    # return actions + clip
-    return actions
+    return actions + clip
+    # return actions
 
 
 def compute_loss_qf(
@@ -122,7 +122,9 @@ def compute_loss_sacp(
     q_values_ensemble: torch.Tensor = algo.qf(obs, new_actions)
     min_q_values = q_values_ensemble.min(dim=0)[0]
 
-    loss_sacp = (alpha * new_action_log_probs - min_q_values).mean()
+    loss_sacp = (
+        alpha * new_action_log_probs - min_q_values
+    ).mean() - entropy.mean() * 0.1
 
     batch.update(
         {
@@ -136,6 +138,8 @@ def compute_loss_sacp(
         "LossSacp": loss_sacp.cpu().item(),
         "MinQMean": min_q_values.mean().cpu().item(),
         "Entropy": entropy.mean().cpu().item(),
+        "DistStd": action_dists.base_dist.stddev.mean().item(),
+        "DistMean": action_dists.base_dist.mode.mean().item(),
     }
 
 
