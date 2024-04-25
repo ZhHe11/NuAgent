@@ -106,3 +106,14 @@ class DQN(nn.Module):
 
     def init_state(self, batch_size: int, device=None):
         return self.preprocessor.init_state(batch_size, device)
+
+
+from .moe import SoftMoELayer
+
+
+class MoeDQN(DQN):
+    def create_critic(self, num_inputs: int) -> nn.Module:
+        return nn.Sequential(
+            SoftMoELayer(num_inputs, num_experts=4),
+            nn.Linear(num_inputs, self.action_space.n),
+        )

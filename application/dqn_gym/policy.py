@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from uniagent.models.dqn import DQN
+from uniagent.models.dqn import DQN, MoeDQN
 from uniagent.models.torch_net_utils import View
 
 

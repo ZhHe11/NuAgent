@@ -15,7 +15,7 @@ from uniagent.trainers.optimizers import SharedAdam
 
 from application.dqn_gym.train import train
 from application.dqn_gym.eval import test
-from application.dqn_gym.policy import DQN
+from application.dqn_gym.policy import DQN, MoeDQN
 
 
 parser = argparse.ArgumentParser(description="DQN for Gym control")
@@ -66,6 +66,7 @@ parser.add_argument("--use-cuda", action="store_true")
 parser.add_argument("--batch-size", default=32, type=int)
 parser.add_argument("--replay-buffer-size", default=100000, type=int)
 parser.add_argument("--double-q", action="store_true")
+parser.add_argument("--backbone", type=str, default="mlp", choices={"mlp", "moe"})
 
 
 if __name__ == "__main__":
@@ -87,7 +88,9 @@ if __name__ == "__main__":
         f"env: {args.env_name}\nobservation_space: {env.observation_space}\naction_space: {env.action_space}"
     )
 
-    shared_model = DQN(env.observation_space, env.action_space)
+    model_cls = DQN if args.backbone == "mlp" else MoeDQN
+
+    shared_model = model_cls(env.observation_space, env.action_space)
     shared_model.to(args.device)
 
     if args.async_mode:
@@ -112,7 +115,9 @@ if __name__ == "__main__":
 
     if not args.async_mode:
         rank = 0
-        train(rank, env, shared_model, counter, log_dir, lock, optimizer, args, DQN)
+        train(
+            rank, env, shared_model, counter, log_dir, lock, optimizer, args, model_cls
+        )
     else:
         p = mp.Process(
             target=test,
@@ -124,7 +129,7 @@ if __name__ == "__main__":
                 log_dir,
                 lock,
                 args,
-                DQN,
+                model_cls,
             ),
         )
         p.start()
@@ -142,7 +147,7 @@ if __name__ == "__main__":
                     lock,
                     optimizer,
                     args,
-                    DQN,
+                    model_cls,
                 ),
             )
             p.start()
