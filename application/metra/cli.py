@@ -8,6 +8,7 @@ import wandb
 import tqdm
 import torch
 
+from torch.utils.tensorboard import SummaryWriter
 
 from uniagent.data.collector import Collector
 from uniagent.utils.wandb import setup_wandb
@@ -56,6 +57,7 @@ def main(args: Namespace):
             wandb.config.experiment_id,
         )
 
+    writer = SummaryWriter(args.save_dir)
     if args.algo == "metra":
         from .learner import MetraAgent, create_replay_buffer
 
@@ -100,10 +102,7 @@ def main(args: Namespace):
         collector.collect(args.batch_size, args.seed)
         batch = collector.sample(args.batch_size, to_torch=True, device=args.device)
         loss_info = agent.run(batch, action_space=env.spec.action_space)
-        import pdb
-
-        pdb.set_trace()
-        info.update(loss_info)
+        loss_info["buffer_size"] = len(buffer)
 
         if i % args.log_interval == 0:
             if args.use_wandb:
@@ -116,9 +115,13 @@ def main(args: Namespace):
             info.update(eval_metrics)
             if args.use_wandb:
                 wandb.log(eval_metrics, step=i)
+            for k, v in info.items():
+                writer.add_scalar(k, v, i)
 
         if i % args.save_interval == 0:
             pass
 
         str_info = " ".join([f"{k}: {v:.3f}" for k, v in info.items()])
         tprocess.set_postfix_str(str_info)
+        for k, v in loss_info.items():
+            writer.add_scalar(k, v, i)

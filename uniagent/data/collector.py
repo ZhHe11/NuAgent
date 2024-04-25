@@ -34,9 +34,10 @@ class Collector:
         while cnt < batch_size:
             done = False
             observation = self.env.reset()
+            option, action = self.action_interface(observation)
             while not done:
-                option, action = self.action_interface(observation)
                 next_observation, reward, done, info = self.env.step(action)
+                next_option, next_action = self.action_interface(next_observation)
                 self.buffer.push(
                     observation=np.asarray(observation, dtype=np.float32),
                     action=action_to_onehot(action, self.env.action_space.n)
@@ -46,8 +47,10 @@ class Collector:
                     done=np.asarray(done),
                     next_observation=np.asarray(next_observation, dtype=np.float32),
                     option=np.asarray(option, dtype=np.float32),
+                    next_option=np.asarray(next_option, dtype=np.float32),
                 )
                 observation = next_observation
+                action = next_action
                 cnt += 1
 
     def sample(

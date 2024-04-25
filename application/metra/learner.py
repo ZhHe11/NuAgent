@@ -32,6 +32,7 @@ def create_replay_buffer(args: Namespace, env: gym.Env) -> ReplayBuffer:
             # always in vector
             "option": ((args.option_dim,), np.float32),
             "next_observation": (env.observation_space.shape, np.float32),
+            "next_option": ((args.option_dim,), np.float32),
         },
     )
 
@@ -169,6 +170,9 @@ class MetraAgent(HILPAgent, ExpManager):
             "dual_lam": torch.optim.Adam(
                 self.dual_lam.parameters(), lr=self.config.lr_dual
             ),
+            "log_alpha": torch.optim.Adam(
+                self.log_alpha.parameters(), lr=self.config.sac_lr_a
+            ),
         }
 
         if self.config.algo == "dads":
@@ -302,7 +306,7 @@ class MetraAgent(HILPAgent, ExpManager):
         # FIXME(ming): use next_option, not option
         next_processed_cat_obs = self._get_concat_obs(
             self.option_policy.process_observations(batch["next_observation"]),
-            batch["option"],
+            batch["next_option"],
         )
 
         loss, info = sac_utils.compute_loss_qf(
@@ -430,42 +434,61 @@ class MetraAgent(HILPAgent, ExpManager):
         ):
             tp.data.copy_(tau * p + (1 - tau) * tp)
 
-    def step_optimizer(self):
-        for v in self.optimizer.values():
-            v.step()
+    def step_optimizer(self, key: str = None):
+        if key is not None:
+            self.optimizer[key].step()
+        else:
+            for v in self.optimizer.values():
+                v.step()
 
     def update(self, batch: Dict[str, np.ndarray], **kwargs) -> Dict[str, float]:
         batch = self.to_torch(batch)
         loss_info = {}
 
+        self.zero_grad()
         te_loss, te_loss_info = self.compute_loss_te(batch)
         loss_info.update({f"TE/{k}": v for k, v in te_loss_info.items()})
+        te_loss.backward()
+        self.step_optimizer("traj_encoder")
+        if self.config.use_dist_predictor:
+            self.step_optimizer("dist_predictor")
 
         if self.config.dual_reg:
+            self.zero_grad()
             lam_loss, lam_loss_info = self.compute_loss_dual_lam(batch)
             loss_info.update({f"LAM/{k}": v for k, v in lam_loss_info.items()})
+            lam_loss.backward()
+            self.step_optimizer("dual_lam")
         else:
             lam_loss = 0
 
         with torch.no_grad():
             batch["reward"], _ = self.cal_rewards(batch)
 
+        self.zero_grad()
         qf_loss, qf_loss_info = self.compute_loss_qf(kwargs["action_space"], batch)
+        qf_loss.backward()
         loss_info.update({f"QF/{k}": v for k, v in qf_loss_info.items()})
+        self.step_optimizer("qf")
 
         # loss for option policy
+        self.zero_grad()
         op_loss, op_loss_info = self.compute_loss_op(batch)
+        op_loss.backward()
+        grad_norm = torch.nn.utils.clip_grad.clip_grad_norm(
+            self.option_policy.parameters(), 0.5
+        )
         loss_info.update({f"OP/{k}": v for k, v in op_loss_info.items()})
-
-        alpha_loss, alpha_loss_info = self.compute_loss_alpha(batch)
-        loss_info.update({f"ALPHA/{k}": v for k, v in alpha_loss_info.items()})
-
-        loss = te_loss + op_loss + lam_loss + qf_loss + op_loss + alpha_loss
+        loss_info["OP/grad_norm"] = grad_norm.cpu().item()
+        self.step_optimizer("option_policy")
 
         self.zero_grad()
-        loss.backward()
-        self.step_optimizer()
+        alpha_loss, alpha_loss_info = self.compute_loss_alpha(batch)
+        alpha_loss.backward()
+        loss_info.update({f"ALPHA/{k}": v for k, v in alpha_loss_info.items()})
+        self.step_optimizer("log_alpha")
 
+        self.zero_grad()
         self.target_update()
 
         return loss_info
