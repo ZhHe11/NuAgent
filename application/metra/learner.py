@@ -441,52 +441,60 @@ class MetraAgent(HILPAgent, ExpManager):
             for v in self.optimizer.values():
                 v.step()
 
-    def update(self, batch: Dict[str, np.ndarray], **kwargs) -> Dict[str, float]:
-        batch = self.to_torch(batch)
-        loss_info = {}
-
+    def optimize_te(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         self.zero_grad()
         te_loss, te_loss_info = self.compute_loss_te(batch)
-        loss_info.update({f"TE/{k}": v for k, v in te_loss_info.items()})
         te_loss.backward()
         self.step_optimizer("traj_encoder")
-        if self.config.use_dist_predictor:
-            self.step_optimizer("dist_predictor")
 
         if self.config.dual_reg:
             self.zero_grad()
             lam_loss, lam_loss_info = self.compute_loss_dual_lam(batch)
-            loss_info.update({f"LAM/{k}": v for k, v in lam_loss_info.items()})
             lam_loss.backward()
             self.step_optimizer("dual_lam")
-        else:
-            lam_loss = 0
 
-        with torch.no_grad():
-            batch["reward"], _ = self.cal_rewards(batch)
+            if self.config.dual_dist == "s2_from_s":
+                self.zero_grad()
+                self.step_optimizer("dist_predictor")
 
+            te_loss_info.update(lam_loss_info)
+
+        return {f"TrajEncoderTraining/{k}": v for k, v in te_loss_info.items()}
+
+    def optimize_gcrl(
+        self, batch: Dict[str, torch.Tensor], action_space: gym.Space
+    ) -> Dict[str, float]:
         self.zero_grad()
-        qf_loss, qf_loss_info = self.compute_loss_qf(kwargs["action_space"], batch)
+        qf_loss, loss_info = self.compute_loss_qf(action_space, batch)
         qf_loss.backward()
-        loss_info.update({f"QF/{k}": v for k, v in qf_loss_info.items()})
         self.step_optimizer("qf")
 
-        # loss for option policy
         self.zero_grad()
         op_loss, op_loss_info = self.compute_loss_op(batch)
         op_loss.backward()
-        grad_norm = torch.nn.utils.clip_grad.clip_grad_norm(
-            self.option_policy.parameters(), 0.5
-        )
-        loss_info.update({f"OP/{k}": v for k, v in op_loss_info.items()})
-        loss_info["OP/grad_norm"] = grad_norm.cpu().item()
+        # grad_norm = torch.nn.utils.clip_grad.clip_grad_norm(
+        #     self.option_policy.parameters(), 0.5
+        # )
         self.step_optimizer("option_policy")
+        loss_info.update(op_loss_info)
 
         self.zero_grad()
         alpha_loss, alpha_loss_info = self.compute_loss_alpha(batch)
         alpha_loss.backward()
-        loss_info.update({f"ALPHA/{k}": v for k, v in alpha_loss_info.items()})
+        # loss_info.update({f"ALPHA/{k}": v for k, v in alpha_loss_info.items()})
         self.step_optimizer("log_alpha")
+        loss_info.update(alpha_loss_info)
+
+        return {f"GCRLTraining/{k}": v for k, v in loss_info.items()}
+
+    def update(self, batch: Dict[str, np.ndarray], **kwargs) -> Dict[str, float]:
+        batch = self.to_torch(batch)
+        loss_info = {}
+        loss_info.update(self.optimize_te(batch))
+        # update reward
+        with torch.no_grad():
+            batch["reward"], _ = self.cal_rewards(batch)
+        loss_info.update(self.optimize_gcrl(batch, kwargs["action_space"]))
 
         self.zero_grad()
         self.target_update()

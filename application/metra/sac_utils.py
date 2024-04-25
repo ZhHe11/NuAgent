@@ -19,7 +19,10 @@ def _clip_actions(
     with torch.no_grad():
         clip = (upper - actions) * clip_up + (lower - actions) * clip_down
 
-    return actions + clip
+    actions = torch.clip_(actions, lower + epsilon, upper - epsilon)
+
+    # return actions + clip
+    return actions
 
 
 def compute_loss_qf(
@@ -129,6 +132,7 @@ def compute_loss_sacp(
 
     return loss_sacp, {
         "SacpNewActionLogProbMean": new_action_log_probs.mean().cpu().item(),
+        "ActionsMean": new_actions.mean().cpu().item(),
         "LossSacp": loss_sacp.cpu().item(),
         "MinQMean": min_q_values.mean().cpu().item(),
         "Entropy": entropy.mean().cpu().item(),

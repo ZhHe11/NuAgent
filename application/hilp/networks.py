@@ -298,7 +298,7 @@ class Actor(nn.Module):
         hidden_dims: Sequence[int] = (256, 256),
         norm: bool = True,
         state_dependent_std: bool = True,
-        log_std_min: float = -20,
+        log_std_min: float = -10,
         log_std_max: float = 2,
         tanh_squash_distribution: bool = False,
     ):
