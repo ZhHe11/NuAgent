@@ -59,29 +59,19 @@ def compute_loss_qf(
         next_q_values: torch.Tensor = (
             algo.target_qf(next_obs, new_next_actions).squeeze(-1).min(dim=0)[0]
         )
-
-        assert next_q_values.shape == new_next_action_log_probs.shape, (
-            next_q_values.shape,
-            new_next_action_log_probs.shape,
-        )
         next_q_values = next_q_values - alpha * new_next_action_log_probs
-        assert rewards.shape == next_q_values.shape == dones.shape, (
-            rewards.shape,
-            next_q_values.shape,
-            dones.shape,
-        )
         q_target = (
             rewards + next_q_values * (1.0 - dones.float()) * algo.config.discount
         )
         q_target_ensemble = torch.ones(
-            q_ensemble.size(0), 1, requires_grad=False
+            q_ensemble.size(0), 1, requires_grad=False, device=q_target.device
         ).matmul(q_target.unsqueeze(0))
 
     assert q_ensemble.shape == q_target_ensemble.shape, (
         q_ensemble.shape,
         q_target_ensemble.shape,
     )
-    loss = F.mse_loss(q_ensemble.flatten(), q_target_ensemble.flatten()) * 0.5
+    loss = F.mse_loss(q_ensemble.flatten(), q_target_ensemble.flatten())
 
     return loss, {
         "QTargetsMean": q_target.mean().cpu().item(),
@@ -108,13 +98,11 @@ def compute_loss_sacp(
 
     action_dists = policy(obs)
     if hasattr(action_dists, "rsample_with_pre_tanh_value"):
-        new_actions_pre_tanh, new_actions = action_dists.rsample_with_pre_tanh_value()
-        new_action_log_probs = action_dists.log_prob(
-            new_actions, pre_tanh_value=new_actions_pre_tanh
-        )
+        logits, new_actions = action_dists.rsample_with_pre_tanh_value()
+        new_action_log_probs = action_dists.log_prob(new_actions, pre_tanh_value=logits)
     else:
-        new_actions = action_dists.rsample()
-        new_actions = _clip_actions(algo, action_space, new_actions)
+        logits = action_dists.rsample()
+        new_actions = _clip_actions(algo, action_space, logits)
         new_action_log_probs = action_dists.log_prob(new_actions)
 
     # note here we need to stop gradient
@@ -124,7 +112,7 @@ def compute_loss_sacp(
 
     loss_sacp = (
         alpha * new_action_log_probs - min_q_values
-    ).mean() - entropy.mean() * 0.1
+    ).mean()  # - entropy.mean() * 0.1
 
     batch.update(
         {
@@ -135,11 +123,12 @@ def compute_loss_sacp(
     return loss_sacp, {
         "SacpNewActionLogProbMean": new_action_log_probs.mean().cpu().item(),
         "ActionsMean": new_actions.mean().cpu().item(),
+        "LogitsMean": logits.mean().cpu().item(),
         "LossSacp": loss_sacp.cpu().item(),
         "MinQMean": min_q_values.mean().cpu().item(),
         "Entropy": entropy.mean().cpu().item(),
-        "DistStd": action_dists.base_dist.stddev.mean().item(),
-        "DistMean": action_dists.base_dist.mode.mean().item(),
+        "DistributionStd": action_dists.variance.mean().item(),
+        "DistributionMean": action_dists.mode.mean().item(),
     }
 
 

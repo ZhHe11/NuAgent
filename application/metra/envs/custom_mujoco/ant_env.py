@@ -10,7 +10,7 @@ from gym import utils
 import numpy as np
 from gym.envs.mujoco import mujoco_env
 
-from envs.mujoco.mujoco_utils import MujocoTrait
+from .mujoco_utils import MujocoTrait
 
 
 def q_inv(a):
@@ -25,6 +25,10 @@ def q_mult(a, b):  # multiply two quaternion
     return [w, i, j, k]
 
 
+BASE_DIR = os.path.dirname(__file__)
+
+
+# Gym Baseline: 1083.2 see: https://allenact.org/projects/gym_baselines/
 # pylint: disable=missing-docstring
 class AntEnv(MujocoTrait, mujoco_env.MujocoEnv, utils.EzPickle):
     def __init__(
@@ -66,8 +70,8 @@ class AntEnv(MujocoTrait, mujoco_env.MujocoEnv, utils.EzPickle):
         # Settings from
         # https://github.com/openai/gym/blob/master/gym/envs/__init__.py
 
-        xml_path = "envs/mujoco/assets/"
-        model_path = os.path.abspath(os.path.join(xml_path, model_path))
+        xml_path = "assets/"
+        model_path = os.path.abspath(os.path.join(BASE_DIR, xml_path, model_path))
         mujoco_env.MujocoEnv.__init__(self, model_path, 5)
 
     def compute_reward(self, **kwargs):

@@ -74,7 +74,7 @@ def make_env(args: Namespace, max_path_length: int):
     if normalizer_type == "off":
         env = consistent_normalize(env, normalize_obs=False, **normalizer_kwargs)
     elif normalizer_type == "preset":
-        normalizer_name = args.env
+        normalizer_name = args.env_name
         normalizer_mean, normalizer_std = get_normalizer_preset(
             f"{normalizer_name}_preset"
         )

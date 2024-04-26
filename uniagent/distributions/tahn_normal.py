@@ -58,10 +58,11 @@ class TanhNormal(torch.distributions.Distribution):
                 torch.log((1 + epsilon + value) / (1 + epsilon - value)) / 2
             )
         norm_lp = self._normal.log_prob(pre_tanh_value)
-        ret = norm_lp - torch.sum(
-            torch.log(self._clip_but_pass_gradient((1.0 - value**2)) + epsilon),
-            axis=-1,
-        )
+        # ret = norm_lp - torch.sum(
+        #     torch.log(self._clip_but_pass_gradient((1.0 - value**2)) + epsilon),
+        #     axis=-1,
+        # )
+        ret = norm_lp
         return ret
 
     def sample(self, sample_shape=torch.Size()):
@@ -231,6 +232,10 @@ class TanhNormal(torch.distributions.Distribution):
     def variance(self):
         """torch.Tensor: variance of the underlying normal distribution."""
         return self._normal.variance
+
+    @property
+    def mode(self) -> torch.Tensor:
+        return self._normal.mode
 
     def entropy(self):
         """Returns entropy of the underlying normal distribution.

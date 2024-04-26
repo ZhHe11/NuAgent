@@ -40,6 +40,11 @@ def main(args: Namespace):
 
     env = make_env(args, args.max_path_length)
 
+    print("==== Task Information ====")
+    print("* Task name: ", args.env_name)
+    print("* Observation space: ", env.observation_space)
+    print("* Action space: ", env.action_space)
+
     obs_dim = env.spec.observation_space.flat_dim
     action_dim = env.spec.action_space.flat_dim
 
@@ -99,7 +104,8 @@ def main(args: Namespace):
         leave=True,
     )
     for i in tprocess:
-        collector.collect(args.batch_size, args.seed)
+        agent.train()
+        collector.collect(args.batch_size, args.seed, args.max_path_length)
         batch = collector.sample(args.batch_size, to_torch=True, device=args.device)
         loss_info = agent.run(batch, action_space=env.spec.action_space)
         loss_info["buffer_size"] = len(buffer)
@@ -111,6 +117,7 @@ def main(args: Namespace):
                 pass
 
         if i == 1 or i % args.eval_interval == 0:
+            agent.eval()
             eval_metrics = eval_random_option_generation(args, env, agent)
             info.update(eval_metrics)
             if args.use_wandb:

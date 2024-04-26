@@ -89,6 +89,7 @@ def get_command_parser(args: Sequence[str] = None):
     parser.add_argument(
         "--use-wandb", type=int, default=1, help="enabling wandb or not"
     )
+    parser.add_argument("--render", type=int, default=0)
 
     # ------------------general exp settings--------------
     parser.add_argument("--algo", type=str, default="metra", choices=["metra", "dads"])
@@ -189,7 +190,6 @@ def get_command_parser(args: Sequence[str] = None):
     parser.add_argument("--actor-hidden-dim", type=int, default=512)
     parser.add_argument("--actor-num-layers", type=int, default=3)
     parser.add_argument("--discount", type=float, default=0.99)
-    parser.add_argument("--tau", type=float, default=0.005)
     parser.add_argument("--use-layer-norm", type=int, default=1)
     parser.add_argument(
         "--use-dist-predictor",

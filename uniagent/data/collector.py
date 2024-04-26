@@ -29,7 +29,9 @@ class Collector:
     def check_buffer_map(self, buffer: ReplayBuffer):
         pass
 
-    def collect(self, batch_size: int = 1, seed: int = None):
+    def collect(
+        self, batch_size: int = 1, seed: int = None, max_path_length: int = None
+    ):
         cnt = 0
         while cnt < batch_size:
             done = False
@@ -52,6 +54,9 @@ class Collector:
                 observation = next_observation
                 action = next_action
                 cnt += 1
+                done = done or (
+                    cnt >= max_path_length if max_path_length is not None else False
+                )
 
     def sample(
         self,

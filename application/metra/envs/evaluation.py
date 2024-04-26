@@ -2,6 +2,8 @@ from typing import Dict, Tuple, Callable
 from argparse import Namespace
 
 import gym
+import gym.wrappers
+import gym.wrappers.record_video
 import torch
 import numpy as np
 
@@ -144,6 +146,12 @@ def get_trajectories(
     trajectories = []
     num_eval_traj = len(options) if options is not None else args.num_eval_trajectories
 
+    if args.render:
+        env = gym.wrappers.record_video.RecordVideo(
+            env, video_folder=args.save_dir, name_prefix=args.env_name
+        )
+        env.start_video_recorder()
+
     # distinguish from original options, for save
     for i in range(num_eval_traj):
         observations, actions, rewards, dones, option_traj, env_info = (
@@ -156,6 +164,7 @@ def get_trajectories(
         )
         obs = env.reset()
         done = False
+        cnt = 0
 
         while not done:
             observations.append(obs)
@@ -170,6 +179,8 @@ def get_trajectories(
             option_traj.append(option)
             env_info.append(info)
             obs = next_obs
+            cnt += 1
+            done = done or (cnt >= args.max_path_length)
 
         # save last observation
         observations.append(obs)

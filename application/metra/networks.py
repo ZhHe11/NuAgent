@@ -72,8 +72,10 @@ from typing import Any
 
 import numpy as np
 
+from uniagent.distributions.tahn_normal import TanhNormal
 
-class Policy(Actor):
+
+class ContinuousPolicy(Actor):
     def process_observations(self, observation: Any):
         if isinstance(observation, torch.Tensor):
             return observation
@@ -87,14 +89,16 @@ class Policy(Actor):
     ) -> torch.distributions.Distribution:
         x = self.net(observation_with_goals)
         mean = self.mean_layer(x)
-        log_std = torch.clip(self.log_std_layer(x), self.log_std_min, self.log_std_max)
+        log_std = torch.clamp(self.log_std_layer(x), self.log_std_min, self.log_std_max)
         assert mean.shape == log_std.shape, (mean.shape, log_std.shape)
-        dist = torch.distributions.Independent(
-            torch.distributions.Normal(
-                loc=mean, scale=torch.exp(log_std) * temperature
-            ),
-            1,
-        )
+
         if self.tanh_squash_distribution:
-            raise NotImplementedError
+            dist = TanhNormal(loc=mean, scale=torch.exp(log_std) * temperature)
+        else:
+            dist = torch.distributions.Independent(
+                torch.distributions.Normal(
+                    loc=mean, scale=torch.exp(log_std) * temperature
+                ),
+                1,
+            )
         return dist

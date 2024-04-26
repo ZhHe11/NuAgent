@@ -15,7 +15,12 @@ from gym.spaces import Discrete
 from uniagent.data.replay_buffer import ReplayBuffer
 from application.hilp.learner import HILPAgent
 from . import sac_utils
-from .networks import ContinuousMLPQFunctionEx, ParameterModule, GaussianMLP, Policy
+from .networks import (
+    ContinuousMLPQFunctionEx,
+    ParameterModule,
+    GaussianMLP,
+    ContinuousPolicy,
+)
 from .exp_utils import ExpManager
 
 
@@ -62,6 +67,9 @@ class RandomOptionPlanner(nn.Module):
 #   dual_dist: str, 's2_from_s',
 #   dual_reg: bool, enable regularizer or not
 #   alpha: float
+from uniagent.distributions.tahn_normal import TanhNormal
+
+
 class MetraAgent(HILPAgent, ExpManager):
     def __init__(
         self,
@@ -86,11 +94,12 @@ class MetraAgent(HILPAgent, ExpManager):
             hidden_dims=self.config.value_hidden_dims,
             ensemble_num=2,
         )
-        option_conditioned_policy = Policy(
+        option_conditioned_policy = ContinuousPolicy(
             self.obs_dim,
             self.goal_dim,
             self.act_dim,
             hidden_dims=self.config.actor_hidden_dims,
+            tanh_squash_distribution=True,
         )
         option_planner = self.create_option_planner()
         log_alpha = ParameterModule(torch.Tensor([np.log(self.config.alpha)]))
@@ -240,7 +249,10 @@ class MetraAgent(HILPAgent, ExpManager):
         dist: torch.distributions.Distribution = self(
             "option_policy", observation, option
         )
-        action = dist.sample()
+        if self.training:
+            action = dist.sample()
+        else:
+            action = dist.mode  # sample()
         return action.cpu().numpy()
 
     def cal_rewards(self, batch: Dict[str, torch.Tensor]):
@@ -259,6 +271,7 @@ class MetraAgent(HILPAgent, ExpManager):
                     * self.dim_option
                     / (self.dim_option - 1 if self.dim_option != 1 else 1)
                 )
+                assert target_z.shape == masks.shape, (target_z.shape, masks.shape)
                 rewards = (target_z * masks).sum(dim=1)
             else:
                 assert target_z.shape == batch["option"].shape, (
@@ -303,7 +316,6 @@ class MetraAgent(HILPAgent, ExpManager):
             self.option_policy.process_observations(batch["observation"]),
             batch["option"],
         )
-        # FIXME(ming): use next_option, not option
         next_processed_cat_obs = self._get_concat_obs(
             self.option_policy.process_observations(batch["next_observation"]),
             batch["next_option"],
@@ -337,10 +349,13 @@ class MetraAgent(HILPAgent, ExpManager):
         return torch.concat([obs, option], dim=-1)
 
     def compute_loss_op(self, batch: Dict[str, torch.Tensor]):
-        processed_cat_obs = self._get_concat_obs(
-            self.option_policy.process_observations(batch["observation"]),
-            batch["option"],
-        )
+        if "processed_cat_obs" not in batch:
+            processed_cat_obs = self._get_concat_obs(
+                self.option_policy.process_observations(batch["observation"]),
+                batch["option"],
+            )
+        else:
+            processed_cat_obs = batch["processed_cat_obs"]
         loss, info = sac_utils.compute_loss_sacp(
             self,
             batch,
@@ -428,7 +443,7 @@ class MetraAgent(HILPAgent, ExpManager):
         return loss_dp + loss_te, loss_info
 
     def target_update(self):
-        tau = self.config.tau
+        tau = self.config.sac_tau
         for tp, p in zip(
             self.networks["target_qf"].parameters(), self.networks["qf"].parameters()
         ):
@@ -441,40 +456,58 @@ class MetraAgent(HILPAgent, ExpManager):
             for v in self.optimizer.values():
                 v.step()
 
+    def get_grad_norm(self, net_name: str):
+        net = self.networks[net_name]
+        total_norm = 0
+        parameters = [
+            p for p in net.parameters() if p.grad is not None and p.requires_grad
+        ]
+        if len(parameters) == 0:
+            total_norm = 0.0
+        else:
+            arr = torch.stack([p.grad.detach().norm(2) for p in parameters])
+            total_norm = torch.norm(arr, 2).cpu().item()
+        return total_norm
+
     def optimize_te(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
+        grad_norm = {}
+
         self.zero_grad()
         te_loss, te_loss_info = self.compute_loss_te(batch)
         te_loss.backward()
+        grad_norm["grad_norm_traj"] = self.get_grad_norm("traj_encoder")
         self.step_optimizer("traj_encoder")
+
+        if self.config.dual_reg and self.config.dual_dist == "s2_from_s":
+            grad_norm["dist_predictor"] = self.get_grad_norm("dist_predictor")
+            self.step_optimizer("dist_predictor")
 
         if self.config.dual_reg:
             self.zero_grad()
             lam_loss, lam_loss_info = self.compute_loss_dual_lam(batch)
             lam_loss.backward()
+            grad_norm["Lam"] = self.get_grad_norm("dual_lam")
             self.step_optimizer("dual_lam")
-
-            if self.config.dual_dist == "s2_from_s":
-                self.zero_grad()
-                self.step_optimizer("dist_predictor")
-
             te_loss_info.update(lam_loss_info)
 
-        return {f"TrajEncoderTraining/{k}": v for k, v in te_loss_info.items()}
+        return {
+            f"TrajEncoderTraining/{k}": v for k, v in te_loss_info.items()
+        }, grad_norm
 
     def optimize_gcrl(
         self, batch: Dict[str, torch.Tensor], action_space: gym.Space
     ) -> Dict[str, float]:
+        grad_norm = {}
         self.zero_grad()
         qf_loss, loss_info = self.compute_loss_qf(action_space, batch)
         qf_loss.backward()
+        grad_norm["qf"] = self.get_grad_norm("qf")
         self.step_optimizer("qf")
 
         self.zero_grad()
         op_loss, op_loss_info = self.compute_loss_op(batch)
         op_loss.backward()
-        # grad_norm = torch.nn.utils.clip_grad.clip_grad_norm(
-        #     self.option_policy.parameters(), 0.5
-        # )
+        grad_norm["policy"] = self.get_grad_norm("option_policy")
         self.step_optimizer("option_policy")
         loss_info.update(op_loss_info)
 
@@ -485,16 +518,26 @@ class MetraAgent(HILPAgent, ExpManager):
         self.step_optimizer("log_alpha")
         loss_info.update(alpha_loss_info)
 
-        return {f"GCRLTraining/{k}": v for k, v in loss_info.items()}
+        return {f"GCRLTraining/{k}": v for k, v in loss_info.items()}, grad_norm
 
     def update(self, batch: Dict[str, np.ndarray], **kwargs) -> Dict[str, float]:
         batch = self.to_torch(batch)
         loss_info = {}
-        loss_info.update(self.optimize_te(batch))
-        # update reward
-        with torch.no_grad():
-            batch["reward"], _ = self.cal_rewards(batch)
-        loss_info.update(self.optimize_gcrl(batch, kwargs["action_space"]))
+        grad_norm = {}
+        # te_loss_info, te_grad_norm = self.optimize_te(batch)
+        # # update reward
+        # with torch.no_grad():
+        #     batch["reward"], _ = self.cal_rewards(batch)
+        gcrl_loss_info, gcrl_grad_norm = self.optimize_gcrl(
+            batch, kwargs["action_space"]
+        )
+        # loss_info.update(te_loss_info)
+        loss_info.update(gcrl_loss_info)
+        grad_norm.update(gcrl_grad_norm)
+        # grad_norm.update(te_grad_norm)
+
+        grad_norm = {f"GradNorm/{k}": v for k, v in grad_norm.items()}
+        loss_info.update(grad_norm)
 
         self.zero_grad()
         self.target_update()
