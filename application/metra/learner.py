@@ -296,7 +296,7 @@ class MetraAgent(HILPAgent, ExpManager):
 
         info = {
             "PureRewardMean": rewards.mean().cpu().item(),
-            "UreRewardStd": rewards.std().cpu().item(),
+            "PureRewardStd": rewards.std().cpu().item(),
         }
 
         return rewards, info
@@ -524,17 +524,17 @@ class MetraAgent(HILPAgent, ExpManager):
         batch = self.to_torch(batch)
         loss_info = {}
         grad_norm = {}
-        # te_loss_info, te_grad_norm = self.optimize_te(batch)
+        te_loss_info, te_grad_norm = self.optimize_te(batch)
         # # update reward
-        # with torch.no_grad():
-        #     batch["reward"], _ = self.cal_rewards(batch)
+        with torch.no_grad():
+            batch["reward"], _ = self.cal_rewards(batch)
         gcrl_loss_info, gcrl_grad_norm = self.optimize_gcrl(
             batch, kwargs["action_space"]
         )
-        # loss_info.update(te_loss_info)
+        loss_info.update(te_loss_info)
         loss_info.update(gcrl_loss_info)
         grad_norm.update(gcrl_grad_norm)
-        # grad_norm.update(te_grad_norm)
+        grad_norm.update(te_grad_norm)
 
         grad_norm = {f"GradNorm/{k}": v for k, v in grad_norm.items()}
         loss_info.update(grad_norm)

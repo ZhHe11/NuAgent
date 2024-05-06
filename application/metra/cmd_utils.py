@@ -94,7 +94,11 @@ def get_command_parser(args: Sequence[str] = None):
     # ------------------general exp settings--------------
     parser.add_argument("--algo", type=str, default="metra", choices=["metra", "dads"])
     parser.add_argument(
-        "--normalizer-type", type=str, default="off", choices=["off", "preset"]
+        "--normalizer-type",
+        type=str,
+        default="off",
+        choices=["off", "preset"],
+        help="indicates ",
     )
     parser.add_argument("--restore-path", type=str, default=None)
     parser.add_argument("--eval-interval", type=int, default=125)

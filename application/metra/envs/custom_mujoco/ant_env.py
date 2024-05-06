@@ -46,6 +46,7 @@ class AntEnv(MujocoTrait, mujoco_env.MujocoEnv, utils.EzPickle):
         done_allowing_step_unit=None,
         original_env=False,
         render_hw=100,
+        max_episode_step=1000,
     ):
         utils.EzPickle.__init__(**locals())
 
@@ -54,6 +55,8 @@ class AntEnv(MujocoTrait, mujoco_env.MujocoEnv, utils.EzPickle):
 
         self._task = task
         self._goal = goal
+        self._step_count = 0
+        self._max_episode_step = max_episode_step
         self._expose_obs_idxs = expose_obs_idxs
         self._expose_all_qpos = expose_all_qpos
         self._expose_body_coms = expose_body_coms
@@ -81,8 +84,7 @@ class AntEnv(MujocoTrait, mujoco_env.MujocoEnv, utils.EzPickle):
         return False
 
     def step(self, a, render=False):
-        if hasattr(self, "_step_count"):
-            self._step_count += 1
+        self._step_count += 1
 
         obsbefore = self._get_obs()
         xposbefore = self.sim.data.qpos.flat[0]
@@ -151,6 +153,9 @@ class AntEnv(MujocoTrait, mujoco_env.MujocoEnv, utils.EzPickle):
 
         if render:
             info["render"] = self.render(mode="rgb_array").transpose(2, 0, 1)
+
+        truncated = self._step_count >= self._max_episode_step
+        done = done or truncated
 
         return ob, reward, done, info
 
