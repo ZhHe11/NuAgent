@@ -132,3 +132,5 @@ runs/
 .vscode/
 exp/
 mujoco*/
+data
+*.png

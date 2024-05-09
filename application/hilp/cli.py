@@ -107,9 +107,16 @@ def main(args: Namespace):
     first_time = time.time()
     last_time = time.time()
 
-    for i in tqdm.tqdm(
-        range(1, args.total_steps + 1), smoothing=0.1, dynamic_ncols=True
-    ):
+    desc = "Training HILP"
+    tprocess = tqdm.tqdm(
+        range(1, args.total_steps + 1),
+        smoothing=0.1,
+        dynamic_ncols=True,
+        desc=desc,
+        leave=True,
+    )
+
+    for i in tprocess:
         batch = train_dataset.sample(args.batch_size)
 
         update_info = agent.update(batch)

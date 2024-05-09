@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from models.seq_interface import TrajectoryModel
+from .seq_interface import TrajectoryModel
 
 
 class MLPBCModel(TrajectoryModel):

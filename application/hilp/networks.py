@@ -298,7 +298,7 @@ class Actor(nn.Module):
         hidden_dims: Sequence[int] = (256, 256),
         norm: bool = True,
         state_dependent_std: bool = True,
-        log_std_min: float = -20,
+        log_std_min: float = -10,
         log_std_max: float = 2,
         tanh_squash_distribution: bool = False,
     ):
@@ -341,7 +341,7 @@ class Actor(nn.Module):
     ) -> torch.distributions.Distribution:
         x = self.net(torch.concat([observations, goals], dim=-1))
         mean = self.mean_layer(x)
-        log_std = torch.clip(self.log_std_layer(x), self.log_std_min, self.log_std_max)
+        log_std = torch.clamp(self.log_std_layer(x), self.log_std_min, self.log_std_max)
         assert mean.shape == log_std.shape, (mean.shape, log_std.shape)
         dist = torch.distributions.Independent(
             torch.distributions.Normal(

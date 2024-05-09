@@ -1,1 +1,1 @@
-from models.mlp_bc import MLPBCModel
+from .mlp_bc import MLPBCModel

@@ -1,0 +1,147 @@
+from typing import Dict
+
+import gym
+import torch
+
+from torch import nn
+from torch.nn import functional as F
+
+
+def _clip_actions(
+    algo: nn.Module, action_space: gym.Space, actions: torch.Tensor
+) -> torch.Tensor:
+    epsilon = 1e-6
+    lower = torch.from_numpy(action_space.low).to(algo.config.device) + epsilon
+    upper = torch.from_numpy(action_space.high).to(algo.config.device) - epsilon
+
+    clip_up = (actions > upper).float()
+    clip_down = (actions < lower).float()
+    with torch.no_grad():
+        clip = (upper - actions) * clip_up + (lower - actions) * clip_down
+
+    # actions = torch.clamp(actions, lower + epsilon, upper - epsilon)
+
+    return actions + clip
+    # return actions
+
+
+def compute_loss_qf(
+    algo: nn.Module,
+    action_space: gym.Space,
+    batch: Dict[str, torch.Tensor],
+    obs: torch.Tensor,
+    actions: torch.Tensor,
+    next_obs: torch.Tensor,
+    dones: torch.Tensor,
+    rewards: torch.Tensor,
+    policy: nn.Module,
+):
+    with torch.no_grad():
+        alpha = algo.log_alpha.param.exp()
+
+    q_ensemble: torch.Tensor = algo.qf(obs, actions).squeeze(-1)
+
+    with torch.no_grad():
+        next_action_dists = policy(next_obs)
+        if hasattr(next_action_dists, "rsample_with_pre_tanh_value"):
+            (
+                new_next_actions_pre_tanh,
+                new_next_actions,
+            ) = next_action_dists.rsample_with_pre_tanh_value()
+            new_next_action_log_probs = next_action_dists.log_prob(
+                new_next_actions, pre_tanh_value=new_next_actions_pre_tanh
+            )
+        else:
+            new_next_actions = next_action_dists.rsample()
+            new_next_actions = _clip_actions(algo, action_space, new_next_actions)
+            new_next_action_log_probs = next_action_dists.log_prob(new_next_actions)
+
+        next_q_values: torch.Tensor = (
+            algo.target_qf(next_obs, new_next_actions).squeeze(-1).min(dim=0)[0]
+        )
+        next_q_values = next_q_values - alpha * new_next_action_log_probs
+        q_target = (
+            rewards + next_q_values * (1.0 - dones.float()) * algo.config.discount
+        )
+        q_target_ensemble = torch.ones(
+            q_ensemble.size(0), 1, requires_grad=False, device=q_target.device
+        ).matmul(q_target.unsqueeze(0))
+
+    assert q_ensemble.shape == q_target_ensemble.shape, (
+        q_ensemble.shape,
+        q_target_ensemble.shape,
+    )
+    loss = F.mse_loss(q_ensemble.flatten(), q_target_ensemble.flatten())
+
+    return loss, {
+        "QTargetsMean": q_target.mean().cpu().item(),
+        "NextQMean": next_q_values.mean().cpu().item(),
+        "NextQMax": next_q_values.max().cpu().item(),
+        "NextQMin": next_q_values.min().cpu().item(),
+        "QTdErrsMean": (q_target_ensemble.flatten() - q_ensemble.flatten())
+        .mean()
+        .cpu()
+        .item(),
+        "LossQf": loss.cpu().item(),
+    }
+
+
+def compute_loss_sacp(
+    algo: nn.Module,
+    batch: Dict[str, torch.Tensor],
+    obs: torch.Tensor,
+    policy: nn.Module,
+    action_space: gym.Space,
+):
+    with torch.no_grad():
+        alpha = algo.log_alpha.param.exp()
+
+    action_dists = policy(obs)
+    if hasattr(action_dists, "rsample_with_pre_tanh_value"):
+        logits, new_actions = action_dists.rsample_with_pre_tanh_value()
+        new_action_log_probs = action_dists.log_prob(new_actions, pre_tanh_value=logits)
+    else:
+        logits = action_dists.rsample()
+        new_actions = _clip_actions(algo, action_space, logits)
+        new_action_log_probs = action_dists.log_prob(new_actions)
+
+    # note here we need to stop gradient
+    entropy = action_dists.entropy()
+    q_values_ensemble: torch.Tensor = algo.qf(obs, new_actions)
+    min_q_values = q_values_ensemble.min(dim=0)[0]
+
+    loss_sacp = (
+        alpha * new_action_log_probs - min_q_values
+    ).mean()  # - entropy.mean() * 0.1
+
+    batch.update(
+        {
+            "new_action_log_probs": new_action_log_probs,
+        }
+    )
+
+    return loss_sacp, {
+        "SacpNewActionLogProbMean": new_action_log_probs.mean().cpu().item(),
+        "ActionsMean": new_actions.mean().cpu().item(),
+        "LogitsMean": logits.mean().cpu().item(),
+        "LossSacp": loss_sacp.cpu().item(),
+        "MinQMean": min_q_values.mean().cpu().item(),
+        "Entropy": entropy.mean().cpu().item(),
+        "DistributionStd": action_dists.variance.mean().item(),
+        "DistributionMean": action_dists.mode.mean().item(),
+    }
+
+
+def compute_loss_alpha(
+    algo: nn.Module,
+    batch: Dict[str, torch.Tensor],
+):
+    loss_alpha = (
+        -algo.log_alpha.param
+        * (batch["new_action_log_probs"].detach() + algo.target_entropy)
+    ).mean()
+
+    return loss_alpha, {
+        "Alpha": algo.log_alpha.param.exp().cpu().item(),
+        "LossAlpha": loss_alpha.cpu().item(),
+    }
