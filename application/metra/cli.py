@@ -82,6 +82,12 @@ def main(args: Namespace):
             args, obs_dim=obs_dim, goal_dim=args.option_dim, act_dim=action_dim
         )
         buffer = create_replay_buffer(args, env)
+    elif args.algo == "her_metra":
+        '''
+        her + metra
+        '''
+        pass
+
 
     agent.to(args.device)
 
@@ -104,8 +110,8 @@ def main(args: Namespace):
         leave=True,
     )
     for i in tprocess:
-        agent.train()
-        collector.collect(args.batch_size, args.seed, args.max_path_length)
+        agent.train()       # 切换到训练模式
+        collector.collect(args.batch_size, args.seed, args.max_path_length)             # 不知道哪里收集的数据
         batch = collector.sample(args.batch_size, to_torch=True, device=args.device)
         loss_info = agent.run(batch, action_space=env.spec.action_space)
         loss_info["buffer_size"] = len(buffer)
@@ -118,7 +124,7 @@ def main(args: Namespace):
 
         if i == 1 or i % args.eval_interval == 0:
             agent.eval()
-            eval_metrics = eval_random_option_generation(args, env, agent)
+            eval_metrics = eval_random_option_generation(args, env, agent)          # 这个步骤特别慢
             info.update(eval_metrics)
             if args.use_wandb:
                 wandb.log(eval_metrics, step=i)

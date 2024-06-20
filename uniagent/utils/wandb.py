@@ -24,7 +24,7 @@ We recommend the following workflow (see examples/mujoco/d4rl_iql.py for a more 
 With the following setup, you may set wandb configurations from the command line, e.g.
     python main.py --wandb.project=my_project --wandb.group=my_group --wandb.offline
 """
-import wandb
+# import wandb
 
 import tempfile
 import absl.flags as flags

@@ -126,17 +126,17 @@ Trajectory = namedtuple(
 def process_trajectories(agent: nn.Module, trajectories: Sequence[Trajectory]):
     ret = 0
     n = len(trajectories)
-    for traj in trajectories:
+    for traj in trajectories:       # 计算所有轨迹的平均奖励，return是直接求和的，没有考虑折扣；是不是应该考虑折扣？但好像ret也只是参与可视化输出，没有影响训练；
         ret += sum(traj.rewards) / n
     statistic = {"ave_return": ret}
     env_infos = [traj.env_info for traj in trajectories]
-    keys = list(env_infos[0][0].keys())
+    keys = list(env_infos[0][0].keys())     # keys是env_info的key，比如dict_keys(['coordinates', 'next_coordinates', 'ori_obs', 'next_ori_obs', 'original_observations', 'original_next_observations'])等
     rets = []
-    for env_info in env_infos:
+    for env_info in env_infos:      # 对于每个轨迹的info
         _rets = {}
-        for k in keys:
-            _rets[k] = np.stack([x[k] for x in env_info])
-        rets.append({"env_infos": _rets})
+        for k in keys:              # 对于每个key
+            _rets[k] = np.stack([x[k] for x in env_info])       # 将每个轨迹的info的key的值取出来，然后stack在一起
+        rets.append({"env_infos": _rets})                       # 将每个key的值组成一个字典，然后放到rets里，这里没有很理解为什么要进行格式变换；是为了变成tensor吗；
     return rets, statistic
 
 
@@ -174,6 +174,11 @@ def get_trajectories(
                 option = agent.sample_option(obs)
             action = agent.sample_action(obs, option)
             next_obs, rew, done, info = env.step(action)
+
+            # for video save
+            if args.render:
+                print(env.render())    
+            
             rewards.append(rew)
             dones.append(done)
             option_traj.append(option)
@@ -209,14 +214,14 @@ def eval_random_option_generation(
     )
 
     # TODO(ming): parse trajectories here
-    trajectories, info = process_trajectories(agent, trajectories)
+    trajs_env_infos, info = process_trajectories(agent, trajectories)       # 需要更新的原因是，后面的画图需要用到env_infos中的coordinat信息做render；
 
     with FigManager(agent, "TrajPlot_RandomZ") as fm:
         assert hasattr(
             env, "render_trajectories"
         ), "please ensure you have implemented `render_trajectories` for your environment for rendering"
         env.render_trajectories(
-            trajectories, option_colors, agent.config.eval_plot_axis, fm.ax
+            trajs_env_infos, option_colors, agent.config.eval_plot_axis, fm.ax
         )
 
     return info
@@ -244,31 +249,32 @@ def eval_random_option_generation(
 
     # eval_option_metrics = {}
 
-    # # for video saving
+    # for video saving
     # if agent.config.eval_record_video:
-    #     if agent.config.discrete_goal:
-    #         video_options = np.eye(agent.config.option_dim)
-    #         video_options = video_options.repeat(agent.config.num_video_repeats, axis=0)
-    #     else:
-    #         if agent.config.option_dim == 2:
-    #             radius = 1. if agent.config.unit_length else 1.5
-    #             video_options = []
-    #             for angle in [3, 2, 1, 4]:
-    #                 video_options.append([radius * np.cos(angle * np.pi / 4), radius * np.sin(angle * np.pi / 4)])
-    #             video_options.append([0, 0])
-    #             for angle in [0, 5, 6, 7]:
-    #                 video_options.append([radius * np.cos(angle * np.pi / 4), radius * np.sin(angle * np.pi / 4)])
-    #             video_options = np.array(video_options)
-    #         else:
-    #             video_options = np.random.randn(9, agent.config.option_dim)
-    #             if agent.config.unit_length:
-    #                 video_options = video_options / np.linalg.norm(video_options, axis=1, keepdims=True)
-    #         video_options = video_options.repeat(agent.config.num_video_repeats, axis=0)
-    #     video_trajectories = get_trajectories(
-    #         agent,
-    #         options=generate_options(video_options),
-    #         action_interface=action_interface
-    #     )
-    #     record_video(agent, 'Video_RandomZ', video_trajectories, skip_frames=agent.config.video_skip_frames)
+        # if agent.config.discrete_goal:
+        #     video_options = np.eye(agent.config.option_dim)
+        #     video_options = video_options.repeat(agent.config.num_video_repeats, axis=0)
+        # else:
+        #     if agent.config.option_dim == 2:
+        #         radius = 1. if agent.config.unit_length else 1.5
+        #         video_options = []
+        #         for angle in [3, 2, 1, 4]:
+        #             video_options.append([radius * np.cos(angle * np.pi / 4), radius * np.sin(angle * np.pi / 4)])
+        #         video_options.append([0, 0])
+        #         for angle in [0, 5, 6, 7]:
+        #             video_options.append([radius * np.cos(angle * np.pi / 4), radius * np.sin(angle * np.pi / 4)])
+        #         video_options = np.array(video_options)
+        #     else:
+        #         video_options = np.random.randn(9, agent.config.option_dim)
+        #         if agent.config.unit_length:
+        #             video_options = video_options / np.linalg.norm(video_options, axis=1, keepdims=True)
+        #     video_options = video_options.repeat(agent.config.num_video_repeats, axis=0)
+        # video_trajectories = get_trajectories(
+        #     args,
+        #     env,
+        #     agent,
+        #     options=video_options,
+        # )
+        # record_video(agent, 'Video_RandomZ', trajs_env_infos, skip_frames=agent.config.video_skip_frames)S
 
     # eval_option_metrics.update(env.calc_eval_metrics(trajectories, is_option_trajectories=True))

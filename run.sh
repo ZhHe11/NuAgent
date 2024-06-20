@@ -1,0 +1,1 @@
+PYTHONPATH=. python examples/metra_gcrl.py --eval-plot-axis -50 50 -50 50 --use-wandb 1 --env-name ant

@@ -89,7 +89,7 @@ def get_command_parser(args: Sequence[str] = None):
     parser.add_argument(
         "--use-wandb", type=int, default=1, help="enabling wandb or not"
     )
-    parser.add_argument("--render", type=int, default=0)
+    parser.add_argument("--render", type=int, default=1)
 
     # ------------------general exp settings--------------
     parser.add_argument("--algo", type=str, default="metra", choices=["metra", "dads"])
@@ -132,7 +132,7 @@ def get_command_parser(args: Sequence[str] = None):
     parser.add_argument(
         "--device",
         type=str,
-        default="cpu",
+        default="cuda",
         help="default is cpu, otherwise random cuda when it is available",
     )
 
@@ -141,7 +141,7 @@ def get_command_parser(args: Sequence[str] = None):
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=1024,
+        default=8,              
         help="batch size for training",
     )
     parser.add_argument(
@@ -219,6 +219,8 @@ def get_command_parser(args: Sequence[str] = None):
     )
     parser.add_argument("--eval-plot-axis", type=float, default=None, nargs="*")
 
+    parser.add_argument("--discrete_goal", type=int, default=0, choices={0, 1})
+    parser.add_argument("--discrete_option", type=int, default=0, choices={0, 1})
     # ------------for video record when evaluation-----------
     parser.add_argument(
         "--eval-record-video",

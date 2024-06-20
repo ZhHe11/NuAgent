@@ -98,7 +98,7 @@ class MujocoTrait:
                     np.concatenate(
                         [
                             trajectory["env_infos"]["coordinates"],
-                            [trajectory["env_infos"]["next_coordinates"][-1]],
+                            [trajectory["env_infos"]["next_coordinates"][-1]],      # 额外加上最后一个；
                         ]
                     )
                 )
