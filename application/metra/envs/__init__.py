@@ -1,6 +1,7 @@
 from argparse import Namespace
 from .consistent_normalized_env import consistent_normalize
 from .plot import get_normalizer_preset
+import gym
 
 
 def make_env(args: Namespace, max_path_length: int):

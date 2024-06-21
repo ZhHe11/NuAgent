@@ -291,7 +291,7 @@ from torch import nn
 
 
 class FigManager:
-    def __init__(self, agent: nn.Module, label, extensions=None, subplot_spec=None):
+    def __init__(self, agent: nn.Module, label, dir, extensions=None, subplot_spec=None):
         self.agent = agent
         self.label = label
         self.fig = figure.Figure()
@@ -305,15 +305,17 @@ class FigManager:
         else:
             self.extensions = extensions
 
+        self.dir = dir
+
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         plot_paths = [
             (
-                pathlib.Path(self.agent.snapshotter.snapshot_dir)
+                pathlib.Path(self.dir)
                 / "plots"
-                / f"{self.label}_{self.agent.step_itr}.{extension}"
+                / f"{self.label}_{self.agent.train_steps}.{extension}"
             )
             for extension in self.extensions
         ]

@@ -18,6 +18,11 @@ from .envs import make_env
 from .envs.evaluation import eval_random_option_generation
 
 
+def collect_wrapper(agnet):
+    print("collect_wrapper")
+    # collector.collect(batch_size, seed, max_path_length, q)
+
+
 def main(args: Namespace):
     global_start_time = int(datetime.datetime.now().timestamp())
     exp_name, _ = get_exp_name(args, global_start_time)
@@ -91,13 +96,21 @@ def main(args: Namespace):
 
     agent.to(args.device)
 
-    def action_interface_wrapper(agent):
-        def f(observation):
-            option = agent.sample_option(observation)
-            action = agent.sample_action(observation, option)
+    class action_interface_wrapper():
+        def __init__(self, agent):
+            self.agent = agent
+
+        def get_option_action(self, observation):
+            option = self.agent.sample_option(observation)
+            action = self.agent.sample_action(observation, option)
             return option, action
 
-        return f
+        def get_option(self, observation):
+            return self.agent.sample_option(observation)
+
+        def get_action(self, observation, option):
+            return self.agent.sample_action(observation, option)
+        
 
     collector = Collector(buffer, env, action_interface_wrapper(agent))
 
@@ -110,14 +123,34 @@ def main(args: Namespace):
         leave=True,
     )
     for i in tprocess:
+        agent.train_steps += 1      # 之前的step_itr不自动更新，也不能修改，只能自己定义一个了
         agent.train()       # 切换到训练模式
-        collector.collect(args.batch_size, args.seed, args.max_path_length)             # 不知道哪里收集的数据
+        
+
+
+
+        def multi_collect(env, batch_size: int = 1, seed: int = None, max_path_length: int = None):
+            import multiprocessing as mp
+            processes = []
+            q = mp.Queue()
+
+            for i in range(5):
+                p = mp.Process(target=collect_wrapper, args=(agent))
+                p.start()
+                processes.append(p)
+
+            for p in processes:
+                p.join()
+
+
+        multi_collect(env, args.batch_size, args.seed, args.max_path_length)             # 不知道哪里收集的数据
+
         batch = collector.sample(args.batch_size, to_torch=True, device=args.device)
         loss_info = agent.run(batch, action_space=env.spec.action_space)
         loss_info["buffer_size"] = len(buffer)
 
         if i % args.log_interval == 0:
-            if args.use_wandb:
+            if args.use_wandb:  
                 wandb.log(loss_info, step=i)
             else:
                 pass

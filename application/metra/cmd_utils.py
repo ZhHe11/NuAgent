@@ -5,6 +5,7 @@ import os
 
 from uniagent.utils.wandb import default_wandb_config
 
+import datetime
 
 def get_exp_name(args: Namespace, global_start_time: int):
     exp_name = ""
@@ -31,13 +32,13 @@ else:
     START_METHOD = "spawn"
 
 
-def get_log_dir(args: Namespace):
-    exp_name, exp_name_prefix = get_exp_name()
+def get_log_dir(args: Namespace, EXP_DIR=EXP_DIR):
+    exp_name, exp_name_prefix = get_exp_name(args, int(datetime.datetime.now().timestamp()))
     assert len(exp_name) <= os.pathconf("/", "PC_NAME_MAX")
     # Resolve symlinks to prevent runs from crashing in case of home nfs crashing.
     log_dir = os.path.realpath(os.path.join(EXP_DIR, args.run_group, exp_name))
     assert not os.path.exists(log_dir), f"The following path already exists: {log_dir}"
-
+    os.makedirs(log_dir, exist_ok=True)
     return log_dir
 
 
@@ -86,6 +87,16 @@ def get_command_parser(args: Sequence[str] = None):
     parser.add_argument(
         "--save-dir", type=str, default="exp/", help="experiment logging directory"
     )
+
+    parser.add_argument(
+        "--video_log_dir", type=str, default="exp/", help="experiment logging directory"
+    )
+
+    parser.add_argument(
+        "--debug", type=int, default=1, help="debug mode or not, if debug, will save the information of the test traj."
+    )
+
+
     parser.add_argument(
         "--use-wandb", type=int, default=1, help="enabling wandb or not"
     )
@@ -101,9 +112,9 @@ def get_command_parser(args: Sequence[str] = None):
         help="indicates ",
     )
     parser.add_argument("--restore-path", type=str, default=None)
-    parser.add_argument("--eval-interval", type=int, default=125)
+    parser.add_argument("--eval-interval", type=int, default=1000)
     parser.add_argument("--log-interval", type=int, default=25)
-    parser.add_argument("--save-interval", type=int, default=1000)
+    parser.add_argument("--save-interval", type=int, default=5000)
 
     # ------------------task settings--------------
     parser.add_argument(
@@ -141,7 +152,7 @@ def get_command_parser(args: Sequence[str] = None):
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=8,              
+        default=32,              
         help="batch size for training",
     )
     parser.add_argument(
@@ -154,7 +165,7 @@ def get_command_parser(args: Sequence[str] = None):
     parser.add_argument(
         "--discrete-option",
         type=int,
-        default=0,
+        default=1,
         choices={0, 1},
         help="whether the option representation is a discrete mode or not",
     )
@@ -188,6 +199,9 @@ def get_command_parser(args: Sequence[str] = None):
     # ----------------model settings-----------------
     parser.add_argument(
         "--option-dim", type=int, default=2, help="option dimension size"
+    )
+    parser.add_argument(
+        "--dim_option", type=int, default=2, help="option dimension size"
     )
     parser.add_argument("--value-hidden-dim", type=int, default=512)
     parser.add_argument("--value-num-layers", type=int, default=3)
@@ -243,6 +257,9 @@ def get_command_parser(args: Sequence[str] = None):
     args.wandb = default_wandb_config()
     args.value_hidden_dims = tuple([args.value_hidden_dim] * args.value_num_layers)
     args.actor_hidden_dims = tuple([args.actor_hidden_dim] * args.actor_num_layers)
+
+    args.video_log_dir = get_log_dir(args, EXP_DIR=os.path.join(EXP_DIR, "video"))
+    print("[video_log_dir] : ", args.video_log_dir)
 
     if torch.cuda.is_available() and "cuda" not in args.device:
         args.device = "cuda"

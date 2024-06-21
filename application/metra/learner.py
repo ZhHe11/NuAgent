@@ -86,6 +86,7 @@ class MetraAgent(HILPAgent, ExpManager):
         self.target_entropy = (
             -np.prod(self.action_space.shape).item() / 2.0 * self.config.sac_target_coef
         )
+        self.train_steps = 0
 
     def create_networks(self, load_path: str = None) -> nn.ModuleDict:
         qf = ContinuousMLPQFunctionEx(
@@ -238,6 +239,10 @@ class MetraAgent(HILPAgent, ExpManager):
         if self.config.use_option_planner:
             observation = torch.from_numpy(observation).float().to(self.config.device)
             option = self.option_planner.sample_option(observation)
+        elif self.config.discrete_option:
+            option = np.zeros(self.config.option_dim, dtype=np.float32)
+            idx = np.random.choice(self.config.option_dim)      # 这里就是单位向量，然后假设随机从option_dim中选一个维度，然后设置该维度为1
+            option[idx] = 1.0
         else:
             option = np.random.randn(self.config.option_dim)
         return option
@@ -268,8 +273,8 @@ class MetraAgent(HILPAgent, ExpManager):
             if self.config.discrete_option:
                 masks = (
                     (batch["option"] - batch["option"].mean(dim=1, keepdim=True))
-                    * self.dim_option
-                    / (self.dim_option - 1 if self.dim_option != 1 else 1)
+                    * self.config.dim_option
+                    / (self.config.dim_option - 1 if self.config.dim_option != 1 else 1)
                 )
                 assert target_z.shape == masks.shape, (target_z.shape, masks.shape)
                 rewards = (target_z * masks).sum(dim=1)

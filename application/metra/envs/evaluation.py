@@ -1,5 +1,7 @@
 from typing import Dict, Tuple, Callable
 from argparse import Namespace
+import os
+import imageio
 
 import gym
 import gym.wrappers
@@ -10,6 +12,23 @@ import numpy as np
 from torch import nn
 from sklearn import decomposition
 from .plot import FigManager, draw_2d_gaussians, record_video
+
+
+class FrameRecorder():
+    def __init__(self, args):
+
+        self.save_dir = args.video_log_dir
+        self.frames = []
+        self.frame = None
+
+    def stack_frames(self, env):
+        frame = env.render(mode="rgb_array")
+        self.frames.append(frame)
+    
+    def save_frames_as_gif(self, filename):
+        filename = os.path.join(self.save_dir, filename)
+        imageio.mimsave(filename, self.frames, duration=1/10)
+    
 
 
 def get_2d_colors(points, min_point, max_point) -> np.ndarray:
@@ -114,6 +133,7 @@ def generate_options(args: Namespace) -> Tuple[np.ndarray, np.ndarray]:
 
 from typing import Sequence, Any
 from collections import namedtuple
+import json
 
 import tree
 
@@ -146,14 +166,9 @@ def get_trajectories(
     trajectories = []
     num_eval_traj = len(options) if options is not None else args.num_eval_trajectories
 
-    if args.render:
-        env = gym.wrappers.record_video.RecordVideo(
-            env, video_folder=args.save_dir, name_prefix=args.env_name
-        )
-        env.start_video_recorder()
-
     # distinguish from original options, for save
     for i in range(num_eval_traj):
+        Video = FrameRecorder(args=args)
         observations, actions, rewards, dones, option_traj, env_info = (
             [],
             [],
@@ -175,11 +190,13 @@ def get_trajectories(
             action = agent.sample_action(obs, option)
             next_obs, rew, done, info = env.step(action)
 
+
             # for video save
-            if args.render:
-                print(env.render())    
-            
+            if args.render and i % 10 == 0:
+                Video.stack_frames(env)
+
             rewards.append(rew)
+            actions.append(action)
             dones.append(done)
             option_traj.append(option)
             env_info.append(info)
@@ -192,6 +209,24 @@ def get_trajectories(
         trajectories.append(
             Trajectory(observations, actions, rewards, dones, option_traj, env_info)
         )
+        # save as video
+        if args.render and i % 10 == 0:
+            Video.save_frames_as_gif(f"{args.env_name}_{i}.gif")
+            # save the traj. (for debug especially for checking the actions)
+            if args.debug:
+                def numpy_to_list(data):
+                    if isinstance(data, np.ndarray):
+                        return data.tolist()
+                    elif isinstance(data, list):
+                        return [numpy_to_list(item) for item in data]
+                    elif isinstance(data, dict):
+                        return {key: numpy_to_list(value) for key, value in data.items()}
+                    else:
+                        return data
+                data = {"observations": observations, "actions": actions, "rewards": rewards, "dones": dones, "options": option_traj}
+                data = numpy_to_list(data)
+                with open(os.path.join(args.video_log_dir, f"traj_{args.env_name}_{i}.json"), "w") as f:
+                    json.dump(data, f)
 
     return trajectories
 
@@ -216,7 +251,7 @@ def eval_random_option_generation(
     # TODO(ming): parse trajectories here
     trajs_env_infos, info = process_trajectories(agent, trajectories)       # 需要更新的原因是，后面的画图需要用到env_infos中的coordinat信息做render；
 
-    with FigManager(agent, "TrajPlot_RandomZ") as fm:
+    with FigManager(agent, "TrajPlot_RandomZ", dir=args.video_log_dir) as fm:
         assert hasattr(
             env, "render_trajectories"
         ), "please ensure you have implemented `render_trajectories` for your environment for rendering"

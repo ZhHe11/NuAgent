@@ -7,11 +7,16 @@ from gym.spaces import Discrete
 
 from .replay_buffer import ReplayBuffer
 
+from pathos.multiprocessing import ProcessPool as Pool
+import multiprocessing as mp
+import copy
 
 def action_to_onehot(action, n):
     x = np.zeros(n, dtype=np.float32)
     x[action] = 1.0
     return x
+
+
 
 
 class Collector:
@@ -25,6 +30,7 @@ class Collector:
         self.buffer = buffer
         self.env = env
         self.action_interface = action_interface
+        self.empty_buffer = copy.deepcopy(buffer) 
 
     def check_buffer_map(self, buffer: ReplayBuffer):
         pass
@@ -32,15 +38,21 @@ class Collector:
     def collect(
         self, batch_size: int = 1, seed: int = None, max_path_length: int = None
     ):
+        
+        buffer = self.empty_buffer
+
         cnt = 0
         while cnt < batch_size:
             done = False
             observation = self.env.reset()
-            option, action = self.action_interface(observation)
+            # 这里有问题，metra的方法应该是，每条traj使用同一个option
+            # 第一次采样option的时候，是随机的，但是现在使用的是固定的option，就是[1,0][0,1]这种；
+            option, action = self.action_interface.get_option_action(observation)
             while not done:
                 next_observation, reward, done, info = self.env.step(action)
-                next_option, next_action = self.action_interface(next_observation)
-                self.buffer.push(
+                next_action = self.action_interface.get_action(next_observation, option)
+                next_option = option
+                buffer.push(
                     observation=np.asarray(observation, dtype=np.float32),
                     action=action_to_onehot(action, self.env.action_space.n)
                     if isinstance(self.env.action_space, Discrete)
@@ -58,6 +70,7 @@ class Collector:
                     cnt >= max_path_length if max_path_length is not None else False
                 )
 
+
     def sample(
         self,
         batch_size: int = None,
@@ -66,3 +79,5 @@ class Collector:
         device: str = "cpu",
     ):
         return self.buffer.sample(batch_size, indices, to_torch, device)
+
+
