@@ -117,10 +117,6 @@ class METRA(IOD):
         return epoch_data
 
     def _update_replay_buffer(self, data):
-        '''
-        
-        
-        '''
         if self.replay_buffer is not None:
             # Add paths to the replay buffer
             for i in range(len(data['actions'])):
@@ -157,7 +153,7 @@ class METRA(IOD):
         for _ in range(self._trans_optimization_epochs):
             tensors = {}
 
-            if self.replay_buffer is None:                  # 我要看他是否使用了replay buffer
+            if self.replay_buffer is None:                  # 我要看他是否使用了replay buffer，使用了；
                 v = self._get_mini_tensors(epoch_data)
             else:
                 v = self._sample_replay_buffer()
@@ -168,7 +164,7 @@ class METRA(IOD):
 
         return tensors
 
-    def _optimize_te(self, tensors, internal_vars):
+    def _optimize_te(self, tensors, internal_vars):         # 【loss】对与skill表征的loss:
         self._update_loss_te(tensors, internal_vars)
 
         self._gradient_descent(
@@ -210,7 +206,7 @@ class METRA(IOD):
 
         sac_utils.update_targets(self)
 
-    def _update_rewards(self, tensors, v):
+    def _update_rewards(self, tensors, v):                      # 【修改】这里修改reward的计算方法；
         obs = v['obs']
         next_obs = v['next_obs']
 
@@ -247,14 +243,32 @@ class METRA(IOD):
 
         v['rewards'] = rewards
 
-    def _update_loss_te(self, tensors, v):
-        self._update_rewards(tensors, v)
+    def _update_loss_te(self, tensors, v):          # 【更新】要修改表征loss的计算方法；
+        self._update_rewards(tensors, v)            # 为什么要更新reward？reward其实就是计算技能表征z与当前运动方向的内积；
         rewards = v['rewards']
+
+        '''
+        zhanghe 
+        我要加入goal，重新计算两个表征z_sample和z_start_goal之间的距离；
+        '''
+        z_sample = v['options']
+        phi_g = self.traj_encoder(v['goal']).mean
+        phi_s = self.traj_encoder(v['obs']).mean
+        phi_s_next = self.traj_encoder(v['next_obs']).mean
+
+        # 暂时使用表征做差：
+        z_start_next = phi_s_next - phi_s
+        z_start_goal = phi_g - phi_s
+
+        skill_discount = 0.5
+
+        new_reward = (z_start_next * z_sample).sum(dim=1) + skill_discount * (z_start_goal * z_sample).sum(dim=1) 
+
 
         obs = v['obs']
         next_obs = v['next_obs']
 
-        if self.dual_dist == 's2_from_s':
+        if self.dual_dist == 's2_from_s':           # 没有进行imagine，我觉得这个
             s2_dist = self.dist_predictor(obs)
             loss_dp = -s2_dist.log_prob(next_obs - obs).mean()
             tensors.update({
@@ -271,7 +285,7 @@ class METRA(IOD):
             if self.dual_dist == 'l2':
                 cst_dist = torch.square(y - x).mean(dim=1)
             elif self.dual_dist == 'one':
-                cst_dist = torch.ones_like(x[:, 0])
+                cst_dist = torch.ones_like(x[:, 0])         # 按照batch的大小，生成一个全为1的tensor；
             elif self.dual_dist == 's2_from_s':
                 s2_dist = self.dist_predictor(obs)
                 s2_dist_mean = s2_dist.mean
@@ -288,9 +302,10 @@ class METRA(IOD):
             else:
                 raise NotImplementedError
 
-            cst_penalty = cst_dist - torch.square(phi_y - phi_x).mean(dim=1)
-            cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)
-            te_obj = rewards + dual_lam.detach() * cst_penalty
+            cst_penalty = cst_dist - torch.square(phi_y - phi_x).mean(dim=1)        # 这是后面的约束项，约束skill表征的大小；
+            cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)             # 限制最大值；trick，如果惩罚项太大，会导致优化困难；
+            # te_obj = rewards + dual_lam.detach() * cst_penalty                      # 这是最终的loss： reward + 惩罚项；
+            te_obj = new_reward + dual_lam.detach() * cst_penalty    
 
             v.update({
                 'cst_penalty': cst_penalty
@@ -350,6 +365,11 @@ class METRA(IOD):
             self, tensors, v,
         )
 
+
+    '''
+    Evaluation
+    '''
+
     def _evaluate_policy(self, runner):
         if self.discrete:
             eye_options = np.eye(self.dim_option)
@@ -385,6 +405,7 @@ class METRA(IOD):
             env_update=dict(_action_noise_std=None),
         )
 
+        # Plotting: 画一整条轨迹在表征空间的分布；
         with FigManager(runner, 'TrajPlot_RandomZ') as fm:
             runner._env.render_trajectories(
                 random_trajectories, random_option_colors, self.eval_plot_axis, fm.ax
@@ -403,6 +424,13 @@ class METRA(IOD):
 
         option_colors = random_option_colors
 
+        # 画option在表征空间的分布；
+        # 【问题】不是很懂，z_sample不是已经随机生成了吗？
+        # option_dists是最后一个状态（goal）的表征分布；
+        # 所以，这个图越发散，说明最终状态的表征分布越分散，说明不同的z_sample能指向不同的goal；
+        # 但是训练时引入了goal，反而发散程度减弱，发散速度减弱，为什么？按理会朝着goal的方向收敛，更直，有没有可能是ant环境比较简单，已经很直了；
+        # 所谓直，就是不饶弯路，直接到达目标，让表征学习的更加准确；
+        # 再修改一下policy看看， 毕竟her主要是让policy有更多的训练样例，在错误中学习正确的东西（her的insight）；
         with FigManager(runner, f'PhiPlot') as fm:
             draw_2d_gaussians(option_means, option_stddevs, option_colors, fm.ax)
             draw_2d_gaussians(

@@ -129,7 +129,7 @@ class IOD(RLAlgorithm):
     def train_once(self, itr, paths, runner, extra_scalar_metrics={}):
         logging_enabled = ((runner.step_itr + 1) % self.n_epochs_per_log == 0)
 
-        data = self.process_samples(paths)      # 已经输入了sample得到的数据；这里是转换了数据结构；
+        data = self.process_samples(paths)      # 已经输入了sample得到的数据；这里是构造了数据结构，一个进入buffer的训练元组；
 
         time_computing_metrics = [0.0]
         time_training = [0.0]
@@ -275,9 +275,9 @@ class IOD(RLAlgorithm):
 
         return paths
 
-    def process_samples(self, paths):
+    def process_samples(self, paths):       # 【修改】我需要再这里做修改，修改buffer的训练元组；
         data = defaultdict(list)
-        for path in paths:
+        for path in paths:                  # 【效率】一条一条处理，不知道能不能向量化？变成tensor按照矩阵处理？
             data['obs'].append(path['observations'])
             data['next_obs'].append(path['next_observations'])
             data['actions'].append(path['actions'])
@@ -293,6 +293,15 @@ class IOD(RLAlgorithm):
             if 'option' in path['agent_infos']:
                 data['options'].append(path['agent_infos']['option'])
                 data['next_options'].append(np.concatenate([path['agent_infos']['option'][1:], path['agent_infos']['option'][-1:]], axis=0))
+            '''
+            zhanghe:
+            add goal into the turple;
+            1. random sample from the future traj.;
+            2. using the final one;
+            3. together;
+            '''
+            # Method 2:
+            data['goal'].append(np.tile(path['observations'][-1], (200,1)))       # 不知道最后一个需不需要特殊在意，感觉问题不大；
 
         return data
 
