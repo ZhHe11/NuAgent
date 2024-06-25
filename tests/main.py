@@ -123,7 +123,7 @@ def get_argparser():
     parser.add_argument('--num_alt_samples', type=int, default=100)
     parser.add_argument('--split_group', type=int, default=65536)
 
-    parser.add_argument('--discrete', type=int, default=0, choices=[0, 1])
+    parser.add_argument('--discrete', type=int, default=0, choices=[0, 1, 2])
     parser.add_argument('--inner', type=int, default=1, choices=[0, 1])
     parser.add_argument('--unit_length', type=int, default=1, choices=[0, 1])  # Only for continuous skills
 

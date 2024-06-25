@@ -77,18 +77,33 @@ class METRA(IOD):
         return {
             'option_policy': self.option_policy,
         }
-
+    
     def _get_concat_obs(self, obs, option):
         return get_torch_concat_obs(obs, option)
 
-    def _get_train_trajectories_kwargs(self, runner):
-        if self.discrete:
+    def _get_train_trajectories_kwargs(self, runner):               # 得到options;
+        if self.discrete == 1:
             extras = self._generate_option_extras(np.eye(self.dim_option)[np.random.randint(0, self.dim_option, runner._train_args.batch_size)])
-        else:
+        elif self.discrete == 2:
+            '''
+            her + metra
+            在这里定义每次sample使用的option，这个option与goal相关；
+            Method 1: 依然随机生成z_sample，但是训练的时候loss控制z_s0_sn与采样用的z_sample相近；
+            Method 2: 从buffer中sample一个goal，然后根据goal生成一个option；
+            '''
+            # Method 1
             random_options = np.random.randn(runner._train_args.batch_size, self.dim_option)
             if self.unit_length:
                 random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
             extras = self._generate_option_extras(random_options)
+            # Method 2
+            # to do ...    
+        
+        else:
+            random_options = np.random.randn(runner._train_args.batch_size, self.dim_option)
+            if self.unit_length:
+                random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
+            extras = self._generate_option_extras(random_options)       # 变成字典的形式；
 
         return dict(
             extras=extras,
@@ -102,6 +117,10 @@ class METRA(IOD):
         return epoch_data
 
     def _update_replay_buffer(self, data):
+        '''
+        
+        
+        '''
         if self.replay_buffer is not None:
             # Add paths to the replay buffer
             for i in range(len(data['actions'])):
@@ -113,7 +132,7 @@ class METRA(IOD):
                     path[key] = cur_list
                 self.replay_buffer.add_path(path)
 
-    def _sample_replay_buffer(self):
+    def _sample_replay_buffer(self):        # 看看是如何从buffer中加载数据的
         samples = self.replay_buffer.sample_transitions(self._trans_minibatch_size)
         data = {}
         for key, value in samples.items():
@@ -123,11 +142,11 @@ class METRA(IOD):
         return data
 
     def _train_once_inner(self, path_data):
-        self._update_replay_buffer(path_data)
+        self._update_replay_buffer(path_data)           # 这里需要修改，因为我要把subgoal加入进去；
 
-        epoch_data = self._flatten_data(path_data)
+        epoch_data = self._flatten_data(path_data)      # 本质上是，把array和list转化为tensor
 
-        tensors = self._train_components(epoch_data)
+        tensors = self._train_components(epoch_data)    # 训练模型，知识我不理解，为什么还要返回tensor，tensor后续没再使用;
 
         return tensors
 
@@ -138,7 +157,7 @@ class METRA(IOD):
         for _ in range(self._trans_optimization_epochs):
             tensors = {}
 
-            if self.replay_buffer is None:
+            if self.replay_buffer is None:                  # 我要看他是否使用了replay buffer
                 v = self._get_mini_tensors(epoch_data)
             else:
                 v = self._sample_replay_buffer()

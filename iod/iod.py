@@ -129,13 +129,16 @@ class IOD(RLAlgorithm):
     def train_once(self, itr, paths, runner, extra_scalar_metrics={}):
         logging_enabled = ((runner.step_itr + 1) % self.n_epochs_per_log == 0)
 
-        data = self.process_samples(paths)
+        data = self.process_samples(paths)      # 已经输入了sample得到的数据；这里是转换了数据结构；
 
         time_computing_metrics = [0.0]
         time_training = [0.0]
 
         with MeasureAndAccTime(time_training):
-            tensors = self._train_once_inner(data)
+            tensors = self._train_once_inner(data)      # 调用了metra的函数；
+                                                        # 1.更新metra中的ReplayBuffer;
+                                                        # 2.把当前的path转化为tensor；
+                                                        # 3.调用metra中的_train_components函数；
 
         performence = log_performance_ex(
             itr,
@@ -210,8 +213,8 @@ class IOD(RLAlgorithm):
                 for _ in range(self._num_train_per_epoch):
                     time_sampling = [0.0]
                     with MeasureAndAccTime(time_sampling):
-                        runner.step_path = self._get_train_trajectories(runner)
-                    last_return = self.train_once(
+                        runner.step_path = self._get_train_trajectories(runner)     # 1. sample trajectories
+                    last_return = self.train_once(                                  # 2. train once        
                         runner.step_itr,
                         runner.step_path,
                         runner,
@@ -266,9 +269,9 @@ class IOD(RLAlgorithm):
             ),
             env_update=dict(_action_noise_std=None),
         )
-        kwargs = dict(default_kwargs, **self._get_train_trajectories_kwargs(runner))
+        kwargs = dict(default_kwargs, **self._get_train_trajectories_kwargs(runner))    # 在这里设置生成options
 
-        paths = self._get_trajectories(**kwargs)
+        paths = self._get_trajectories(**kwargs)        # 在这里sample trajectories
 
         return paths
 
