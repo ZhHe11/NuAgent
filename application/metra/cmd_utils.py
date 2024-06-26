@@ -152,7 +152,7 @@ def get_command_parser(args: Sequence[str] = None):
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=1024,              
+        default=32,              
         help="batch size for training",
     )
     parser.add_argument(
@@ -175,7 +175,7 @@ def get_command_parser(args: Sequence[str] = None):
         choices={0, 1},
         help="activated for only continuous options",
     )
-    parser.add_argument("--common-lr", type=float, default=3e-5)
+    parser.add_argument("--common-lr", type=float, default=1e-4)
     parser.add_argument("--lr-op", type=float, default=None)
     parser.add_argument("--lr-te", type=float, default=None)
     parser.add_argument("--lr-dual", type=float, default=None)

@@ -125,8 +125,26 @@ def main(args: Namespace):
     for i in tprocess:
         agent.train_steps += 1      # 之前的step_itr不自动更新，也不能修改，只能自己定义一个了
         agent.train()       # 切换到训练模式
+        
 
-        collector.collect(args.batch_size, args.seed, args.max_path_length)             # 这里收集的数据
+
+
+        def multi_collect(env, batch_size: int = 1, seed: int = None, max_path_length: int = None):
+            import multiprocessing as mp
+            processes = []
+            q = mp.Queue()
+
+            for i in range(5):
+                p = mp.Process(target=collect_wrapper, args=(agent))
+                p.start()
+                processes.append(p)
+
+            for p in processes:
+                p.join()
+
+
+        multi_collect(env, args.batch_size, args.seed, args.max_path_length)             # 不知道哪里收集的数据
+
         batch = collector.sample(args.batch_size, to_torch=True, device=args.device)
         loss_info = agent.run(batch, action_space=env.spec.action_space)
         loss_info["buffer_size"] = len(buffer)
