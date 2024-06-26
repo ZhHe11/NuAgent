@@ -301,7 +301,7 @@ class IOD(RLAlgorithm):
             3. together;
             '''
             # Method 2:
-            data['goal'].append(np.tile(path['observations'][-1], (200,1)))       # 不知道最后一个需不需要特殊在意，感觉问题不大；
+            data['goal'].append(np.tile(path['observations'][-1], (path['observations'].shape[0], 1)))       # 不知道最后一个需不需要特殊在意，感觉问题不大；
 
         return data
 

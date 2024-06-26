@@ -259,6 +259,7 @@ class METRA(IOD):
         # 暂时使用表征做差：
         z_start_next = phi_s_next - phi_s
         z_start_goal = phi_g - phi_s
+        z_next_goal = phi_g - phi_s_next
 
         skill_discount = 0.5
 
@@ -464,6 +465,7 @@ class METRA(IOD):
                     if self.unit_length:
                         video_options = video_options / np.linalg.norm(video_options, axis=1, keepdims=True)
                 video_options = video_options.repeat(self.num_video_repeats, axis=0)
+            # video的数据是另外再收集的，重新定义了option且不是随机的；
             video_trajectories = self._get_trajectories(
                 runner,
                 sampler_key='local_option_policy',
