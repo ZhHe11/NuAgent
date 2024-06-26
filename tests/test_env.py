@@ -50,6 +50,7 @@ from iod.dads import DADS
 from iod.utils import get_normalizer_preset
 
 from tests.make_env import make_env
+import imageio
 
 '''
 我想写一个脚本，用来可视化某一个环境某一个任务下的agent的行为
@@ -57,6 +58,10 @@ from tests.make_env import make_env
 2. 画表征z的轨迹图；
 3. 
 '''
+
+
+
+
 
 def get_argparser():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -151,17 +156,27 @@ if __name__ == '__main__':
 
     env = make_env(args, args.max_path_length)
 
-    # show the env
+
+
+
+    # load model
+    agent = torch.load("/mnt/nfs2/zhanghe/project001/METRA/exp/Debug_Kitchen/sd000_1719388591_kitchen_metra/params.pkl")
+
+
+
+
+    # interact with the env
     env.reset()
+    frames = []
     for i in range(100):
+        obs, reward, done, info = env.step(env.action_space.sample())
+        obs_image = info['image']
+        frames.append(obs_image)
 
-        print(env.step(env.action_space.sample()))
-
-        env.get_state()
-
-        env.render()
-
-
+    # save the env as gif
+    path = "/mnt/nfs2/zhanghe/project001/METRA/tests/videos/"
+    path_file = path + "kitchen_test.gif"
+    imageio.mimsave(path_file, frames, duration=1/24)
 
 
 

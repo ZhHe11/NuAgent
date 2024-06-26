@@ -63,6 +63,8 @@ class KitchenEnv(BenchEnv):
     for k, v in obs.items():
       if 'metric_' in k:
         info[k] = v
+      if 'image' in k:
+        info[k] = v
     return obs, total_reward, done, info
 
   def compute_reward(self, goal=None):
