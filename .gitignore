@@ -156,3 +156,10 @@ exp
 *.sh
 make_sbatch
 ipynbs
+
+
+# added by zhanghe
+*.gif
+.vscode
+__pycache__
+tests/videos

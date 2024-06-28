@@ -64,7 +64,7 @@ def get_argparser():
     parser.add_argument('--normalizer_type', type=str, default='off', choices=['off', 'preset'])
     parser.add_argument('--encoder', type=int, default=0)
 
-    parser.add_argument('--env', type=str, default='maze', choices=[
+    parser.add_argument('--env', type=str, default='kitchen', choices=[
         'maze', 'half_cheetah', 'ant', 'dmc_cheetah', 'dmc_quadruped', 'dmc_humanoid', 'kitchen',
     ])
     parser.add_argument('--frame_stack', type=int, default=None)
@@ -562,6 +562,7 @@ def run(ctxt=None):
         n_workers=args.n_parallel,
     )
     algo.option_policy.to(device)
+
     runner.train(n_epochs=args.n_epochs, batch_size=args.traj_batch_size)
 
 

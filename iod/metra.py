@@ -260,11 +260,20 @@ class METRA(IOD):
         z_start_next = phi_s_next - phi_s
         z_start_goal = phi_g - phi_s
         z_next_goal = phi_g - phi_s_next
-
         skill_discount = 0.5
+        # new_reward = (z_start_next * z_sample).sum(dim=1) + skill_discount * (z_start_goal * z_sample).sum(dim=1) 
 
-        new_reward = (z_start_next * z_sample).sum(dim=1) + skill_discount * (z_start_goal * z_sample).sum(dim=1) 
+        ## 【ctb】len_weight:
+        # 我想让离final越近的权重越大，离final越远的权重越小；
+        # 方法1： 用step作为约束；
+        # len_weight = 
 
+        # 方法2： 用与s_final的相似度作为约束；
+        min_val = 1e-2
+        max_val = 1e2
+        len_weight = 1 / (torch.norm(z_start_goal, p=2).detach() + 1e-3)
+        len_weight = torch.clamp(len_weight, min=1e-2, max=1e2)
+        norm_len_weight = (len_weight - min_val) / (max_val - min_val)
 
         obs = v['obs']
         next_obs = v['next_obs']
@@ -305,8 +314,15 @@ class METRA(IOD):
 
             cst_penalty = cst_dist - torch.square(phi_y - phi_x).mean(dim=1)        # 这是后面的约束项，约束skill表征的大小；
             cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)             # 限制最大值；trick，如果惩罚项太大，会导致优化困难；
+            
+            # 【ori】原方法：
             # te_obj = rewards + dual_lam.detach() * cst_penalty                      # 这是最终的loss： reward + 惩罚项；
-            te_obj = new_reward + dual_lam.detach() * cst_penalty    
+            
+            # 【ctb】增加s_final和z_sample的约束，to be finished
+            # te_obj = new_reward + dual_lam.detach() * cst_penalty    
+
+            # 【ctb】增加len_weight
+            te_obj = norm_len_weight * rewards + dual_lam.detach() * cst_penalty    
 
             v.update({
                 'cst_penalty': cst_penalty
