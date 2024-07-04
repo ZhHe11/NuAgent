@@ -158,8 +158,8 @@ if __name__ == '__main__':
     env = make_env(args, args.max_path_length)
 
     # load model
-    load_option_policy = torch.load("/mnt/nfs2/zhanghe/project001/METRA/exp/Debug_Kitchen_len_weight/sd000_1719553773_kitchen_metra/option_policy15000.pt")
-    load_traj_encoder = torch.load("/mnt/nfs2/zhanghe/project001/METRA/exp/Debug_Kitchen_len_weight/sd000_1719553773_kitchen_metra/traj_encoder15000.pt")
+    load_option_policy = torch.load("/mnt/nfs2/zhanghe/project001/METRA/exp/Debug_Kitchen_original/sd000_1719919248_kitchen_metra/option_policy6000.pt")
+    load_traj_encoder = torch.load("/mnt/nfs2/zhanghe/project001/METRA/exp/Debug_Kitchen_original/sd000_1719919248_kitchen_metra/traj_encoder6000.pt")
     # eval mode
     agent_policy = load_option_policy['policy'].eval()
     agent_traj_encoder = load_traj_encoder['traj_encoder'].eval()
@@ -173,10 +173,10 @@ if __name__ == '__main__':
     option_dim = 2
 
     # goals = [[1,1], [-1, -1], [1, -1], [-1, 1]]
-    goals = [[1,-1], [-1, 1], [5, -5]]
+    goals = [[1,-1], [-1, 1], [1, 1]]
     goals = torch.tensor(np.array(goals)).to(device)
 
-    path_len = 5
+    path_len = 50
 
     for i in range(len(goals)):
         env.reset()

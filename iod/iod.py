@@ -199,17 +199,19 @@ class IOD(RLAlgorithm):
                     pkl_update_period=self.n_epochs_per_pkl_update,
                     new_save_period=self.n_epochs_per_save,
             ):
+                # change mode
                 for p in self.policy.values():
                     p.eval()
                 self.traj_encoder.eval()
-
-                if self.n_epochs_per_eval != 0 and runner.step_itr % self.n_epochs_per_eval == 0:
+                # test process
+                if self.n_epochs_per_eval != 0 and runner.step_itr % self.n_epochs_per_eval == 0 and runner.step_itr != 0:
                     self._evaluate_policy(runner)
 
+                # change mode
                 for p in self.policy.values():
                     p.train()
                 self.traj_encoder.train()
-
+                # train process
                 for _ in range(self._num_train_per_epoch):
                     time_sampling = [0.0]
                     with MeasureAndAccTime(time_sampling):
@@ -226,7 +228,8 @@ class IOD(RLAlgorithm):
                 runner.step_itr += 1
 
         return last_return
-
+    
+    # 在得到option之后的具体采样
     def _get_trajectories(self,
                           runner,
                           sampler_key,
@@ -259,6 +262,8 @@ class IOD(RLAlgorithm):
 
         return trajectories
 
+
+    # 【训练步骤1：采样】得到训练轨迹，先得到option，然后再采样；
     def _get_train_trajectories(self, runner):
         default_kwargs = dict(
             runner=runner,
@@ -271,7 +276,7 @@ class IOD(RLAlgorithm):
         )
         kwargs = dict(default_kwargs, **self._get_train_trajectories_kwargs(runner))    # 在这里设置生成options
 
-        paths = self._get_trajectories(**kwargs)        # 在这里sample trajectories
+        paths = self._get_trajectories(**kwargs)        # 在这里用计算得到的options来 sample trajectories
 
         return paths
 

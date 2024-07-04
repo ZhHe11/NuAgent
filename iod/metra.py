@@ -92,13 +92,50 @@ class METRA(IOD):
             Method 2: 从buffer中sample一个goal，然后根据goal生成一个option；
             '''
             # Method 1
-            random_options = np.random.randn(runner._train_args.batch_size, self.dim_option)
-            if self.unit_length:
-                random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
-            extras = self._generate_option_extras(random_options)
+            # random_options = np.random.randn(runner._train_args.batch_size, self.dim_option)
+            # if self.unit_length:
+            #     random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
+            # extras = self._generate_option_extras(random_options)
             # Method 2
             # to do ...    
-        
+            # [zhanghe] 0702
+            batch_size = runner._train_args.batch_size
+            mini_batch_size = int(batch_size / 2)
+            # 最开始buffe为空时，先随机采样；
+            if len(self.replay_buffer._buffer) == 0:
+                random_options = np.random.randn(runner._train_args.batch_size, self.dim_option)
+                if self.unit_length:
+                    random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
+                extras = self._generate_option_extras(random_options)
+            # 当buffer不为空时：
+            else:
+                # 一部分是已有的option，【温习】已有的目标点
+                # 最简单的，先从已有的buffer中提取一些obs，作为target，有点像her简单版的感觉；
+                samples = self.replay_buffer.sample_transitions(mini_batch_size)
+                phi_obs = self.traj_encoder(torch.tensor(samples["obs"]).to(self.device)).mean.detach()
+                phi_goal = self.traj_encoder(torch.tensor(samples["goal"]).to(self.device)).mean.detach()
+                goal_options = phi_goal - phi_obs
+                goal_options = goal_options.cpu().numpy()
+                
+                # 另一部分是探索的option，【探索】从来没有探索的目标点；
+                ## 最简单的方法：使用random，在找相似度最小的，但是效率肯定低；
+                random_options = np.random.randn(batch_size, self.dim_option)
+                if self.unit_length:
+                    random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
+                sim_matrix = goal_options @ random_options.T
+                sum_sim = np.sum(sim_matrix, axis=0)
+                sorted_indices = np.argsort(sum_sim)
+                eight_smallest_indices_sort = sorted_indices[:mini_batch_size]
+                random_options = random_options[eight_smallest_indices_sort]
+                ## 第二种方式：用奇异值分解，找最不相似的点，QR分解、特征值分解（Eigenvalue Decomposition）、奇异值分解（Singular Value Decomposition, SVD）、Householder变换；
+                ### to do
+
+                ## 第三种方法：在高维空间，有约束option_dim > batch_size, 此时可使用Gram-Schmidt正交化，找到正交基；
+
+                # 把两个option合在一起
+                options = np.concatenate((goal_options, random_options), axis=0)
+                extras = self._generate_option_extras(options)
+
         else:
             random_options = np.random.randn(runner._train_args.batch_size, self.dim_option)
             if self.unit_length:
@@ -316,13 +353,13 @@ class METRA(IOD):
             cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)             # 限制最大值；trick，如果惩罚项太大，会导致优化困难；
             
             # 【ori】原方法：
-            # te_obj = rewards + dual_lam.detach() * cst_penalty                      # 这是最终的loss： reward + 惩罚项；
+            te_obj = rewards + dual_lam.detach() * cst_penalty                      # 这是最终的loss： reward + 惩罚项；
             
             # 【ctb】增加s_final和z_sample的约束，to be finished
             # te_obj = new_reward + dual_lam.detach() * cst_penalty    
 
             # 【ctb】增加len_weight
-            te_obj = norm_len_weight * rewards + dual_lam.detach() * cst_penalty    
+            # te_obj = norm_len_weight * rewards + dual_lam.detach() * cst_penalty    
 
             v.update({
                 'cst_penalty': cst_penalty
