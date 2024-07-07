@@ -425,14 +425,14 @@ class METRA(IOD):
     '''
 
     def _evaluate_policy(self, runner):
-        if self.discrete:
+        if self.discrete == 1: # self.discrete == 1 是原来的方法，当维度较大的时候，效果比较好，能强行分出不同的技能；
             eye_options = np.eye(self.dim_option)
             random_options = []
             colors = []
             for i in range(self.dim_option):
                 num_trajs_per_option = self.num_random_trajectories // self.dim_option + (i < self.num_random_trajectories % self.dim_option)
-                for _ in range(num_trajs_per_option):
-                    random_options.append(eye_options[i])
+                for _ in range(num_trajs_per_option):       # 重复多次，
+                    random_options.append(eye_options[i])   # 把每次的option都存下来，在dis=1的时候，所有的option都相同；
                     colors.append(i)
             random_options = np.array(random_options)
             colors = np.array(colors)
@@ -444,7 +444,7 @@ class METRA(IOD):
                 random_option_colors.extend([cm.get_cmap(cmap)(colors[i])[:3]])
             random_option_colors = np.array(random_option_colors)
         else:
-            random_options = np.random.randn(self.num_random_trajectories, self.dim_option)
+            random_options = np.random.randn(self.num_random_trajectories, self.dim_option)     # [48，2]全部随机
             if self.unit_length:
                 random_options = random_options / np.linalg.norm(random_options, axis=1, keepdims=True)
             random_option_colors = get_option_colors(random_options * 4)
@@ -467,9 +467,9 @@ class METRA(IOD):
 
         data = self.process_samples(random_trajectories)
         last_obs = torch.stack([torch.from_numpy(ob[-1]).to(self.device) for ob in data['obs']])
-        option_dists = self.traj_encoder(last_obs)
+        option_dists = self.traj_encoder(last_obs)          # 对每条轨迹的最后一个状态进行encode编码；
 
-        option_means = option_dists.mean.detach().cpu().numpy()
+        option_means = option_dists.mean.detach().cpu().numpy()   
         if self.inner:
             option_stddevs = torch.ones_like(option_dists.stddev.detach().cpu()).numpy()
         else:
@@ -479,7 +479,6 @@ class METRA(IOD):
         option_colors = random_option_colors
 
         # 画option在表征空间的分布；
-        # 【问题】不是很懂，z_sample不是已经随机生成了吗？
         # option_dists是最后一个状态（goal）的表征分布；
         # 所以，这个图越发散，说明最终状态的表征分布越分散，说明不同的z_sample能指向不同的goal；
         # 但是训练时引入了goal，反而发散程度减弱，发散速度减弱，为什么？按理会朝着goal的方向收敛，更直，有没有可能是ant环境比较简单，已经很直了；
@@ -518,7 +517,8 @@ class METRA(IOD):
                     if self.unit_length:
                         video_options = video_options / np.linalg.norm(video_options, axis=1, keepdims=True)
                 video_options = video_options.repeat(self.num_video_repeats, axis=0)
-            # video的数据是另外再收集的，重新定义了option且不是随机的；
+                
+            # video的数据是另外再收集的，重新定义了option且是随机的；option是2维的话会限定各个角度都有；
             video_trajectories = self._get_trajectories(
                 runner,
                 sampler_key='local_option_policy',
