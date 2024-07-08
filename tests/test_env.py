@@ -142,27 +142,40 @@ def get_gaussian_module_construction(args,
 if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    # define the params
+    # # define the params
+    # args = get_argparser().parse_args()
+    # args.env = 'kichen'
+    # args.max_path_length = 50
+    # args.frame_stack = 3
+    # args.encoder = 1
+    # args.normalizer_type = 'off'
+    # args.seed = 0
+    # args.device = 'cuda:0'
+    # device = args.device
+
+    # maze
     args = get_argparser().parse_args()
-    args.env = 'kitchen'
-    args.max_path_length = 50
-    args.frame_stack = 3
-    args.encoder = 1
+    args.env = 'maze'
+    args.max_path_length = 100
+    # args.frame_stack = 3
+    # args.encoder = 1
     args.normalizer_type = 'off'
     args.seed = 0
-    args.device = 'cuda:0'
+    args.device = 'cuda:7'
+    args.render = 1 
     device = args.device
+
 
 
     # make env
     env = make_env(args, args.max_path_length)
 
-    # load model
-    load_option_policy = torch.load("/mnt/nfs2/zhanghe/project001/METRA/exp/Debug_Kitchen_original/sd000_1719919248_kitchen_metra/option_policy6000.pt")
-    load_traj_encoder = torch.load("/mnt/nfs2/zhanghe/project001/METRA/exp/Debug_Kitchen_original/sd000_1719919248_kitchen_metra/traj_encoder6000.pt")
-    # eval mode
-    agent_policy = load_option_policy['policy'].eval()
-    agent_traj_encoder = load_traj_encoder['traj_encoder'].eval()
+    # # load model
+    # load_option_policy = torch.load("/mnt/nfs2/zhanghe/project001/METRA/exp/Debug_Kitchen_original/sd000_1719919248_kitchen_metra/option_policy6000.pt")
+    # load_traj_encoder = torch.load("/mnt/nfs2/zhanghe/project001/METRA/exp/Debug_Kitchen_original/sd000_1719919248_kitchen_metra/traj_encoder6000.pt")
+    # # eval mode
+    # agent_policy = load_option_policy['policy'].eval()
+    # agent_traj_encoder = load_traj_encoder['traj_encoder'].eval()
     
     # open the env, and set the init lists
     frames = []
@@ -176,16 +189,18 @@ if __name__ == '__main__':
     goals = [[1,-1], [-1, 1], [1, 1]]
     goals = torch.tensor(np.array(goals)).to(device)
 
-    path_len = 50
+    path_len = args.max_path_length
 
     for i in range(len(goals)):
         env.reset()
         obs = env.reset()  
         Repr_obs_list = []
         Repr_goal_list = []
-        env.reset()
-        obs_img = env.last_state['image']
-        frames.append(obs_img)
+        
+        # in the kichen env
+        # obs_img = env.last_state['image']
+        # frames.append(obs_img)
+
         goal = torch.zeros(1,option_dim).to(device)
         for t in range(path_len):
             # caluculate the representaions
@@ -196,16 +211,18 @@ if __name__ == '__main__':
                 print("option", option)
             obs_option = torch.cat((obs, option), -1)
             # for viz
-            if Pepr_viz:
-                phi_obs = agent_traj_encoder(obs).mean
-                Repr_obs_list.append(phi_obs.cpu().detach().numpy()[0])
-                Repr_goal_list.append(option.cpu().detach().numpy()[0])
+            # if Pepr_viz:
+            #     phi_obs = agent_traj_encoder(obs).mean
+            #     Repr_obs_list.append(phi_obs.cpu().detach().numpy()[0])
+            #     Repr_goal_list.append(option.cpu().detach().numpy()[0])
 
             # get actions from policy
-            action = agent_policy(obs_option)[1]['mean']
+            # action = agent_policy(obs_option)[1]['mean']
+            action = env.action_space.sample()
 
             # interact with the env
-            obs, reward, done, info = env.step(action.cpu().detach().numpy()[0])
+            # obs, reward, done, info = env.step(action.cpu().detach().numpy()[0])
+            obs, reward, done, info = env.step(action)
 
             # for saving 
             obs_img = info['image']
@@ -213,14 +230,14 @@ if __name__ == '__main__':
         All_Repr_obs_list.append(Repr_obs_list)
         All_Goal_obs_list.append(Repr_goal_list)
 
-    # save the env as gif
-    path = "/mnt/nfs2/zhanghe/project001/METRA/tests/videos/"
-    path_file = path + "kitchen_test.gif"
-    imageio.mimsave(path_file, frames, duration=1/24)
-    print('video saved')
-    if Pepr_viz:
-        PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=path_len)
-        print('Repr_traj saved')
+    # # save the env as gif
+    # path = "/mnt/nfs2/zhanghe/project001/METRA/tests/videos/"
+    # path_file = path + "kitchen_test.gif"
+    # imageio.mimsave(path_file, frames, duration=1/24)
+    # print('video saved')
+    # if Pepr_viz:
+    #     PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=path_len)
+    #     print('Repr_traj saved')
 
 
 
