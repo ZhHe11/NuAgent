@@ -1,34 +1,27 @@
-import akro
 import gym
 import numpy as np
-from envs.maze_env import MazeEnv
 import matplotlib.pyplot as plt
+import imageio
 
+from envs.AntMazeEnv import MazeWrapper
 import d4rl
 
-# env = MazeEnv(
-#                 max_path_length=100, 
-#                 action_range=0.2,
-#             )
-
-
-env = gym.make('AntMaze')
+# setup the env
+env = MazeWrapper("antmaze-medium-diverse-v0")
 
 env.reset()
 
-traj = []
+frames = []
 
 for i in range(100):
     action =  env.action_space.sample()
     obs, reward, dones, info = env.step(action)
-    traj.append(obs)
+    frames.append(env.render(mode='rgb_array'))
 
-traj_len = len(traj)
-color = ['red']
+# save the env as gif
+path = "./tests/videos/"
+path_file = path + "antmaze_test.gif"
+imageio.mimsave(path_file, frames, duration=1/24)
+print('video saved')
 
-# fig, ax = plt.subplots()
-
-# env.render_trajectories(trajectories=traj, colors=color, plot_axis=None, ax=ax)
-
-# env.plot_trajectories(trajectories=traj, colors=color, plot_axis=None, ax=ax)
 
