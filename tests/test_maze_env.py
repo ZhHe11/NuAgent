@@ -4,10 +4,16 @@ import numpy as np
 from envs.maze_env import MazeEnv
 import matplotlib.pyplot as plt
 
-env = MazeEnv(
-                max_path_length=100, 
-                action_range=0.2,
-            )
+import d4rl
+
+# env = MazeEnv(
+#                 max_path_length=100, 
+#                 action_range=0.2,
+#             )
+
+
+env = gym.make('AntMaze')
+
 env.reset()
 
 traj = []
@@ -18,11 +24,11 @@ for i in range(100):
     traj.append(obs)
 
 traj_len = len(traj)
-color = np.ones(traj_len)
+color = ['red']
 
-fig, ax = plt.subplots()
+# fig, ax = plt.subplots()
 
-env.plot_trajectories(trajectories=traj_len, colors=color, plot_axis=None, ax=ax)
+# env.render_trajectories(trajectories=traj, colors=color, plot_axis=None, ax=ax)
 
-env.ender_trajectories(trajectories=traj_len, colors=color, plot_axis=None, ax=ax)
+# env.plot_trajectories(trajectories=traj, colors=color, plot_axis=None, ax=ax)
 

@@ -163,3 +163,4 @@ ipynbs
 .vscode
 __pycache__
 tests/videos
+d4rl
