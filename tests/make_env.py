@@ -2,6 +2,7 @@ from garagei.envs.consistent_normalized_env import consistent_normalize
 from iod.utils import get_normalizer_preset
 
 import sys
+import os
 
 
 def make_env(args, max_path_length):
@@ -33,10 +34,16 @@ def make_env(args, max_path_length):
         else:
             raise NotImplementedError
     elif args.env == 'kitchen':
-        sys.path.append('lexa')
+        local_lexa_path = os.path.abspath('./lexa')
+        sys.path.insert(0, local_lexa_path)
         from envs.lexa.mykitchen import MyKitchenEnv
         assert args.encoder  # Only support pixel-based environments
         env = MyKitchenEnv(log_per_goal=True)
+    
+    elif args.env == 'ant_maze':
+        from envs.AntMazeEnv import MazeWrapper
+        env = MazeWrapper("antmaze-medium-diverse-v0")
+    
     else:
         raise NotImplementedError
 

@@ -187,6 +187,10 @@ class IOD(RLAlgorithm):
 
         return np.mean(undiscounted_returns)
 
+    
+    '''
+    核心函数：
+    '''
     def train(self, runner):
         last_return = None
 
@@ -204,8 +208,8 @@ class IOD(RLAlgorithm):
                     p.eval()
                 self.traj_encoder.eval()
                 # test process
-                if self.n_epochs_per_eval != 0 and runner.step_itr % self.n_epochs_per_eval == 0:
-                    self._evaluate_policy(runner)
+                # if self.n_epochs_per_eval != 0 and runner.step_itr % self.n_epochs_per_eval == 0:
+                #     self._evaluate_policy(runner)
 
                 # change mode
                 for p in self.policy.values():
@@ -289,8 +293,11 @@ class IOD(RLAlgorithm):
             data['rewards'].append(path['rewards'])
             data['dones'].append(path['dones'])
             data['returns'].append(tensor_utils.discount_cumsum(path['rewards'], self.discount))
-            data['ori_obs'].append(path['env_infos']['ori_obs'])
-            data['next_ori_obs'].append(path['env_infos']['next_ori_obs'])
+            # 好像用不到这个ori_obs，用[1]列表代替；
+            # data['ori_obs'].append(path['env_infos']['ori_obs'])
+            # data['next_ori_obs'].append(path['env_infos']['next_ori_obs'])
+            data['ori_obs'].append(path['observations'])
+            data['next_ori_obs'].append(path['next_observations'])
             if 'pre_tanh_value' in path['agent_infos']:
                 data['pre_tanh_values'].append(path['agent_infos']['pre_tanh_value'])
             if 'log_prob' in path['agent_infos']:

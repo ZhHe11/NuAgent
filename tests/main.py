@@ -16,6 +16,7 @@ import sys
 import platform
 import torch.multiprocessing as mp
 
+
 if 'mac' in platform.platform():
     pass
 else:
@@ -49,6 +50,7 @@ from iod.metra import METRA
 from iod.dads import DADS
 from iod.utils import get_normalizer_preset
 
+from tests.make_env import make_env
 
 EXP_DIR = 'exp'
 if os.environ.get('START_METHOD') is not None:
@@ -65,7 +67,7 @@ def get_argparser():
     parser.add_argument('--encoder', type=int, default=0)
 
     parser.add_argument('--env', type=str, default='kitchen', choices=[
-        'maze', 'half_cheetah', 'ant', 'dmc_cheetah', 'dmc_quadruped', 'dmc_humanoid', 'kitchen',
+        'maze', 'half_cheetah', 'ant', 'dmc_cheetah', 'dmc_quadruped', 'dmc_humanoid', 'kitchen', 'ant_maze',
     ])
     parser.add_argument('--frame_stack', type=int, default=None)
 
@@ -210,65 +212,64 @@ def get_gaussian_module_construction(args,
     return module_cls, module_kwargs
 
 
-def make_env(args, max_path_length):
-    if args.env == 'maze':
-        from envs.maze_env import MazeEnv
-        env = MazeEnv(
-            max_path_length=max_path_length,
-            action_range=0.2,
-        )
-    elif args.env == 'half_cheetah':
-        from envs.mujoco.half_cheetah_env import HalfCheetahEnv
-        env = HalfCheetahEnv(render_hw=100)
-    elif args.env == 'ant':
-        from envs.mujoco.ant_env import AntEnv
-        env = AntEnv(render_hw=100)
-    elif args.env.startswith('dmc'):
-        from envs.custom_dmc_tasks import dmc
-        from envs.custom_dmc_tasks.pixel_wrappers import RenderWrapper
-        assert args.encoder  # Only support pixel-based environments
-        if args.env == 'dmc_cheetah':
-            env = dmc.make('cheetah_run_forward_color', obs_type='states', frame_stack=1, action_repeat=2, seed=args.seed)
-            env = RenderWrapper(env)
-        elif args.env == 'dmc_quadruped':
-            env = dmc.make('quadruped_run_forward_color', obs_type='states', frame_stack=1, action_repeat=2, seed=args.seed)
-            env = RenderWrapper(env)
-        elif args.env == 'dmc_humanoid':
-            env = dmc.make('humanoid_run_color', obs_type='states', frame_stack=1, action_repeat=2, seed=args.seed)
-            env = RenderWrapper(env)
-        else:
-            raise NotImplementedError
-    elif args.env == 'kitchen':
-        sys.path.append('lexa')
-        from envs.lexa.mykitchen import MyKitchenEnv
-        assert args.encoder  # Only support pixel-based environments
-        env = MyKitchenEnv(log_per_goal=True)
-    else:
-        raise NotImplementedError
+# def make_env(args, max_path_length):
+#     if args.env == 'maze':
+#         from envs.maze_env import MazeEnv
+#         env = MazeEnv(
+#             max_path_length=max_path_length,
+#             action_range=0.2,
+#         )
+#     elif args.env == 'half_cheetah':
+#         from envs.mujoco.half_cheetah_env import HalfCheetahEnv
+#         env = HalfCheetahEnv(render_hw=100)
+#     elif args.env == 'ant':
+#         from envs.mujoco.ant_env import AntEnv
+#         env = AntEnv(render_hw=100)
+#     elif args.env.startswith('dmc'):
+#         from envs.custom_dmc_tasks import dmc
+#         from envs.custom_dmc_tasks.pixel_wrappers import RenderWrapper
+#         assert args.encoder  # Only support pixel-based environments
+#         if args.env == 'dmc_cheetah':
+#             env = dmc.make('cheetah_run_forward_color', obs_type='states', frame_stack=1, action_repeat=2, seed=args.seed)
+#             env = RenderWrapper(env)
+#         elif args.env == 'dmc_quadruped':
+#             env = dmc.make('quadruped_run_forward_color', obs_type='states', frame_stack=1, action_repeat=2, seed=args.seed)
+#             env = RenderWrapper(env)
+#         elif args.env == 'dmc_humanoid':
+#             env = dmc.make('humanoid_run_color', obs_type='states', frame_stack=1, action_repeat=2, seed=args.seed)
+#             env = RenderWrapper(env)
+#         else:
+#             raise NotImplementedError
+#     elif args.env == 'kitchen':
+#         sys.path.append('lexa')
+#         from envs.lexa.mykitchen import MyKitchenEnv
+#         assert args.encoder  # Only support pixel-based environments
+#         env = MyKitchenEnv(log_per_goal=True)
+#     else:
+#         raise NotImplementedError
 
-    if args.frame_stack is not None:
-        from envs.custom_dmc_tasks.pixel_wrappers import FrameStackWrapper
-        env = FrameStackWrapper(env, args.frame_stack)
+#     if args.frame_stack is not None:
+#         from envs.custom_dmc_tasks.pixel_wrappers import FrameStackWrapper
+#         env = FrameStackWrapper(env, args.frame_stack)
 
-    normalizer_type = args.normalizer_type
-    normalizer_kwargs = {}
+#     normalizer_type = args.normalizer_type
+#     normalizer_kwargs = {}
 
-    if normalizer_type == 'off':
-        env = consistent_normalize(env, normalize_obs=False, **normalizer_kwargs)
-    elif normalizer_type == 'preset':
-        normalizer_name = args.env
-        normalizer_mean, normalizer_std = get_normalizer_preset(f'{normalizer_name}_preset')
-        env = consistent_normalize(env, normalize_obs=True, mean=normalizer_mean, std=normalizer_std, **normalizer_kwargs)
+#     if normalizer_type == 'off':
+#         env = consistent_normalize(env, normalize_obs=False, **normalizer_kwargs)
+#     elif normalizer_type == 'preset':
+#         normalizer_name = args.env
+#         normalizer_mean, normalizer_std = get_normalizer_preset(f'{normalizer_name}_preset')
+#         env = consistent_normalize(env, normalize_obs=True, mean=normalizer_mean, std=normalizer_std, **normalizer_kwargs)
 
-    return env
+#     return env
 
 
 @wrap_experiment(log_dir=get_log_dir(), name=get_exp_name()[0])
 def run(ctxt=None):
-    if 'WANDB_API_KEY' in os.environ:
-        wandb_output_dir = tempfile.mkdtemp()
-        wandb.init(project='metra', entity='', group=args.run_group, name=get_exp_name()[0],
-                   config=vars(args), dir=wandb_output_dir)
+    wandb_output_dir = tempfile.mkdtemp()
+    wandb.init(group=args.run_group, name=get_exp_name()[0],
+                config=vars(args), dir=wandb_output_dir)
 
     dowel.logger.log('ARGS: ' + str(args))
     if args.n_thread is not None:

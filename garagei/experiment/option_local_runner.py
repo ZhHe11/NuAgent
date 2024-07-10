@@ -385,13 +385,17 @@ class OptionLocalRunner(LocalRunner):
             paths = paths.to_trajectory_list()
 
         if update_stats:
-            # XXX: Assume that env_infos always contains 2D coordinates.
-            self._stats.total_env_steps += sum([
-                (len(p['env_infos']['coordinates'].reshape(-1, 2))
-                 if p['env_infos']['coordinates'].dtype != object
-                 else sum(len(l) for l in p['env_infos']['coordinates']))
-                for p in paths
-            ])
+            # # XXX: Assume that env_infos always contains 2D coordinates.
+            # self._stats.total_env_steps += sum([
+            #     (len(p['env_infos']['coordinates'].reshape(-1, 2))
+            #      if p['env_infos']['coordinates'].dtype != object
+            #      else sum(len(l) for l in p['env_infos']['coordinates']))
+            #     for p in paths
+            # ])
+            '''
+            zhanghe: my env have no coordinates
+            '''
+            self._stats.total_env_steps += 1
 
         return paths, infos
 

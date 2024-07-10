@@ -140,71 +140,62 @@ def get_gaussian_module_construction(args,
 
 
 if __name__ == '__main__':
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    # # define the params
-    # args = get_argparser().parse_args()
-    # args.env = 'kichen'
-    # args.max_path_length = 50
-    # args.frame_stack = 3
-    # args.encoder = 1
-    # args.normalizer_type = 'off'
-    # args.seed = 0
-    # args.device = 'cuda:0'
-    # device = args.device
-
-    # maze
+            
+    # define the params
     args = get_argparser().parse_args()
-    args.env = 'maze'
-    args.max_path_length = 100
-    # args.frame_stack = 3
-    # args.encoder = 1
+    args.env = 'kitchen'
+    args.max_path_length = 50
+    args.frame_stack = 3
+    args.encoder = 1
     args.normalizer_type = 'off'
     args.seed = 0
-    args.device = 'cuda:7'
-    args.render = 1 
+    args.device = 'cuda:0'
     device = args.device
-
-
 
     # make env
     env = make_env(args, args.max_path_length)
 
     # # load model
-    # load_option_policy = torch.load("/mnt/nfs2/zhanghe/project001/METRA/exp/Debug_Kitchen_original/sd000_1719919248_kitchen_metra/option_policy6000.pt")
-    # load_traj_encoder = torch.load("/mnt/nfs2/zhanghe/project001/METRA/exp/Debug_Kitchen_original/sd000_1719919248_kitchen_metra/traj_encoder6000.pt")
+    load_option_policy = torch.load("/data/zh/project12_Metra/METRA/exp/KItchen_her/0709/option_policy9500.pt")
+    load_traj_encoder = torch.load("/data/zh/project12_Metra/METRA/exp/KItchen_her/0709/traj_encoder9500.pt")
     # # eval mode
-    # agent_policy = load_option_policy['policy'].eval()
-    # agent_traj_encoder = load_traj_encoder['traj_encoder'].eval()
+    agent_policy = load_option_policy['policy'].eval()
+    agent_traj_encoder = load_traj_encoder['traj_encoder'].eval()
     
     # open the env, and set the init lists
     frames = []
     All_Repr_obs_list = []
     All_Goal_obs_list = []
+    All_Return_list = []
     
     Pepr_viz = True
     option_dim = 2
 
+    
+    # 确定的goal，用于可视化；
     # goals = [[1,1], [-1, -1], [1, -1], [-1, 1]]
-    goals = [[1,-1], [-1, 1], [1, 1]]
-    goals = torch.tensor(np.array(goals)).to(device)
-
-    path_len = args.max_path_length
-
-    for i in range(len(goals)):
+    # goals = [[1,-1], [-1, 1], [1, 1]]
+    # goals = torch.tensor(np.array(goals)).to(device)
+    # 随机的goal，用于多次评估，计算return；
+    num_eval = 10
+    goals = torch.randn((num_eval, option_dim)).to(device)
+    
+    
+    for i in range(num_eval):
         env.reset()
         obs = env.reset()  
+        obs = torch.tensor(obs).unsqueeze(0).to(device)
+        phi_obs_ = agent_traj_encoder(obs).mean
+        
         Repr_obs_list = []
         Repr_goal_list = []
+        option_return_list = []
         
         # in the kichen env
-        # obs_img = env.last_state['image']
-        # frames.append(obs_img)
+        obs_img = env.last_state['image']
+        frames.append(obs_img)
 
-        goal = torch.zeros(1,option_dim).to(device)
-        for t in range(path_len):
-            # caluculate the representaions
-            obs = torch.tensor(obs).unsqueeze(0).to(device)
+        for t in range(args.max_path_length):
             # calculate the option:
             option = goals[i].unsqueeze(0)
             if t == 0:
@@ -212,24 +203,38 @@ if __name__ == '__main__':
             obs_option = torch.cat((obs, option), -1)
             # for viz
             # if Pepr_viz:
-            #     phi_obs = agent_traj_encoder(obs).mean
-            #     Repr_obs_list.append(phi_obs.cpu().detach().numpy()[0])
-            #     Repr_goal_list.append(option.cpu().detach().numpy()[0])
+            phi_obs = phi_obs_
+            Repr_obs_list.append(phi_obs.cpu().detach().numpy()[0])
+            Repr_goal_list.append(option.cpu().detach().numpy()[0])
 
             # get actions from policy
-            # action = agent_policy(obs_option)[1]['mean']
-            action = env.action_space.sample()
+            action = agent_policy(obs_option)[1]['mean']
 
             # interact with the env
-            # obs, reward, done, info = env.step(action.cpu().detach().numpy()[0])
-            obs, reward, done, info = env.step(action)
-
+            obs, reward, done, info = env.step(action.cpu().detach().numpy()[0])
+            # calculate the repr phi
+            obs = torch.tensor(obs).unsqueeze(0).to(device)
+            phi_obs_ = agent_traj_encoder(obs).mean
+            delta_phi_obs = phi_obs_ - phi_obs
+            
+            # option_reward and return
+            option_reward = (option * delta_phi_obs).sum()
+            option_return_list.append(option_reward.cpu().detach().numpy())
+            
             # for saving 
             obs_img = info['image']
             frames.append(obs_img)
         All_Repr_obs_list.append(Repr_obs_list)
         All_Goal_obs_list.append(Repr_goal_list)
+        All_Return_list.append(option_return_list)
 
+    All_Return_array = np.array([np.array(i).sum() for i in All_Return_list])
+    print(
+        "All_Return_array:", All_Return_array, '\n',
+        "Mean:", All_Return_array.mean()
+    )
+    
+    
     # # save the env as gif
     # path = "/mnt/nfs2/zhanghe/project001/METRA/tests/videos/"
     # path_file = path + "kitchen_test.gif"

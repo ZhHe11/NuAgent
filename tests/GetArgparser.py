@@ -8,7 +8,7 @@ def get_argparser():
     parser.add_argument('--encoder', type=int, default=0)
 
     parser.add_argument('--env', type=str, default='maze', choices=[
-        'maze', 'half_cheetah', 'ant', 'dmc_cheetah', 'dmc_quadruped', 'dmc_humanoid', 'kitchen',
+        'maze', 'half_cheetah', 'ant', 'dmc_cheetah', 'dmc_quadruped', 'dmc_humanoid', 'kitchen', 'ant_maze',
     ])
     parser.add_argument('--frame_stack', type=int, default=None)
 
