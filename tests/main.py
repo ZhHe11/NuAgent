@@ -165,7 +165,7 @@ def get_log_dir():
     assert len(exp_name) <= os.pathconf('/', 'PC_NAME_MAX')
     # Resolve symlinks to prevent runs from crashing in case of home nfs crashing.
     log_dir = os.path.realpath(os.path.join(EXP_DIR, args.run_group, exp_name))
-    assert not os.path.exists(log_dir), f'The following path already exists: {log_dir}'
+    # assert not os.path.exists(log_dir), f'The following path already exists: {log_dir}'
 
     return log_dir
 
@@ -212,62 +212,9 @@ def get_gaussian_module_construction(args,
     return module_cls, module_kwargs
 
 
-# def make_env(args, max_path_length):
-#     if args.env == 'maze':
-#         from envs.maze_env import MazeEnv
-#         env = MazeEnv(
-#             max_path_length=max_path_length,
-#             action_range=0.2,
-#         )
-#     elif args.env == 'half_cheetah':
-#         from envs.mujoco.half_cheetah_env import HalfCheetahEnv
-#         env = HalfCheetahEnv(render_hw=100)
-#     elif args.env == 'ant':
-#         from envs.mujoco.ant_env import AntEnv
-#         env = AntEnv(render_hw=100)
-#     elif args.env.startswith('dmc'):
-#         from envs.custom_dmc_tasks import dmc
-#         from envs.custom_dmc_tasks.pixel_wrappers import RenderWrapper
-#         assert args.encoder  # Only support pixel-based environments
-#         if args.env == 'dmc_cheetah':
-#             env = dmc.make('cheetah_run_forward_color', obs_type='states', frame_stack=1, action_repeat=2, seed=args.seed)
-#             env = RenderWrapper(env)
-#         elif args.env == 'dmc_quadruped':
-#             env = dmc.make('quadruped_run_forward_color', obs_type='states', frame_stack=1, action_repeat=2, seed=args.seed)
-#             env = RenderWrapper(env)
-#         elif args.env == 'dmc_humanoid':
-#             env = dmc.make('humanoid_run_color', obs_type='states', frame_stack=1, action_repeat=2, seed=args.seed)
-#             env = RenderWrapper(env)
-#         else:
-#             raise NotImplementedError
-#     elif args.env == 'kitchen':
-#         sys.path.append('lexa')
-#         from envs.lexa.mykitchen import MyKitchenEnv
-#         assert args.encoder  # Only support pixel-based environments
-#         env = MyKitchenEnv(log_per_goal=True)
-#     else:
-#         raise NotImplementedError
-
-#     if args.frame_stack is not None:
-#         from envs.custom_dmc_tasks.pixel_wrappers import FrameStackWrapper
-#         env = FrameStackWrapper(env, args.frame_stack)
-
-#     normalizer_type = args.normalizer_type
-#     normalizer_kwargs = {}
-
-#     if normalizer_type == 'off':
-#         env = consistent_normalize(env, normalize_obs=False, **normalizer_kwargs)
-#     elif normalizer_type == 'preset':
-#         normalizer_name = args.env
-#         normalizer_mean, normalizer_std = get_normalizer_preset(f'{normalizer_name}_preset')
-#         env = consistent_normalize(env, normalize_obs=True, mean=normalizer_mean, std=normalizer_std, **normalizer_kwargs)
-
-#     return env
-
-
 @wrap_experiment(log_dir=get_log_dir(), name=get_exp_name()[0])
 def run(ctxt=None):
-    wandb_output_dir = tempfile.mkdtemp()
+    wandb_output_dir = get_log_dir()
     wandb.init(group=args.run_group, name=get_exp_name()[0],
                 config=vars(args), dir=wandb_output_dir)
 

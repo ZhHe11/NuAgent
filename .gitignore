@@ -164,3 +164,4 @@ ipynbs
 __pycache__
 tests/videos
 d4rl
+*.pth

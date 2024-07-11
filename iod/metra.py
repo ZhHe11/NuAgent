@@ -11,8 +11,13 @@ import copy
 from iod.utils import get_torch_concat_obs, FigManager, get_option_colors, record_video, draw_2d_gaussians
 
 import matplotlib.pyplot as plt
-import trange
+from tqdm import trange
 from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze, plot_trajectories, plot_value
+from sklearn.decomposition import PCA
+import matplotlib.cm as cm
+
+import wandb
+import os
 
 
 '''
@@ -42,13 +47,13 @@ def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_P
         end_index = (i+1) * path_len
         plt.scatter(Repr_obs_2d[start_index:end_index, 0], Repr_obs_2d[start_index:end_index, 1], color=color, s=5, label="traj."+str(i))
         plt.scatter(All_Goal_obs_2d[start_index, 0], All_Goal_obs_2d[start_index, 1], marker='*', s=100, c=color, label="option."+str(i))
-    path_file_traj = path + "traj" + ".png"
+    file_path = os.path.join(path, "repr_traj.png")
     plt.xlabel('z[0]')
     plt.ylabel('z[1]')
     plt.title('traj. in representation space')
     plt.legend()
-    plt.savefig(path_file_traj)
-
+    plt.savefig(file_path)
+    wandb.log(({"Repr_Space_traj": wandb.Image(file_path)}))
 
 
 class METRA(IOD):
@@ -464,123 +469,6 @@ class METRA(IOD):
     '''
     Evaluation
     '''
-
-    # def _evaluate_policy(self, runner):
-    #     if self.discrete == 1: # self.discrete == 1 是原来的方法，当维度较大的时候，效果比较好，能强行分出不同的技能；
-    #         eye_options = np.eye(self.dim_option)
-    #         random_options = []
-    #         colors = []
-    #         for i in range(self.dim_option):
-    #             num_trajs_per_option = self.num_random_trajectories // self.dim_option + (i < self.num_random_trajectories % self.dim_option)
-    #             for _ in range(num_trajs_per_option):       # 重复多次，
-    #                 random_options.append(eye_options[i])   # 把每次的option都存下来，在dis=1的时候，所有的option都相同；
-    #                 colors.append(i)
-    #         random_options = np.array(random_options)
-    #         colors = np.array(colors)
-    #         num_evals = len(random_options)
-    #         from matplotlib import cm
-    #         cmap = 'tab10' if self.dim_option <= 10 else 'tab20'
-    #         random_option_colors = []
-    #         for i in range(num_evals):
-    #             random_option_colors.extend([cm.get_cmap(cmap)(colors[i])[:3]])
-    #         random_option_colors = np.array(random_option_colors)
-    #     else:
-    #         random_options = np.random.randn(self.num_random_trajectories, self.dim_option)     # [48，2]全部随机
-    #         if self.unit_length:
-    #             random_options = random_options / np.linalg.norm(random_options, axis=1, keepdims=True)
-    #         random_option_colors = get_option_colors(random_options * 4)
-    #     random_trajectories = self._get_trajectories(
-    #         runner,
-    #         sampler_key='option_policy',
-    #         extras=self._generate_option_extras(random_options),
-    #         worker_update=dict(
-    #             _render=False,
-    #             _deterministic_policy=True,
-    #         ),
-    #         env_update=dict(_action_noise_std=None),
-    #     )
-
-    #     # Plotting: 画一整条轨迹在表征空间的分布；
-    #     with FigManager(runner, 'TrajPlot_RandomZ') as fm:
-    #         runner._env.render_trajectories(
-    #             random_trajectories, random_option_colors, self.eval_plot_axis, fm.ax
-    #         )
-
-    #     data = self.process_samples(random_trajectories)
-    #     last_obs = torch.stack([torch.from_numpy(ob[-1]).to(self.device) for ob in data['obs']])
-    #     option_dists = self.traj_encoder(last_obs)          # 对每条轨迹的最后一个状态进行encode编码；
-
-    #     option_means = option_dists.mean.detach().cpu().numpy()   
-    #     if self.inner:
-    #         option_stddevs = torch.ones_like(option_dists.stddev.detach().cpu()).numpy()
-    #     else:
-    #         option_stddevs = option_dists.stddev.detach().cpu().numpy()
-    #     option_samples = option_dists.mean.detach().cpu().numpy()
-
-    #     option_colors = random_option_colors
-
-    #     # 画option在表征空间的分布；
-    #     # option_dists是最后一个状态（goal）的表征分布；
-    #     # 所以，这个图越发散，说明最终状态的表征分布越分散，说明不同的z_sample能指向不同的goal；
-    #     # 但是训练时引入了goal，反而发散程度减弱，发散速度减弱，为什么？按理会朝着goal的方向收敛，更直，有没有可能是ant环境比较简单，已经很直了；
-    #     # 所谓直，就是不饶弯路，直接到达目标，让表征学习的更加准确；
-    #     # 再修改一下policy看看， 毕竟her主要是让policy有更多的训练样例，在错误中学习正确的东西（her的insight）；
-    #     with FigManager(runner, f'PhiPlot') as fm:
-    #         draw_2d_gaussians(option_means, option_stddevs, option_colors, fm.ax)
-    #         draw_2d_gaussians(
-    #             option_samples,
-    #             [[0.03, 0.03]] * len(option_samples),
-    #             option_colors,
-    #             fm.ax,
-    #             fill=True,
-    #             use_adaptive_axis=True,
-    #         )
-
-    #     eval_option_metrics = {}
-
-    #     # Videos
-    #     if self.eval_record_video:
-    #         if self.discrete == 1:
-    #             video_options = np.eye(self.dim_option)
-    #             video_options = video_options.repeat(self.num_video_repeats, axis=0)
-    #         else:
-    #             if self.dim_option == 2:
-    #                 radius = 1. if self.unit_length else 1.5
-    #                 video_options = []
-    #                 for angle in [3, 2, 1, 4]:
-    #                     video_options.append([radius * np.cos(angle * np.pi / 4), radius * np.sin(angle * np.pi / 4)])
-    #                 video_options.append([0, 0])
-    #                 for angle in [0, 5, 6, 7]:
-    #                     video_options.append([radius * np.cos(angle * np.pi / 4), radius * np.sin(angle * np.pi / 4)])
-    #                 video_options = np.array(video_options)
-    #             else:
-    #                 video_options = np.random.randn(9, self.dim_option)
-    #                 if self.unit_length:
-    #                     video_options = video_options / np.linalg.norm(video_options, axis=1, keepdims=True)
-    #             video_options = video_options.repeat(self.num_video_repeats, axis=0)
-                
-    #         # video的数据是另外再收集的，重新定义了option且是随机的；option是2维的话会限定各个角度都有；
-    #         video_trajectories = self._get_trajectories(
-    #             runner,
-    #             sampler_key='local_option_policy',
-    #             extras=self._generate_option_extras(video_options),
-    #             worker_update=dict(
-    #                 _render=True,
-    #                 _deterministic_policy=True,
-    #             ),
-    #         )
-    #         record_video(runner, 'Video_RandomZ', video_trajectories, skip_frames=self.video_skip_frames)
-
-    #     eval_option_metrics.update(runner._env.calc_eval_metrics(random_trajectories, is_option_trajectories=True))
-    #     with global_context.GlobalContext({'phase': 'eval', 'policy': 'option'}):
-    #         log_performance_ex(
-    #             runner.step_itr,
-    #             TrajectoryBatch.from_trajectory_list(self._env_spec, random_trajectories),
-    #             discount=self.discount,
-    #             additional_records=eval_option_metrics,
-    #         )
-    #     self._log_eval_metrics(runner)
-
     def _evaluate_policy(self, runner):
         '''
         this is for zero-shot task evaluation;
@@ -600,6 +488,7 @@ class METRA(IOD):
         All_Repr_obs_list = []
         All_Goal_obs_list = []
         All_Return_list = []
+        All_GtReturn_list = []
         All_trajs_list = []
         
         Pepr_viz = True
@@ -618,7 +507,8 @@ class METRA(IOD):
             Repr_obs_list = []
             Repr_goal_list = []
             option_return_list = []
-            traj_list = []
+            gt_return_list = []
+            traj_list = {}
             traj_list["observation"] = []
             traj_list["info"] = []
             # 2.3 interact loop
@@ -642,6 +532,7 @@ class METRA(IOD):
 
                 # interact with the env
                 obs, reward, done, info = env.step(action.cpu().detach().numpy()[0])
+                gt_dist = np.linalg.norm(goal - obs[:2])
                 
                 # for recording traj.
                 traj_list["observation"].append(obs)
@@ -656,21 +547,42 @@ class METRA(IOD):
                 # option_reward and return
                 option_reward = (option * delta_phi_obs).sum()
                 option_return_list.append(option_reward.cpu().detach().numpy())
+                gt_reward = - gt_dist
+                gt_return_list.append(gt_reward)
                 
             All_Repr_obs_list.append(Repr_obs_list)
             All_Goal_obs_list.append(Repr_goal_list)
             All_Return_list.append(option_return_list)
+            All_GtReturn_list.append(gt_return_list)
             All_trajs_list.append(traj_list)
             
         All_Return_array = np.array([np.array(i).sum() for i in All_Return_list])
+        All_GtReturn_array = np.array([np.array(i).sum() for i in All_GtReturn_list])
         print(
-            "Average_Return_array:",All_Return_array.mean()
+            "Average_Return:", All_Return_array.mean(), '\n',
+            "All_GtReturn", All_GtReturn_array.mean()
         )
+        wandb.log(  
+                    {
+                        "Average_Return": All_Return_array.mean(),
+                        "All_GtReturn": All_GtReturn_array.mean()
+                    },
+                    step=runner.step_itr
+                )
+        
         plot_trajectories(env, All_trajs_list, fig, ax)
-        path = "/data/zh/project12_Metra/METRA/tests/videos/"
-        plt.savefig(path + "Maze_traj.png") 
+        path = wandb.run.dir
+        filepath = os.path.join(path, "Maze_traj.png")
+        print(filepath)
+        plt.savefig(filepath) 
+        wandb.log(({"Maze_traj": wandb.Image(filepath)}))
         
         if Pepr_viz:
             PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length)
             print('Repr_Space_traj saved')
+
+        # save model
+        torch.save(self.traj_encoder.state_dict(), 'traj_encoder.pth')
+        torch.save(self.option_policy.state_dict(), 'option_policy.pth')
+    
     
