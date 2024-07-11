@@ -113,6 +113,12 @@ class MazeWrapper(gym.Wrapper):
         states = np.array([X.flatten(), Y.flatten()]).T
         return states
 
+    def obs_XY(self, obs):
+        XY = self.XY()
+        obs_XY = np.tile(obs, (len(XY), 1))
+        obs_XY[:,:2] = XY
+        return obs_XY
+
     # 生成四个目标点；在四个角落生成；
     def four_goals(self):
         self = self.inner_env
@@ -159,6 +165,12 @@ class MazeWrapper(gym.Wrapper):
         ax.set_xlim(0 - S /2 + 0.6 * S - torso_x, len(self._maze_map[0]) * S - torso_x - S/2 - S * 0.6)
         ax.set_ylim(0 - S/2 + 0.6 * S - torso_y, len(self._maze_map) * S - torso_y - S/2 - S * 0.6)
         ax.axis('off')
+        
+    # 得到target_obs
+    def get_target_obs(self, obs, xy_goal):
+        traget_obs = obs
+        traget_obs[0][:2] = xy_goal
+        return traget_obs
 
 
 class GoalReachingMaze(MazeWrapper):

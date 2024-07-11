@@ -41,7 +41,7 @@ def make_env(args, max_path_length):
         env = MyKitchenEnv(log_per_goal=True)
     
     elif args.env == 'ant_maze':
-        from envs.AntMazeEnv import MazeWrapper
+        from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
         env = MazeWrapper("antmaze-medium-diverse-v0")
     
     else:
