@@ -32,7 +32,8 @@ def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_P
         start_index = i * path_len
         end_index = (i+1) * path_len
         plt.scatter(Repr_obs_2d[start_index:end_index, 0], Repr_obs_2d[start_index:end_index, 1], color=color, s=5, label="traj."+str(i))
-        plt.scatter(All_Goal_obs_2d[start_index, 0], All_Goal_obs_2d[start_index, 1], marker='*', s=100, c=color, label="option."+str(i))
+        # plt.scatter(All_Goal_obs_2d[start_index, 0], All_Goal_obs_2d[start_index, 1], marker='*', s=100, c=color, label="option."+str(i), edgecolors='black')
+        plt.scatter(All_Goal_obs_2d[start_index:end_index, 0], All_Goal_obs_2d[start_index:end_index, 1], color=color, s=100, marker='*', label="option."+str(i), edgecolors='black')
     path_file_traj = path + "traj" + ".png"
     plt.xlabel('z[0]')
     plt.ylabel('z[1]')
@@ -58,8 +59,8 @@ goal = env.env.goal_sampler(np_random)
 env.draw(ax)
 
 # # load model
-load_option_policy = torch.load("/data/zh/project12_Metra/METRA/exp/Debug_ant_maze_baseline/sd000_1720699199_ant_maze_metra/option_policy30000.pt")
-load_traj_encoder = torch.load("/data/zh/project12_Metra/METRA/exp/Debug_ant_maze_baseline/sd000_1720699199_ant_maze_metra/traj_encoder30000.pt")
+load_option_policy = torch.load("/data/zh/project12_Metra/METRA/exp/Debug_ant_maze_goal_reward/sd000_1720775619_ant_maze_metra/option_policy5000.pt")
+load_traj_encoder = torch.load("/data/zh/project12_Metra/METRA/exp/Debug_ant_maze_goal_reward/sd000_1720775619_ant_maze_metra/traj_encoder5000.pt")
 # load_option_policy = torch.load("/data/zh/project12_Metra/METRA/exp/Debug_ant_maze/sd000_1720608299_ant_maze_metra_ori/option_policy3000.pt")
 # load_traj_encoder = torch.load("/data/zh/project12_Metra/METRA/exp/Debug_ant_maze/sd000_1720608299_ant_maze_metra_ori/traj_encoder3000.pt")
 # # eval mode
@@ -123,7 +124,7 @@ option_dim = 2
 # goals = torch.tensor(np.array(goals)).to(device)
 # 随机的goal，用于多次评估，计算return；
 
-num_eval = 5
+num_eval = 1
 max_path_length = 500
 goals = torch.randn((num_eval, option_dim)).to(device)
 
@@ -153,9 +154,11 @@ for i in range(num_eval):
         
         # calculate the option:
         target_obs = env.get_target_obs(obs, goals[i])
+        
         phi_target_obs = agent_traj_encoder(target_obs).mean
         option = phi_target_obs - phi_obs  
         option = option / torch.norm(option, p=2)   
+        
         print("option", option)
         obs_option = torch.cat((obs, option), -1)
         
@@ -199,10 +202,10 @@ print(
 )
 
 # save the env as gif
-path = "/data/zh/project12_Metra/METRA/tests/videos/"
-path_file = path + "antmaze_test.gif"
-imageio.mimsave(path_file, frames, duration=1/24)
-print('video saved')
+# path = "/data/zh/project12_Metra/METRA/tests/videos/"
+# path_file = path + "antmaze_test.gif"
+# imageio.mimsave(path_file, frames, duration=1/24)
+# print('video saved')
 
 # plot_trajectories 用来绘制轨迹；
 # print(trajs)

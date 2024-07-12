@@ -281,7 +281,7 @@ class METRA(IOD):
             optimizer_keys=['option_policy'],
         )
 
-        self._update_loss_alpha(tensors, internal_vars)
+        self._update_loss_alpha(tensors, internal_vars)         # 这个是控制sac的entropy的；
         self._gradient_descent(
             tensors['LossAlpha'],
             optimizer_keys=['log_alpha'],
@@ -434,16 +434,29 @@ class METRA(IOD):
         })
 
     def _update_loss_qf(self, tensors, v):
+        '''
+        zhanghe:
+        change the policy learning process; using other z and reward, not the z_sample; let the train and eval the same target
+        '''
+        # calculate z using obs' and obs
+        phi_goal = self.traj_encoder(v['goal']).mean
+        phi_obs_ = self.traj_encoder(v['next_obs']).mean
+        phi_obs = self.traj_encoder(v['obs']).mean
+        z = phi_goal - phi_obs
+        
         processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), v['options'])
         next_processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['next_obs']), v['next_options'])
 
+        goal_reward = - torch.norm((self.traj_encoder(v['goal']).mean - self.traj_encoder(v['obs']).mean).detach(), p=2, dim=-1)
+        
         sac_utils.update_loss_qf(
             self, tensors, v,
             obs=processed_cat_obs,
-            actions=v['actions'],
+            actions=v['actions'],   
             next_obs=next_processed_cat_obs,
             dones=v['dones'],
-            rewards=v['rewards'] * self._reward_scale_factor,
+            # rewards=v['rewards'] * self._reward_scale_factor,
+            rewards=goal_reward,
             policy=self.option_policy,
         )
 
@@ -525,7 +538,7 @@ class METRA(IOD):
                 # for viz
                 if Pepr_viz:
                     Repr_obs_list.append(phi_obs.cpu().detach().numpy()[0])
-                    Repr_goal_list.append(option.cpu().detach().numpy()[0])
+                    Repr_goal_list.append(phi_target_obs.cpu().detach().numpy()[0])
 
                 # get actions from policy
                 action = self.option_policy(obs_option)[1]['mean']
@@ -534,7 +547,7 @@ class METRA(IOD):
                 obs, reward, done, info = env.step(action.cpu().detach().numpy()[0])
                 gt_dist = np.linalg.norm(goal - obs[:2])
                 
-                # for recording traj.
+                # for recording traj.2
                 traj_list["observation"].append(obs)
                 info['x'], info['y'] = env.env.get_xy()
                 traj_list["info"].append(info)
