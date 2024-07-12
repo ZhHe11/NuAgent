@@ -519,7 +519,7 @@ class METRA(IOD):
                 target_obs = env.get_target_obs(obs, goals[i])
                 phi_target_obs = self.traj_encoder(target_obs).mean
                 option = phi_target_obs - phi_obs  
-                # option = option / torch.norm(option, p=2)   
+                option = option / torch.norm(option, p=2)   
                 print("option", option)
                 obs_option = torch.cat((obs, option), -1)
                 # for viz
