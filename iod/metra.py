@@ -329,34 +329,43 @@ class METRA(IOD):
     def _update_loss_te(self, tensors, v):          # 【更新】要修改表征loss的计算方法；
         self._update_rewards(tensors, v)            # 为什么要更新reward？reward其实就是计算技能表征z与当前运动方向的内积；
         rewards = v['rewards']
+        
+        # 我们要用her，用subgoal得到的z作为z；
+        # method_type = 'her_reward'
+        method_type = 'baseline'
+        
+        if method_type == 'her_reward':
+            '''
+            zhanghe 
+            我要加入goal，重新计算两个表征z_sample和z_start_goal之间的距离；
+            '''
+            z_sample = v['options']
+            phi_g = self.traj_encoder(v['goal']).mean
+            phi_sub_g = self.traj_encoder(v['sub_goal']).mean
+            phi_s = self.traj_encoder(v['obs']).mean
+            phi_s_next = self.traj_encoder(v['next_obs']).mean
 
-        '''
-        zhanghe 
-        我要加入goal，重新计算两个表征z_sample和z_start_goal之间的距离；
-        '''
-        z_sample = v['options']
-        phi_g = self.traj_encoder(v['goal']).mean
-        phi_s = self.traj_encoder(v['obs']).mean
-        phi_s_next = self.traj_encoder(v['next_obs']).mean
+            # 暂时使用表征做差：
+            z_start_next = phi_s_next - phi_s
+            z_start_goal = phi_g - phi_s
+            z_next_goal = phi_g - phi_s_next
+            skill_discount = 0.5
+            z_train = phi_sub_g - phi_s
+        
+            # new_reward = (z_start_next * z_sample).sum(dim=1) + skill_discount * (z_start_goal * z_sample).sum(dim=1) 
+            new_reward = (z_start_next * z_train).sum(dim=1)
+        
+            ## 【ctb】len_weight:
+            # 我想让离final越近的权重越大，离final越远的权重越小；
+            # 方法1： 用step作为约束；
+            # len_weight = 
 
-        # 暂时使用表征做差：
-        z_start_next = phi_s_next - phi_s
-        z_start_goal = phi_g - phi_s
-        z_next_goal = phi_g - phi_s_next
-        skill_discount = 0.5
-        # new_reward = (z_start_next * z_sample).sum(dim=1) + skill_discount * (z_start_goal * z_sample).sum(dim=1) 
-
-        ## 【ctb】len_weight:
-        # 我想让离final越近的权重越大，离final越远的权重越小；
-        # 方法1： 用step作为约束；
-        # len_weight = 
-
-        # 方法2： 用与s_final的相似度作为约束；
-        min_val = 1e-2
-        max_val = 1e2
-        len_weight = 1 / (torch.norm(z_start_goal, p=2).detach() + 1e-3)
-        len_weight = torch.clamp(len_weight, min=1e-2, max=1e2)
-        norm_len_weight = (len_weight - min_val) / (max_val - min_val)
+            # 方法2： 用与s_final的相似度作为约束；
+            # min_val = 1e-2
+            # max_val = 1e2
+            # len_weight = 1 / (torch.norm(z_start_goal, p=2).detach() + 1e-3)
+            # len_weight = torch.clamp(len_weight, min=1e-2, max=1e2)
+            # norm_len_weight = (len_weight - min_val) / (max_val - min_val)
 
         obs = v['obs']
         next_obs = v['next_obs']
@@ -398,14 +407,19 @@ class METRA(IOD):
             cst_penalty = cst_dist - torch.square(phi_y - phi_x).mean(dim=1)        # 这是后面的约束项，约束skill表征的大小；
             cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)             # 限制最大值；trick，如果惩罚项太大，会导致优化困难；
             
-            # 【ori】原方法：
-            te_obj = rewards + dual_lam.detach() * cst_penalty                      # 这是最终的loss： reward + 惩罚项；
             
-            # 【ctb】增加s_final和z_sample的约束，to be finished
-            # te_obj = new_reward + dual_lam.detach() * cst_penalty    
+            if method_type == "her_reward": 
+                # 【ctb】增加s_final和z_sample的约束，to be finished
+                # 用sub_goal得到z_train代替z_sample，使得整个训练过程和eval过程的逻辑完全一样；
+                te_obj = new_reward + dual_lam.detach() * cst_penalty    
 
-            # 【ctb】增加len_weight
-            # te_obj = norm_len_weight * rewards + dual_lam.detach() * cst_penalty    
+                # 【ctb】增加len_weight
+                # te_obj = norm_len_weight * rewards + dual_lam.detach() * cst_penalty    
+                
+            else :
+                # 【ori】原方法：
+                te_obj = rewards + dual_lam.detach() * cst_penalty                      # 这是最终的loss： reward + 惩罚项；
+
 
             v.update({
                 'cst_penalty': cst_penalty
@@ -434,28 +448,36 @@ class METRA(IOD):
         })
 
     def _update_loss_qf(self, tensors, v):
-        '''
-        zhanghe:
-        change the policy learning process; using other z and reward, not the z_sample; let the train and eval the same target
-        '''
+
+        # policy_type = "sub_goal_reward"
+        policy_type = "baseline"
         
-        # calculate z using obs' and obs
-        # 1. using final goal
-        # phi_goal = self.traj_encoder(v['goal']).mean.detach()
-        # phi_obs_ = self.traj_encoder(v['next_obs']).mean.detach()
-        # phi_obs = self.traj_encoder(v['obs']).mean.detach()
-        # option = phi_goal - phi_obs
-        # next_option = phi_goal - phi_obs_        
-        
-        # 2. using sub_goal
-        phi_goal = self.traj_encoder(v['subgoal']).mean.detach()
-        phi_obs_ = self.traj_encoder(v['next_obs']).mean.detach()
-        phi_obs = self.traj_encoder(v['obs']).mean.detach()
-        option = phi_goal - phi_obs
-        next_option = phi_goal - phi_obs_     
-        
-        # option = v['options']
-        # next_option = v['next_options']
+        if policy_type == "sub_goal_reward":
+            '''
+            zhanghe:
+            change the policy learning process; using other z and reward, not the z_sample; let the train and eval the same target
+            '''
+            # calculate z using obs' and obs
+            # 1. using final goal
+            # phi_goal = self.traj_encoder(v['goal']).mean.detach()
+            # phi_obs_ = self.traj_encoder(v['next_obs']).mean.detach()
+            # phi_obs = self.traj_encoder(v['obs']).mean.detach()
+            # option = phi_goal - phi_obs
+            # next_option = phi_goal - phi_obs_        
+            
+            # 2. using sub_goal
+            phi_goal = self.traj_encoder(v['sub_goal']).mean.detach()
+            phi_obs_ = self.traj_encoder(v['next_obs']).mean.detach()
+            phi_obs = self.traj_encoder(v['obs']).mean.detach()
+            option = phi_goal - phi_obs
+            next_option = phi_goal - phi_obs_     
+            goal_reward = ((phi_obs_ - phi_obs) * option).sum(dim=1)
+            policy_rewards = goal_reward * self._reward_scale_factor,
+            
+        else: 
+            option = v['options']
+            next_option = v['next_options']
+            policy_rewards = v['rewards'] * self._reward_scale_factor
         
         processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), option)
         next_processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['next_obs']), next_option)
@@ -463,14 +485,14 @@ class METRA(IOD):
         # goal_reward = - torch.norm(next_option, p=2, dim=-1)
         # wandb.log(({"goal_reward": goal_reward.mean()}))
         
+        
         sac_utils.update_loss_qf(
             self, tensors, v,
             obs=processed_cat_obs,
             actions=v['actions'],   
             next_obs=next_processed_cat_obs,
             dones=v['dones'],
-            rewards=v['rewards'] * self._reward_scale_factor,
-            # rewards=goal_reward,
+            rewards=policy_rewards,
             policy=self.option_policy,
         )
 
@@ -523,13 +545,23 @@ class METRA(IOD):
         
         Pepr_viz = True
         np_random = np.random.default_rng()    
-
+        
+        goals_list = [
+            [12.7, 16.5],
+            [1.1, 12.9],
+            [4.7, 4.5],
+            [17.2, 0.9],
+            [20.2, 20.1]
+        ]
+        num_eval = len(goals_list)
+        goals = torch.tensor(np.array(goals_list)).to(self.device)
+        
         # 2. interact with the env
         for i in trange(num_eval):
             # 2.1 calculate the goal;
-            goal = env.env.goal_sampler(np_random)
-            ax.scatter(goal[0], goal[1], s=50, marker='x', alpha=1, edgecolors='black')
-            goals[i] = torch.tensor(goal).to(self.device)
+            # goal = env.env.goal_sampler(np_random)
+            ax.scatter(goals_list[i][0], goals_list[i][1], s=50, marker='x', alpha=1, edgecolors='black', label='target.'+str(i))
+            print(goals[i])
             # 2.2 reset the env
             obs = env.reset()  
             obs = torch.tensor(obs).unsqueeze(0).to(self.device).float()
@@ -550,7 +582,6 @@ class METRA(IOD):
                 phi_target_obs = self.traj_encoder(target_obs).mean
                 option = phi_target_obs - phi_obs  
                 option = option / torch.norm(option, p=2)   
-                print("option", option)
                 obs_option = torch.cat((obs, option), -1)
                 # for viz
                 if Pepr_viz:
@@ -562,7 +593,7 @@ class METRA(IOD):
 
                 # interact with the env
                 obs, reward, done, info = env.step(action.cpu().detach().numpy()[0])
-                gt_dist = np.linalg.norm(goal - obs[:2])
+                gt_dist = np.linalg.norm(goals[i].cpu() - obs[:2])
                 
                 # for recording traj.2
                 traj_list["observation"].append(obs)
@@ -577,7 +608,7 @@ class METRA(IOD):
                 # option_reward and return
                 option_reward = (option * delta_phi_obs).sum()
                 option_return_list.append(option_reward.cpu().detach().numpy())
-                gt_reward = - gt_dist
+                gt_reward = - gt_dist / (30 * max_path_length)
                 gt_return_list.append(gt_reward)
                 
             All_Repr_obs_list.append(Repr_obs_list)
@@ -601,6 +632,7 @@ class METRA(IOD):
                 )
         
         plot_trajectories(env, All_trajs_list, fig, ax)
+        ax.legend(loc='lower right')
         path = wandb.run.dir
         filepath = os.path.join(path, "Maze_traj.png")
         print(filepath)

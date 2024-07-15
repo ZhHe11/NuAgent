@@ -342,6 +342,7 @@ def plot_trajectories(env, trajectories, fig, ax, color_list=None):
         color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
         color_list = cycle(color_cycle)
 
+    count = 0
     for color, trajectory in zip(color_list, trajectories):
         obs = np.array(trajectory['observation'])
 
@@ -358,6 +359,7 @@ def plot_trajectories(env, trajectories, fig, ax, color_list=None):
             all_x = obs[:, 1] * 4 - 3.2
             all_y = obs[:, 0] * 4 - 3.2
         ax.scatter(all_x, all_y, s=5, c=color, alpha=0.2)
-        ax.scatter(all_x[-1], all_y[-1], s=50, c=color, marker='*', alpha=1, edgecolors='black')
+        ax.scatter(all_x[-1], all_y[-1], s=50, c=color, marker='*', alpha=1, edgecolors='black', label='traj.'+str(count))
+        count += 1
 
     env.draw(ax)
