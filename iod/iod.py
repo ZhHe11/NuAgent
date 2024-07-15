@@ -286,7 +286,8 @@ class IOD(RLAlgorithm):
 
     def process_samples(self, paths):       # 【修改】我需要再这里做修改，修改buffer的训练元组；
         data = defaultdict(list)
-        for path in paths:                  # 【效率】一条一条处理，不知道能不能向量化？变成tensor按照矩阵处理？
+        for i in range(len(paths)):                  # 【效率】一条一条处理，不知道能不能向量化？变成tensor按照矩阵处理？
+            path = paths[i]
             data['obs'].append(path['observations'])
             data['next_obs'].append(path['next_observations'])
             data['actions'].append(path['actions'])
@@ -314,8 +315,14 @@ class IOD(RLAlgorithm):
             '''
             # Method 2:
             data['goal'].append(np.tile(path['observations'][-1], (path['observations'].shape[0], 1)))       # 不知道最后一个需不需要特殊在意，感觉问题不大；
-
+            traj_len = len(path['observations'])
+            now_index = np.arange(traj_len)
+            random_index = np.random.randint(1, traj_len-1, size=traj_len)
+            future_index = np.minimum(now_index + random_index, traj_len-1)
+            data['sub_goal'].append(path['observations'][future_index])
+            
         return data
+
 
     def _get_policy_param_values(self, key):
         param_dict = self.policy[key].get_param_values()

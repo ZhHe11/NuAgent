@@ -225,7 +225,7 @@ class METRA(IOD):
 
         epoch_data = self._flatten_data(path_data)      # 本质上是，把array和list转化为tensor
 
-        tensors = self._train_components(epoch_data)    # 训练模型，知识我不理解，为什么还要返回tensor，tensor后续没再使用;
+        tensors = self._train_components(epoch_data)    # 训练模型，tensor是info;
 
         return tensors
 
@@ -438,16 +438,30 @@ class METRA(IOD):
         zhanghe:
         change the policy learning process; using other z and reward, not the z_sample; let the train and eval the same target
         '''
-        # calculate z using obs' and obs
-        phi_goal = self.traj_encoder(v['goal']).mean
-        phi_obs_ = self.traj_encoder(v['next_obs']).mean
-        phi_obs = self.traj_encoder(v['obs']).mean
-        z = phi_goal - phi_obs
         
-        processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), v['options'])
-        next_processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['next_obs']), v['next_options'])
+        # calculate z using obs' and obs
+        # 1. using final goal
+        # phi_goal = self.traj_encoder(v['goal']).mean.detach()
+        # phi_obs_ = self.traj_encoder(v['next_obs']).mean.detach()
+        # phi_obs = self.traj_encoder(v['obs']).mean.detach()
+        # option = phi_goal - phi_obs
+        # next_option = phi_goal - phi_obs_        
+        
+        # 2. using sub_goal
+        phi_goal = self.traj_encoder(v['subgoal']).mean.detach()
+        phi_obs_ = self.traj_encoder(v['next_obs']).mean.detach()
+        phi_obs = self.traj_encoder(v['obs']).mean.detach()
+        option = phi_goal - phi_obs
+        next_option = phi_goal - phi_obs_     
+        
+        # option = v['options']
+        # next_option = v['next_options']
+        
+        processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), option)
+        next_processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['next_obs']), next_option)
 
-        goal_reward = - torch.norm((self.traj_encoder(v['goal']).mean - self.traj_encoder(v['obs']).mean).detach(), p=2, dim=-1)
+        # goal_reward = - torch.norm(next_option, p=2, dim=-1)
+        # wandb.log(({"goal_reward": goal_reward.mean()}))
         
         sac_utils.update_loss_qf(
             self, tensors, v,
@@ -455,8 +469,8 @@ class METRA(IOD):
             actions=v['actions'],   
             next_obs=next_processed_cat_obs,
             dones=v['dones'],
-            # rewards=v['rewards'] * self._reward_scale_factor,
-            rewards=goal_reward,
+            rewards=v['rewards'] * self._reward_scale_factor,
+            # rewards=goal_reward,
             policy=self.option_policy,
         )
 
@@ -464,6 +478,9 @@ class METRA(IOD):
             'processed_cat_obs': processed_cat_obs,
             'next_processed_cat_obs': next_processed_cat_obs,
         })
+        # tensors.update({
+        #     # 'goal_reward': goal_reward.mean()
+        # })
 
     def _update_loss_op(self, tensors, v):
         processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), v['options'])

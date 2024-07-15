@@ -59,8 +59,8 @@ goal = env.env.goal_sampler(np_random)
 env.draw(ax)
 
 # # load model
-load_option_policy = torch.load("/data/zh/project12_Metra/METRA/exp/Debug_ant_maze_goal_reward/sd000_1720775619_ant_maze_metra/option_policy5000.pt")
-load_traj_encoder = torch.load("/data/zh/project12_Metra/METRA/exp/Debug_ant_maze_goal_reward/sd000_1720775619_ant_maze_metra/traj_encoder5000.pt")
+load_option_policy = torch.load("/data/zh/project12_Metra/METRA/exp/Debug_ant_maze_baseline/sd000_1720752519_ant_maze_metra/option_policy155000.pt")
+load_traj_encoder = torch.load("/data/zh/project12_Metra/METRA/exp/Debug_ant_maze_baseline/sd000_1720752519_ant_maze_metra/traj_encoder155000.pt")
 # load_option_policy = torch.load("/data/zh/project12_Metra/METRA/exp/Debug_ant_maze/sd000_1720608299_ant_maze_metra_ori/option_policy3000.pt")
 # load_traj_encoder = torch.load("/data/zh/project12_Metra/METRA/exp/Debug_ant_maze/sd000_1720608299_ant_maze_metra_ori/traj_encoder3000.pt")
 # # eval mode
