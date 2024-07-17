@@ -123,9 +123,9 @@ class METRA(IOD):
         '''
         
         self.method = {
-            "eval": "no_norm",
+            "eval": "norm",
             "phi": "baseline",
-            "policy": "sub_goal_reward", 
+            "policy": "baseline", 
         }
 
     @property
@@ -504,12 +504,20 @@ class METRA(IOD):
             policy_rewards = goal_reward * self._reward_scale_factor
             
             distance_xy = torch.norm(v['obs'][:2] - v['sub_goal'][:2], p=2, dim=-1, keepdim=True)
-            
+            tensors.update({
+                'policy_rewards': policy_rewards.mean(),
+                'inner_reward': ((phi_obs_ - phi_obs) * norm_option).sum(dim=1).mean(),
+                'distance_reward': distance_reward.mean(),
+                'phi_distance_g_s_': distance_next_option.mean(),
+                'xy_dsitance_g_s': distance_xy.mean(),
+            })
         else: 
             option = v['options']
             next_option = v['next_options']
             policy_rewards = v['rewards'] * self._reward_scale_factor
-        
+            tensors.update({
+                'policy_rewards': policy_rewards.mean(),
+            })
         processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), option)
         next_processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['next_obs']), next_option)
 
@@ -530,13 +538,7 @@ class METRA(IOD):
             'processed_cat_obs': processed_cat_obs,
             'next_processed_cat_obs': next_processed_cat_obs,
         })
-        tensors.update({
-            'policy_rewards': policy_rewards.mean(),
-            'goal_reward': ((phi_obs_ - phi_obs) * norm_option).sum(dim=1).mean(),
-            'distance_reward': distance_reward.mean(),
-            'distance_next_option': distance_next_option.mean(),
-            'dsitance_xy': distance_xy.mean(),
-        })
+
 
     def _update_loss_op(self, tensors, v):
         processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), v['options'])

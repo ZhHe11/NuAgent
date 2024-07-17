@@ -50,10 +50,11 @@ def valid_goal_sampler(self, np_random):
     return xy
 
 class MazeWrapper(gym.Wrapper):
-    def __init__(self, env_name):
+    def __init__(self, env_name, random_init=True):
         self.env = gym.make(env_name)
         self.env.render(mode='rgb_array', width=200, height=200)
         self.env_name = env_name
+        self.random_init=random_init
         self.inner_env = get_inner_env(self.env)
         if 'antmaze' in env_name:
             if 'medium' in env_name:
@@ -93,12 +94,13 @@ class MazeWrapper(gym.Wrapper):
 
     def reset(self, **kwargs):
         obs = self.env.reset(**kwargs)
-        np_random = np.random.default_rng() 
-        position_random_init = self.goal_sampler(np_random)
-        obs[:2] = position_random_init
-        self.set_state(obs[:15], obs[15:])
-        if 'maze2d' in self.env_name:
-            obs = self.env.reset_to_location([0.9, 0.9])
+        if self.random_init == True:
+            np_random = np.random.default_rng() 
+            position_random_init = self.goal_sampler(np_random)
+            obs[:2] = position_random_init
+            self.set_state(obs[:15], obs[15:])
+            if 'maze2d' in self.env_name:
+                obs = self.env.reset_to_location([0.9, 0.9])
         return obs
     
     # ======== BELOW is helper stuff for drawing and visualizing ======== #

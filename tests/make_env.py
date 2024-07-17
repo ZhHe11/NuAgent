@@ -42,7 +42,7 @@ def make_env(args, max_path_length):
     
     elif args.env == 'ant_maze':
         from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
-        env = MazeWrapper("antmaze-medium-diverse-v0")
+        env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
     
     else:
         raise NotImplementedError

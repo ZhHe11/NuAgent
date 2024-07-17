@@ -45,7 +45,7 @@ def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_P
 
 # setup the env
 # env = GoalReachingMaze("antmaze-medium-diverse-v0")
-env = MazeWrapper("antmaze-medium-diverse-v0")
+env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
 env.reset()
 frames = []
 fig, ax = plt.subplots()
@@ -84,7 +84,7 @@ All_GtReturn_list = []
 Pepr_viz = True
 option_dim = 2
 
-max_path_length = 500
+max_path_length = 200
 goals_list = [
     [12.7, 16.5],
     [1.1, 12.9],
@@ -92,6 +92,13 @@ goals_list = [
     [17.2, 0.9],
     [20.2, 20.1]
 ]
+# goals_list = [
+#     [0, 0],
+#     [0, 0],
+#     [0, 0],
+#     [0, 0],
+#     [0, 0]
+# ]
 num_eval = len(goals_list)
 goals = torch.tensor(np.array(goals_list)).to(device)
 
@@ -123,11 +130,19 @@ for i in range(num_eval):
         phi_obs = phi_obs_
         
         # calculate the option:
-        target_obs = env.get_target_obs(obs, goals[i])
+        # target_obs = env.get_target_obs(obs, goals[i])
         
-        phi_target_obs = agent_traj_encoder(target_obs).mean
-        option = phi_target_obs - phi_obs  
+        # phi_target_obs = agent_traj_encoder(target_obs).mean
+        # 1. 用target - state来算；
+        # option = phi_target_obs - phi_obs  
         # option = option / torch.norm(option, p=2)   
+        # 2. option直接是sample的：
+        if t == 0:
+            random_options = np.random.randn(1, 2)
+            option = random_options / np.linalg.norm(
+                random_options, axis=1, keepdims=True
+            )
+            option = torch.tensor(option).to(device).float()
         
         # print("option", option)
         obs_option = torch.cat((obs, option), -1)
