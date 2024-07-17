@@ -65,6 +65,7 @@ def get_argparser():
     parser.add_argument('--run_group', type=str, default='Debug')
     parser.add_argument('--normalizer_type', type=str, default='off', choices=['off', 'preset'])
     parser.add_argument('--encoder', type=int, default=0)
+    parser.add_argument('--exp_name', type=str, default='')
 
     parser.add_argument('--env', type=str, default='kitchen', choices=[
         'maze', 'half_cheetah', 'ant', 'dmc_cheetah', 'dmc_quadruped', 'dmc_humanoid', 'kitchen', 'ant_maze',
@@ -143,7 +144,7 @@ g_start_time = int(datetime.datetime.now().timestamp())
 
 
 def get_exp_name():
-    exp_name = ''
+    exp_name = args.exp_name
     exp_name += f'sd{args.seed:03d}_'
     if 'SLURM_JOB_ID' in os.environ:
         exp_name += f's_{os.environ["SLURM_JOB_ID"]}.'

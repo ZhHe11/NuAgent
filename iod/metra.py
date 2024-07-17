@@ -116,6 +116,17 @@ class METRA(IOD):
         self.pixel_shape = pixel_shape
 
         assert self._trans_optimization_epochs is not None
+        
+        '''
+        change the method here;
+        this will be added into the args.parser later;
+        '''
+        
+        self.method = {
+            "eval": "no_norm",
+            "phi": "baseline",
+            "policy": "sub_goal_reward", 
+        }
 
     @property
     def policy(self):
@@ -332,28 +343,28 @@ class METRA(IOD):
         
         # 我们要用her，用subgoal得到的z作为z；
         # method_type = 'her_reward'
-        method_type = 'baseline'
+        method_type = self.method["phi"]
+        
         
         if method_type == 'her_reward':
             '''
             zhanghe 
             我要加入goal，重新计算两个表征z_sample和z_start_goal之间的距离；
             '''
-            z_sample = v['options']
-            phi_g = self.traj_encoder(v['goal']).mean
+            # z_sample = v['options']
+            # phi_g = self.traj_encoder(v['goal']).mean
             phi_sub_g = self.traj_encoder(v['sub_goal']).mean
             phi_s = self.traj_encoder(v['obs']).mean
             phi_s_next = self.traj_encoder(v['next_obs']).mean
 
             # 暂时使用表征做差：
             z_start_next = phi_s_next - phi_s
-            z_start_goal = phi_g - phi_s
-            z_next_goal = phi_g - phi_s_next
+            # z_start_goal = phi_g - phi_s
+            # z_next_goal = phi_g - phi_s_next
             skill_discount = 0.5
             z_train = phi_sub_g - phi_s
-        
             # new_reward = (z_start_next * z_sample).sum(dim=1) + skill_discount * (z_start_goal * z_sample).sum(dim=1) 
-            new_reward = (z_start_next * z_train).sum(dim=1)
+            new_reward = (z_start_next * z_train.detach()).sum(dim=1)
         
             ## 【ctb】len_weight:
             # 我想让离final越近的权重越大，离final越远的权重越小；
@@ -446,11 +457,19 @@ class METRA(IOD):
             'DualLam': dual_lam,
             'LossDualLam': loss_dual_lam,
         })
-
+    
+    '''
+    zhanghe0716:
+        policy learn:
+        model: SAC
+        reward: doing
+    '''
+    
     def _update_loss_qf(self, tensors, v):
 
         # policy_type = "sub_goal_reward"
-        policy_type = "baseline"
+        # policy_type = "baseline"
+        policy_type = self.method["policy"]
         
         if policy_type == "sub_goal_reward":
             '''
@@ -470,9 +489,21 @@ class METRA(IOD):
             phi_obs_ = self.traj_encoder(v['next_obs']).mean.detach()
             phi_obs = self.traj_encoder(v['obs']).mean.detach()
             option = phi_goal - phi_obs
-            next_option = phi_goal - phi_obs_     
-            goal_reward = ((phi_obs_ - phi_obs) * option).sum(dim=1)
-            policy_rewards = goal_reward * self._reward_scale_factor,
+            next_option = phi_goal - phi_obs_ 
+            # distance_option = 1 / (option + 1e-2) # 这个不行
+            distance_next_option = torch.norm(next_option, p=2, dim=-1, keepdim=True)
+            distance_option = torch.norm(option, p=2, dim=-1, keepdim=True)
+            norm_option = option / (distance_option + 1e-8)
+            # distance_reward = - distance_next_option
+            # relative distance
+            w1 = 10
+            w2 = 1
+            distance_reward = distance_option - distance_next_option
+            goal_reward = ((phi_obs_ - phi_obs) * norm_option).sum(dim=1) + w1 * distance_reward.squeeze(-1) - w2 * distance_next_option.squeeze(-1)
+            # goal_reward = ((phi_obs_ - phi_obs) * norm_option).sum(dim=1) + (distance_option - distance_next_option)
+            policy_rewards = goal_reward * self._reward_scale_factor
+            
+            distance_xy = torch.norm(v['obs'][:2] - v['sub_goal'][:2], p=2, dim=-1, keepdim=True)
             
         else: 
             option = v['options']
@@ -484,7 +515,6 @@ class METRA(IOD):
 
         # goal_reward = - torch.norm(next_option, p=2, dim=-1)
         # wandb.log(({"goal_reward": goal_reward.mean()}))
-        
         
         sac_utils.update_loss_qf(
             self, tensors, v,
@@ -500,9 +530,13 @@ class METRA(IOD):
             'processed_cat_obs': processed_cat_obs,
             'next_processed_cat_obs': next_processed_cat_obs,
         })
-        # tensors.update({
-        #     # 'goal_reward': goal_reward.mean()
-        # })
+        tensors.update({
+            'policy_rewards': policy_rewards.mean(),
+            'goal_reward': ((phi_obs_ - phi_obs) * norm_option).sum(dim=1).mean(),
+            'distance_reward': distance_reward.mean(),
+            'distance_next_option': distance_next_option.mean(),
+            'dsitance_xy': distance_xy.mean(),
+        })
 
     def _update_loss_op(self, tensors, v):
         processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), v['options'])
@@ -532,9 +566,8 @@ class METRA(IOD):
         env.draw(ax)
         # 1. initialize the parameters
         
-        num_eval = 5
-        max_path_length = 50
-        goals = torch.zeros((num_eval, self.dim_option)).to(self.device)
+        max_path_length = self.max_path_length
+        # goals = torch.zeros((num_eval, self.dim_option)).to(self.device)
         
         frames = []
         All_Repr_obs_list = []
@@ -580,8 +613,9 @@ class METRA(IOD):
                 # calculate the option:
                 target_obs = env.get_target_obs(obs, goals[i])
                 phi_target_obs = self.traj_encoder(target_obs).mean
-                option = phi_target_obs - phi_obs  
-                option = option / torch.norm(option, p=2)   
+                option = phi_target_obs - phi_obs 
+                if self.method["eval"] == "norm": 
+                    option = option / torch.norm(option, p=2)   
                 obs_option = torch.cat((obs, option), -1)
                 # for viz
                 if Pepr_viz:
@@ -625,8 +659,8 @@ class METRA(IOD):
         )
         wandb.log(  
                     {
-                        "Average_Return": All_Return_array.mean(),
-                        "All_GtReturn": All_GtReturn_array.mean()
+                        "test/Average_Return": All_Return_array.mean(),
+                        "test/All_GtReturn": All_GtReturn_array.mean()
                     },
                     step=runner.step_itr
                 )

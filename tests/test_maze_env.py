@@ -101,7 +101,13 @@ for i in range(num_eval):
     print(goals[i])
     
     obs = env.reset()  
+    # position_random_init = env.env.goal_sampler(np_random)
+    # obs[:2] = position_random_init
+    # print(env.env.model.nq, env.env.model.nv)
+    # env.set_state(obs[:15], obs[1x5:])
+    
     obs = torch.tensor(obs).unsqueeze(0).to(device).float()
+    
     phi_obs_ = agent_traj_encoder(obs).mean
     
     Repr_obs_list = []

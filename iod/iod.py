@@ -13,7 +13,7 @@ from garagei import log_performance_ex
 from garagei.torch.optimizers.optimizer_group_wrapper import OptimizerGroupWrapper
 from garagei.torch.utils import compute_total_norm
 from iod.utils import MeasureAndAccTime
-
+import wandb
 
 class IOD(RLAlgorithm):
     def __init__(
@@ -148,42 +148,52 @@ class IOD(RLAlgorithm):
         discounted_returns = performence['discounted_returns']
         undiscounted_returns = performence['undiscounted_returns']
 
-        if logging_enabled:
-            prefix_tabular = global_context.get_metric_prefix()
-            with dowel_wrapper.get_tabular().prefix(prefix_tabular + self.name + '/'), dowel_wrapper.get_tabular(
-                    'plot').prefix(prefix_tabular + self.name + '/'):
-                def _record_scalar(key, val):
-                    dowel_wrapper.get_tabular().record(key, val)
+        train_log = {}
+        if (runner.step_itr + 1) % self.n_epochs_per_log == 0:
+            for k in tensors.keys():
+                if tensors[k].numel() == 1:
+                    train_log[k] = tensors[k].item()
+                else:
+                    train_log[k] = np.array2string(tensors[k].detach().cpu().numpy(), suppress_small=True)
+            wandb.log(tensors, step=runner.step_itr)
+        
+        # if logging_enabled:
+        #     prefix_tabular = global_context.get_metric_prefix()
+        #     with dowel_wrapper.get_tabular().prefix(prefix_tabular + self.name + '/'), dowel_wrapper.get_tabular(
+        #             'plot').prefix(prefix_tabular + self.name + '/'):
+        #         def _record_scalar(key, val):
+        #             dowel_wrapper.get_tabular().record(key, val)
 
-                def _record_histogram(key, val):
-                    dowel_wrapper.get_tabular('plot').record(key, Histogram(val))
+        #         def _record_histogram(key, val):
+        #             dowel_wrapper.get_tabular('plot').record(key, Histogram(val))
 
-                for k in tensors.keys():
-                    if tensors[k].numel() == 1:
-                        _record_scalar(f'{k}', tensors[k].item())
-                    else:
-                        _record_scalar(f'{k}', np.array2string(tensors[k].detach().cpu().numpy(), suppress_small=True))
-                with torch.no_grad():
-                    total_norm = compute_total_norm(self.all_parameters())
-                    _record_scalar('TotalGradNormAll', total_norm.item())
-                    for key, module in self.param_modules.items():
-                        total_norm = compute_total_norm(module.parameters())
-                        _record_scalar(f'TotalGradNorm{key.replace("_", " ").title().replace(" ", "")}', total_norm.item())
-                for k, v in extra_scalar_metrics.items():
-                    _record_scalar(k, v)
-                _record_scalar('TimeComputingMetrics', time_computing_metrics[0])
-                _record_scalar('TimeTraining', time_training[0])
+        #         for k in tensors.keys():
+        #             if tensors[k].numel() == 1:
+        #                 _record_scalar(f'{k}', tensors[k].item())
+        #             else:
+        #                 _record_scalar(f'{k}', np.array2string(tensors[k].detach().cpu().numpy(), suppress_small=True))
+                
+                # with torch.no_grad():
+                #     total_norm = compute_total_norm(self.all_parameters())
+                #     _record_scalar('TotalGradNormAll', total_norm.item())
+                #     for key, module in self.param_modules.items():
+                #         total_norm = compute_total_norm(module.parameters())
+                #         _record_scalar(f'TotalGradNorm{key.replace("_", " ").title().replace(" ", "")}', total_norm.item())
+                # for k, v in extra_scalar_metrics.items():
+                    # _record_scalar(k, v)
+                # _record_scalar('TimeComputingMetrics', time_computing_metrics[0])
+                # _record_scalar('TimeTraining', time_training[0])
 
-                path_lengths = [
-                    len(path['actions'])
-                    for path in paths
-                ]
-                _record_scalar('PathLengthMean', np.mean(path_lengths))
-                _record_scalar('PathLengthMax', np.max(path_lengths))
-                _record_scalar('PathLengthMin', np.min(path_lengths))
+                # path_lengths = [
+                #     len(path['actions'])
+                #     for path in paths
+                # ]
+                # _record_scalar('PathLengthMean', np.mean(path_lengths))
+                # _record_scalar('PathLengthMax', np.max(path_lengths))
+                # _record_scalar('PathLengthMin', np.min(path_lengths))
 
-                _record_histogram('ExternalDiscountedReturns', np.asarray(discounted_returns))
-                _record_histogram('ExternalUndiscountedReturns', np.asarray(undiscounted_returns))
+                # _record_histogram('ExternalDiscountedReturns', np.asarray(discounted_returns))
+                # _record_histogram('ExternalUndiscountedReturns', np.asarray(undiscounted_returns))
 
         return np.mean(undiscounted_returns)
 
@@ -314,12 +324,27 @@ class IOD(RLAlgorithm):
             3. together;
             '''
             # Method 2:
-            data['goal'].append(np.tile(path['observations'][-1], (path['observations'].shape[0], 1)))       # 不知道最后一个需不需要特殊在意，感觉问题不大；
+            
+            # data['goal'].append(np.tile(path['observations'][-1], (path['observations'].shape[0], 1)))       # 不知道最后一个需不需要特殊在意，感觉问题不大；
+            # traj_len = len(path['observations'])
+            # now_index = np.arange(traj_len)
+            # random_index = np.random.randint(1, traj_len-1, size=traj_len)
+            # future_index = np.minimum(now_index + random_index, traj_len-1)
+            # data['sub_goal'].append(path['observations'][future_index])
+            
+            start = 0
             traj_len = len(path['observations'])
-            now_index = np.arange(traj_len)
-            random_index = np.random.randint(1, traj_len-1, size=traj_len)
-            future_index = np.minimum(now_index + random_index, traj_len-1)
-            data['sub_goal'].append(path['observations'][future_index])
+            min_sub_traj_len = int(traj_len / 5)
+            split_index_1 = np.random.randint(min_sub_traj_len, traj_len - 3*min_sub_traj_len)
+            split_index_2 = np.random.randint(split_index_1 + min_sub_traj_len, traj_len - min_sub_traj_len)
+            
+            path_subgoal = np.zeros(path['observations'].shape)
+            path_subgoal[0:split_index_1+1] = np.tile(path['observations'][split_index_1], (split_index_1+1, 1)) 
+            path_subgoal[split_index_1+1:split_index_2+1] = np.tile(path['observations'][split_index_2], (split_index_2 - split_index_1, 1)) 
+            path_subgoal[split_index_2+1:] = np.tile(path['observations'][-1], (traj_len-1-split_index_2, 1)) 
+            
+            data['sub_goal'].append(path_subgoal)
+            
             
         return data
 

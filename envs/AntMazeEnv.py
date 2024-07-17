@@ -91,6 +91,16 @@ class MazeWrapper(gym.Wrapper):
             img = img[::-1]
         return img
 
+    def reset(self, **kwargs):
+        obs = self.env.reset(**kwargs)
+        np_random = np.random.default_rng() 
+        position_random_init = self.goal_sampler(np_random)
+        obs[:2] = position_random_init
+        self.set_state(obs[:15], obs[15:])
+        if 'maze2d' in self.env_name:
+            obs = self.env.reset_to_location([0.9, 0.9])
+        return obs
+    
     # ======== BELOW is helper stuff for drawing and visualizing ======== #
 
     # 得到左上角和右下角的坐标；
