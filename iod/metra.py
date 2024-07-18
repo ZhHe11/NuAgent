@@ -123,9 +123,9 @@ class METRA(IOD):
         '''
         
         self.method = {
-            "eval": "norm",
-            "phi": "baseline",
-            "policy": "baseline", 
+            "eval": "no_norm",
+            "phi": "her_reward",
+            "policy": "sub_goal_reward", 
         }
 
     @property
@@ -497,9 +497,14 @@ class METRA(IOD):
             # distance_reward = - distance_next_option
             # relative distance
             w1 = 10
-            w2 = 1
+            w2 = 0.1
+            
+            delta_phi = (phi_obs_ - phi_obs) / (torch.norm(phi_obs_ - phi_obs, p=2, dim=-1, keepdim=True) + 1e-8)
+            
+            # 相对的reward
             distance_reward = distance_option - distance_next_option
-            goal_reward = ((phi_obs_ - phi_obs) * norm_option).sum(dim=1) + w1 * distance_reward.squeeze(-1) - w2 * distance_next_option.squeeze(-1)
+            
+            goal_reward = (delta_phi * norm_option).sum(dim=1) + distance_reward
             # goal_reward = ((phi_obs_ - phi_obs) * norm_option).sum(dim=1) + (distance_option - distance_next_option)
             policy_rewards = goal_reward * self._reward_scale_factor
             

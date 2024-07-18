@@ -177,8 +177,8 @@ def get_gaussian_module_construction(args,
                                      const_std=False,
                                      hidden_nonlinearity=torch.relu,
                                      w_init=torch.nn.init.xavier_uniform_,
-                                     init_std=1.0,
-                                     min_std=1e-6,
+                                     init_std=2.0,  # 1.0
+                                     min_std=1e-2,  # 1e-6
                                      max_std=None,
                                      **kwargs):
     module_kwargs = dict()
