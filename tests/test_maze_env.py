@@ -60,13 +60,17 @@ goal = env.env.goal_sampler(np_random)
 env.draw(ax)
 
 # # load model
-load_option_policy_base = torch.load("/data/zh/project12_Metra/METRA/exp/Debug_ant_maze_baseline/sd000_1720752519_ant_maze_metra/option_policy155000.pt")
-load_traj_encoder_base = torch.load("/data/zh/project12_Metra/METRA/exp/Debug_ant_maze_baseline/sd000_1720752519_ant_maze_metra/traj_encoder155000.pt")
-load_option_policy = torch.load("/data/zh/project12_Metra/METRA/option_policy.pth")
-load_traj_encoder = torch.load("/data/zh/project12_Metra/METRA/traj_encoder.pth")
+# load_option_policy_base = torch.load("/data/zh/project12_Metra/METRA/exp/Debug_ant_maze_baseline/sd000_1720752519_ant_maze_metra/option_policy155000.pt")
+# load_traj_encoder_base = torch.load("/data/zh/project12_Metra/METRA/exp/Debug_ant_maze_baseline/sd000_1720752519_ant_maze_metra/traj_encoder155000.pt")
+
+load_option_policy_base = torch.load("/data/zh/project12_Metra/METRA/option_policy.pt")
+load_traj_encoder_base = torch.load("/data/zh/project12_Metra/METRA/traj_encoder.pt")
+
+# load_option_policy = torch.load("/data/zh/project12_Metra/METRA/option_policy.pth")
+# load_traj_encoder = torch.load("/data/zh/project12_Metra/METRA/traj_encoder.pth")
 # # load lastest model
-load_option_policy_base['policy'].load_state_dict(load_option_policy)
-load_traj_encoder_base['traj_encoder'].load_state_dict(load_traj_encoder)
+# load_option_policy_base['policy'].load_state_dict(load_option_policy)
+# load_traj_encoder_base['traj_encoder'].load_state_dict(load_traj_encoder)
 # # eval mode
 agent_policy = load_option_policy_base['policy'].eval()
 agent_traj_encoder = load_traj_encoder_base['traj_encoder'].eval()
@@ -130,23 +134,41 @@ for i in range(num_eval):
         phi_obs = phi_obs_
         
         # calculate the option:
-        # target_obs = env.get_target_obs(obs, goals[i])
-        
-        # phi_target_obs = agent_traj_encoder(target_obs).mean
+        target_obs = env.get_target_obs(obs, goals[i])
+        phi_target_obs = agent_traj_encoder(target_obs).mean
         # 1. 用target - state来算；
-        # option = phi_target_obs - phi_obs  
+        option = phi_target_obs - phi_obs 
+        # option = option / torch.norm(
+        #     option, dim=1
+        # )
+        skill_vector = option
+        # explore or not 
+        ep = False
+        if ep == False:    
+            zeros = torch.zeros([option.shape[0], 1], dtype=float).to(device)
+            option = torch.cat([option, zeros], dim=1)
+        else:
+            ones = torch.ones([option.shape[0], 1], dtype=float).to(device)
+            option = torch.cat([option, ones], dim=1)   
         # option = option / torch.norm(option, p=2)   
         # 2. option直接是sample的：
-        if t == 0:
-            random_options = np.random.randn(1, 2)
-            option = random_options / np.linalg.norm(
-                random_options, axis=1, keepdims=True
-            )
-            option = torch.tensor(option).to(device).float()
-        
-        # print("option", option)
-        obs_option = torch.cat((obs, option), -1)
-        
+        # if t == 0:
+        #     random_options = np.random.randn(1, 2)
+        #     option = random_options / np.linalg.norm(
+        #         random_options, axis=1, keepdims=True
+        #     )
+        #     option = torch.tensor(option).to(device).float()
+        #     skill_vector = option
+        #     # explore or not 
+        #     ep = False
+        #     if ep == False:    
+        #         zeros = torch.zeros([option.shape[0], 1], dtype=float).to(device)
+        #         option = torch.cat([option, zeros], dim=1)
+        #     else:
+        #         ones = torch.ones([option.shape[0], 1], dtype=float).to(device)
+        #         option = torch.cat([option, ones], dim=1)   
+        print("option", option)        
+        obs_option = torch.cat((obs, option), -1).float()
         # for viz
         if Pepr_viz:
             Repr_obs_list.append(phi_obs.cpu().detach().numpy()[0])
@@ -170,7 +192,7 @@ for i in range(num_eval):
         delta_phi_obs = phi_obs_ - phi_obs
         
         # option_reward and return
-        option_reward = (option * delta_phi_obs).sum()
+        option_reward = (skill_vector * delta_phi_obs).sum()
         option_return_list.append(option_reward.cpu().detach().numpy())
         gt_reward = - gt_dist / (30 * max_path_length)
         gt_return_list.append(gt_reward)

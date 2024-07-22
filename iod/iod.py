@@ -363,20 +363,45 @@ class IOD(RLAlgorithm):
             # data['sub_goal'].append(path['observations'][future_index])
             
             # 0717: 随机截断，作为subgoal
-            start = 0
+            # start = 0
+            # traj_len = len(path['observations'])
+            # min_sub_traj_len = int(traj_len / 5)
+            # split_index_1 = np.random.randint(min_sub_traj_len, traj_len - 3*min_sub_traj_len)
+            # split_index_2 = np.random.randint(split_index_1 + min_sub_traj_len, traj_len - min_sub_traj_len)
+            
+            # path_subgoal = np.zeros(path['observations'].shape)
+            # path_subgoal[0:split_index_1+1] = np.tile(path['observations'][split_index_1], (split_index_1+1, 1)) 
+            # path_subgoal[split_index_1+1:split_index_2+1] = np.tile(path['observations'][split_index_2], (split_index_2 - split_index_1, 1)) 
+            # path_subgoal[split_index_2+1:] = np.tile(path['observations'][-1], (traj_len-1-split_index_2, 1)) 
+            
+            # data['sub_goal'].append(path_subgoal)
+            
+            # 0718：随机选择subgoal,重采样整段作为subgoal；
             traj_len = len(path['observations'])
-            min_sub_traj_len = int(traj_len / 5)
-            split_index_1 = np.random.randint(min_sub_traj_len, traj_len - 3*min_sub_traj_len)
-            split_index_2 = np.random.randint(split_index_1 + min_sub_traj_len, traj_len - min_sub_traj_len)
+            data['sub_goal'].append(np.tile(path['observations'][-1], (traj_len, 1)))
+            subgoal_indices = np.random.choice(traj_len, 3, replace=False)
+            for j in range(len(subgoal_indices)):
+                subgoal_index = subgoal_indices[j]
+                data['obs'].append(path['observations'][:subgoal_index+1])
+                data['next_obs'].append(path['next_observations'][:subgoal_index+1])
+                data['actions'].append(path['actions'][:subgoal_index+1])
+                data['rewards'].append(path['rewards'][:subgoal_index+1])
+                data['dones'].append(path['dones'][:subgoal_index+1])
+                data['returns'].append(tensor_utils.discount_cumsum(path['rewards'][:subgoal_index+1], self.discount))
+                # 好像用不到这个ori_obs，用[1]列表代替；
+                # data['ori_obs'].append(path['env_infos']['ori_obs'])
+                # data['next_ori_obs'].append(path['env_infos']['next_ori_obs'])
+                data['ori_obs'].append(path['observations'][:subgoal_index+1])
+                data['next_ori_obs'].append(path['next_observations'][:subgoal_index+1])
+                if 'pre_tanh_value' in path['agent_infos']:
+                    data['pre_tanh_values'].append(path['agent_infos']['pre_tanh_value'][:subgoal_index+1])
+                if 'log_prob' in path['agent_infos']:
+                    data['log_probs'].append(path['agent_infos']['log_prob'][:subgoal_index+1])
+                if 'option' in path['agent_infos']:
+                    data['options'].append(path['agent_infos']['option'][:subgoal_index+1])
+                    data['next_options'].append(np.concatenate([path['agent_infos']['option'][:subgoal_index+1][1:], path['agent_infos']['option'][:subgoal_index+1][-1:]], axis=0))
+                data['sub_goal'].append(np.tile(path['observations'][:subgoal_index+1][-1], (subgoal_index+1, 1)))
             
-            path_subgoal = np.zeros(path['observations'].shape)
-            path_subgoal[0:split_index_1+1] = np.tile(path['observations'][split_index_1], (split_index_1+1, 1)) 
-            path_subgoal[split_index_1+1:split_index_2+1] = np.tile(path['observations'][split_index_2], (split_index_2 - split_index_1, 1)) 
-            path_subgoal[split_index_2+1:] = np.tile(path['observations'][-1], (traj_len-1-split_index_2, 1)) 
-            
-            data['sub_goal'].append(path_subgoal)
-            
-            # 0718：随机选择subgoal，但是
             
             
         return data
