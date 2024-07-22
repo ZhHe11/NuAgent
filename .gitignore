@@ -165,3 +165,5 @@ __pycache__
 tests/videos
 d4rl
 *.pth
+*.pt
+
