@@ -269,7 +269,7 @@ def run(ctxt=None):
         module_obs_dim = obs_dim
 
     option_info = {
-        'dim_option': args.dim_option,
+        'dim_option': args.dim_option + 1,
     }
 
     policy_kwargs = dict(
@@ -291,7 +291,7 @@ def run(ctxt=None):
         init_std=1.,
     ))
 
-    policy_q_input_dim = module_obs_dim + args.dim_option
+    policy_q_input_dim = module_obs_dim + args.dim_option + 1
     policy_module = module_cls(
         input_dim=policy_q_input_dim,
         output_dim=action_dim,

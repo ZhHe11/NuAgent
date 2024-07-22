@@ -19,6 +19,11 @@ import matplotlib.cm as cm
 import wandb
 import os
 
+# from iod.SAC import *
+
+
+
+
 
 '''
 # save the traj. as fig
@@ -124,10 +129,20 @@ class METRA(IOD):
         
         self.method = {
             "eval": "no_norm",
-            "phi": "her_reward",
-            "policy": "sub_goal_reward", 
+            # "phi": "her_reward",
+            "phi": "baseline",
+            # "policy": "sub_goal_reward", 
+            "policy": "baseline",
+            "explore": "baseline",
         }
 
+        # self.exploration_policy = copy.deepcopy(self.option_policy)
+        # self.ex_qf1 = copy.deepcopy(self.qf1)
+        # self.ex_qf2 = copy.deepcopy(self.qf2)
+        # self.ex_log_alpha = copy.deepcopy(self.log_alpha)
+        # self.ex_target_qf1 = copy.deepcopy(self.target_qf1)
+        # self.ex_target_qf2 = copy.deepcopy(self.target_qf2)
+        
     @property
     def policy(self):
         return {
@@ -197,8 +212,17 @@ class METRA(IOD):
             random_options = np.random.randn(runner._train_args.batch_size, self.dim_option)
             if self.unit_length:
                 random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
+            if self.method['explore'] == "explore-one":
+                # becasue We neet explore:0719
+                # 1. use two stage: (explore one, eval zero)
+                ones = np.ones((random_options.shape[0], 1))
+                random_options = np.concatenate([random_options, ones], axis=1)
+            elif self.method['explore'] == "baseline": 
+                # 2. use baseline: (all zero)
+                zeros = np.zeros((random_options.shape[0], 1))
+                random_options = np.concatenate([random_options, zeros], axis=1)            
             extras = self._generate_option_extras(random_options)       # 变成字典的形式；
-
+        
         return dict(
             extras=extras,
             sampler_key='option_policy',
@@ -255,10 +279,15 @@ class METRA(IOD):
             self._optimize_te(tensors, v)
             self._update_rewards(tensors, v)
             self._optimize_op(tensors, v)
-
+            self._optimize_op(tensors, v, ep=True)
+            
         return tensors
 
-    def _optimize_te(self, tensors, internal_vars):         # 【loss】对与skill表征的loss:
+    
+    '''
+    【loss1】skill表征PHI的loss:
+    '''
+    def _optimize_te(self, tensors, internal_vars):        
         self._update_loss_te(tensors, internal_vars)
 
         self._gradient_descent(
@@ -278,15 +307,18 @@ class METRA(IOD):
                     optimizer_keys=['dist_predictor'],
                 )
 
-    def _optimize_op(self, tensors, internal_vars):
-        self._update_loss_qf(tensors, internal_vars)
+    '''
+    【loss2】option policy已经SAC算法的loss:
+    '''
+    def _optimize_op(self, tensors, internal_vars, ep=False):         # [loss] 对于q和policy的loss
+        self._update_loss_qf(tensors, internal_vars, ep)
 
         self._gradient_descent(
             tensors['LossQf1'] + tensors['LossQf2'],
             optimizer_keys=['qf'],
         )
 
-        self._update_loss_op(tensors, internal_vars)
+        self._update_loss_op(tensors, internal_vars, ep)
         self._gradient_descent(
             tensors['LossSacp'],
             optimizer_keys=['option_policy'],
@@ -299,6 +331,7 @@ class METRA(IOD):
         )
 
         sac_utils.update_targets(self)
+        
 
     def _update_rewards(self, tensors, v):                      # 【修改】这里修改reward的计算方法；
         obs = v['obs']
@@ -313,7 +346,7 @@ class METRA(IOD):
                 masks = (v['options'] - v['options'].mean(dim=1, keepdim=True)) * self.dim_option / (self.dim_option - 1 if self.dim_option != 1 else 1)
                 rewards = (target_z * masks).sum(dim=1)
             else:
-                inner = (target_z * v['options']).sum(dim=1)
+                inner = (target_z * v['options'][:,:-1]).sum(dim=1)
                 rewards = inner
 
             # For dual objectives
@@ -337,6 +370,10 @@ class METRA(IOD):
 
         v['rewards'] = rewards
 
+    
+    '''
+    【loss1.1】skill表征PHI的loss:
+    '''   
     def _update_loss_te(self, tensors, v):          # 【更新】要修改表征loss的计算方法；
         self._update_rewards(tensors, v)            # 为什么要更新reward？reward其实就是计算技能表征z与当前运动方向的内积；
         rewards = v['rewards']
@@ -363,8 +400,16 @@ class METRA(IOD):
             # z_next_goal = phi_g - phi_s_next
             skill_discount = 0.5
             z_train = phi_sub_g - phi_s
+            z_train_norm = z_train / (torch.norm(z_train, p=2, dim=-1, keepdim=True) + 1e-8)
+            z_start_next_norm = z_start_next / (torch.norm(z_start_next) + 1e-8)
+            
+            # include dist_theta
+            dist_theta = 0.1
+            z_train_norm = torch.where(z_train_norm < dist_theta, 0, z_train_norm).float()
+            
+            
             # new_reward = (z_start_next * z_sample).sum(dim=1) + skill_discount * (z_start_goal * z_sample).sum(dim=1) 
-            new_reward = (z_start_next * z_train.detach()).sum(dim=1)
+            new_reward = (z_start_next_norm * z_train_norm.detach()).sum(dim=1)
         
             ## 【ctb】len_weight:
             # 我想让离final越近的权重越大，离final越远的权重越小；
@@ -377,7 +422,11 @@ class METRA(IOD):
             # len_weight = 1 / (torch.norm(z_start_goal, p=2).detach() + 1e-3)
             # len_weight = torch.clamp(len_weight, min=1e-2, max=1e2)
             # norm_len_weight = (len_weight - min_val) / (max_val - min_val)
-
+            
+            tensors.update({
+                'PhiReward': new_reward.mean(),
+            })
+        
         obs = v['obs']
         next_obs = v['next_obs']
 
@@ -459,17 +508,19 @@ class METRA(IOD):
         })
     
     '''
+    【loss2】option policySAC算法的loss:
     zhanghe0716:
         policy learn:
         model: SAC
         reward: doing
     '''
-    
-    def _update_loss_qf(self, tensors, v):
+    def _update_loss_qf(self, tensors, v, ep=False):
 
         # policy_type = "sub_goal_reward"
         # policy_type = "baseline"
         policy_type = self.method["policy"]
+        if ep == True:
+            policy_type = "explore"
         
         if policy_type == "sub_goal_reward":
             '''
@@ -493,39 +544,71 @@ class METRA(IOD):
             # distance_option = 1 / (option + 1e-2) # 这个不行
             distance_next_option = torch.norm(next_option, p=2, dim=-1, keepdim=True)
             distance_option = torch.norm(option, p=2, dim=-1, keepdim=True)
-            norm_option = option / (distance_option + 1e-8)
+            
             # distance_reward = - distance_next_option
             # relative distance
             w1 = 10
             w2 = 0.1
+            dist_theta = 0.1
             
-            delta_phi = (phi_obs_ - phi_obs) / (torch.norm(phi_obs_ - phi_obs, p=2, dim=-1, keepdim=True) + 1e-8)
-            
+            delta_phi_norm = (phi_obs_ - phi_obs) / (torch.norm(phi_obs_ - phi_obs, p=2, dim=-1, keepdim=True) + 1e-8)
+            option_norm = option / (distance_option + 1e-8)
+            option_norm = torch.where(distance_option < dist_theta, 0, option_norm).float()
             # 相对的reward
-            distance_reward = distance_option - distance_next_option
+            relative_dist_reward = distance_option - distance_next_option
             
-            goal_reward = (delta_phi * norm_option).sum(dim=1) + distance_reward
+            # distance reward: 
+            dist_reward = dist_theta - distance_next_option.squeeze(-1)
+            dist_reward = torch.where(dist_reward > 0, 1, 0).float()
+            
+            # final reward: 
+            goal_reward = (delta_phi_norm * option_norm).sum(dim=1) + dist_reward
             # goal_reward = ((phi_obs_ - phi_obs) * norm_option).sum(dim=1) + (distance_option - distance_next_option)
             policy_rewards = goal_reward * self._reward_scale_factor
             
+            
+            # ground truth reward:
             distance_xy = torch.norm(v['obs'][:2] - v['sub_goal'][:2], p=2, dim=-1, keepdim=True)
+            
+            # update to logs
             tensors.update({
                 'policy_rewards': policy_rewards.mean(),
-                'inner_reward': ((phi_obs_ - phi_obs) * norm_option).sum(dim=1).mean(),
-                'distance_reward': distance_reward.mean(),
-                'phi_distance_g_s_': distance_next_option.mean(),
+                'inner_reward': (delta_phi_norm * option_norm).sum(dim=1).mean(),
+                'relative_dist_reward': relative_dist_reward.mean(),
+                'dist_reward': dist_reward.mean(),
                 'xy_dsitance_g_s': distance_xy.mean(),
             })
-        else: 
+        elif policy_type == "explore": 
             option = v['options']
             next_option = v['next_options']
             policy_rewards = v['rewards'] * self._reward_scale_factor
             tensors.update({
                 'policy_rewards': policy_rewards.mean(),
             })
-        processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), option)
-        next_processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['next_obs']), next_option)
-
+            
+        else: # basline
+            option = v['options']
+            next_option = v['next_options']
+            policy_rewards = v['rewards'] * self._reward_scale_factor
+            tensors.update({
+                'policy_rewards': policy_rewards.mean(),
+            })
+            
+        if ep == False:    
+            if option.shape[1] < v['options'].shape[1]:
+                zeros = torch.zeros([option.shape[0], 1], dtype=float).to(self.device)
+                option = torch.cat([option, zeros], dim=1)
+                next_option = torch.cat([next_option, zeros], dim=1)
+            else:
+                option[:,-1] = 0
+                next_option[:,-1] = 0
+        else:
+            option[:,-1] = 1
+            next_option[:,-1] = 1
+            
+        processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), option.float())
+        next_processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['next_obs']), next_option.float())
+        
         # goal_reward = - torch.norm(next_option, p=2, dim=-1)
         # wandb.log(({"goal_reward": goal_reward.mean()}))
         
@@ -545,8 +628,18 @@ class METRA(IOD):
         })
 
 
-    def _update_loss_op(self, tensors, v):
-        processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), v['options'])
+    def _update_loss_op(self, tensors, v, ep=False):
+        option = v['options']
+        if ep == False:    
+            # zeros = torch.zeros([option.shape[0], 1], dtype=float).to(self.device)
+            # option = torch.cat([option, zeros], dim=1)
+            option[:,-1] = 0
+        else:
+            # ones = torch.ones([option.shape[0], 1], dtype=float).to(self.device)
+            # option = torch.cat([option, ones], dim=1)           
+            option[:,-1] = 1
+            
+        processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), option)
         sac_utils.update_loss_sacp(
             self, tensors, v,
             obs=processed_cat_obs,
@@ -623,13 +716,22 @@ class METRA(IOD):
                 option = phi_target_obs - phi_obs 
                 if self.method["eval"] == "norm": 
                     option = option / torch.norm(option, p=2)   
-                obs_option = torch.cat((obs, option), -1)
+                # explore or not 
+                ep = False
+                if ep == False:    
+                    zeros = torch.zeros([option.shape[0], 1], dtype=float).to(self.device)
+                    option = torch.cat([option, zeros], dim=1)
+                else:
+                    ones = torch.ones([option.shape[0], 1], dtype=float).to(self.device)
+                    option = torch.cat([option, ones], dim=1)   
+                obs_option = torch.cat((obs, option), -1).float()
                 # for viz
                 if Pepr_viz:
                     Repr_obs_list.append(phi_obs.cpu().detach().numpy()[0])
                     Repr_goal_list.append(phi_target_obs.cpu().detach().numpy()[0])
 
                 # get actions from policy
+
                 action = self.option_policy(obs_option)[1]['mean']
 
                 # interact with the env
@@ -647,7 +749,8 @@ class METRA(IOD):
                 delta_phi_obs = phi_obs_ - phi_obs
                 
                 # option_reward and return
-                option_reward = (option * delta_phi_obs).sum()
+                skill_vec = option[:,:-1]
+                option_reward = (skill_vec * delta_phi_obs).sum()
                 option_return_list.append(option_reward.cpu().detach().numpy())
                 gt_reward = - gt_dist / (30 * max_path_length)
                 gt_return_list.append(gt_reward)

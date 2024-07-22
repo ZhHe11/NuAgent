@@ -15,6 +15,12 @@ from garagei.torch.utils import compute_total_norm
 from iod.utils import MeasureAndAccTime
 import wandb
 
+
+from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze, plot_trajectories, plot_value
+import matplotlib.pyplot as plt
+import os
+
+
 class IOD(RLAlgorithm):
     def __init__(
             self,
@@ -273,7 +279,30 @@ class IOD(RLAlgorithm):
             for key in ['ori_obs', 'next_ori_obs', 'coordinates', 'next_coordinates']:
                 if key not in traj['env_infos']:
                     continue
-
+                
+        '''
+        plot training traj
+        '''
+        if (runner.step_itr + 2) % self.n_epochs_per_log == 0:
+            fig, ax = plt.subplots()
+            env = runner._env
+            env.draw(ax)
+            list_viz_traj = []
+            for i in range(len(trajectories)):
+                viz_traj = {}
+                viz_traj['observation'] = trajectories[i]['observations']
+                viz_traj['info'] = []
+                for j in range(len(trajectories[i]['observations'])):
+                    viz_traj['info'].append({'x':viz_traj['observation'][j][0], 'y':viz_traj['observation'][j][1]})
+                list_viz_traj.append(viz_traj)
+            plot_trajectories(env, list_viz_traj, fig, ax)
+            ax.legend(loc='lower right')
+            path = wandb.run.dir
+            filepath = os.path.join(path, "train_Maze_traj.png")
+            print(filepath)
+            plt.savefig(filepath) 
+            wandb.log(({"train_Maze_traj": wandb.Image(filepath)}), step=runner.step_itr)
+            
         return trajectories
 
 
@@ -332,6 +361,7 @@ class IOD(RLAlgorithm):
             # future_index = np.minimum(now_index + random_index, traj_len-1)
             # data['sub_goal'].append(path['observations'][future_index])
             
+            # 0717: 随机截断，作为subgoal
             start = 0
             traj_len = len(path['observations'])
             min_sub_traj_len = int(traj_len / 5)
@@ -344,6 +374,8 @@ class IOD(RLAlgorithm):
             path_subgoal[split_index_2+1:] = np.tile(path['observations'][-1], (traj_len-1-split_index_2, 1)) 
             
             data['sub_goal'].append(path_subgoal)
+            
+            # 0718：随机选择subgoal，但是
             
             
         return data

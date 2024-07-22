@@ -92,7 +92,7 @@ def update_loss_sacp(
 
     v.update({
         'new_action_log_probs': new_action_log_probs,
-    })
+    }) 
 
 
 def update_loss_alpha(
