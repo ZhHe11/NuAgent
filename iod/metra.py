@@ -19,10 +19,9 @@ import matplotlib.cm as cm
 import wandb
 import os
 
+import torch.nn as nn
 # from iod.SAC import *
-
-
-
+# from iod.RND import *
 
 
 '''
@@ -83,7 +82,11 @@ class METRA(IOD):
             dual_dist,
 
             pixel_shape=None,
-
+            
+            
+            predict_traj_encoder=None,
+            target_traj_encoder=None,
+            
             **kwargs,
     ):
         super().__init__(**kwargs)
@@ -131,17 +134,17 @@ class METRA(IOD):
             "eval": "no_norm",
             # "phi": "her_reward",
             "phi": "baseline",
-            # "policy": "sub_goal_reward", 
-            "policy": "baseline",
+            "policy": "sub_goal_reward", 
+            # "policy": "baseline",
             "explore": "baseline",
         }
-
-        # self.exploration_policy = copy.deepcopy(self.option_policy)
-        # self.ex_qf1 = copy.deepcopy(self.qf1)
-        # self.ex_qf2 = copy.deepcopy(self.qf2)
-        # self.ex_log_alpha = copy.deepcopy(self.log_alpha)
-        # self.ex_target_qf1 = copy.deepcopy(self.target_qf1)
-        # self.ex_target_qf2 = copy.deepcopy(self.target_qf2)
+        
+        '''
+        add a inner reward model: RND
+        '''
+        # self.rnd = RNDModel(29, 1)
+        self.target_traj_encoder = target_traj_encoder.to(self.device)
+        self.predict_traj_encoder = predict_traj_encoder.to(self.device)
         
     @property
     def policy(self):
@@ -279,7 +282,7 @@ class METRA(IOD):
             self._optimize_te(tensors, v)
             self._update_rewards(tensors, v)
             self._optimize_op(tensors, v)
-            self._optimize_op(tensors, v, ep=True)
+            # self._optimize_op(tensors, v, ep=True)
             
         return tensors
 
@@ -316,6 +319,10 @@ class METRA(IOD):
         self._gradient_descent(
             tensors['LossQf1'] + tensors['LossQf2'],
             optimizer_keys=['qf'],
+        )
+        self._gradient_descent(
+            tensors['forward_loss'],
+            optimizer_keys=['predict_encoder'],
         )
 
         self._update_loss_op(tensors, internal_vars, ep)
@@ -471,7 +478,7 @@ class METRA(IOD):
             if method_type == "her_reward": 
                 # 【ctb】增加s_final和z_sample的约束，to be finished
                 # 用sub_goal得到z_train代替z_sample，使得整个训练过程和eval过程的逻辑完全一样；
-                te_obj = new_reward + dual_lam.detach() * cst_penalty    
+                te_obj = new_reward + dual_lam.detach() * cst_penalty   
 
                 # 【ctb】增加len_weight
                 # te_obj = norm_len_weight * rewards + dual_lam.detach() * cst_penalty    
@@ -549,7 +556,7 @@ class METRA(IOD):
             # relative distance
             w1 = 10
             w2 = 0.1
-            dist_theta = 0.1
+            dist_theta = 0.01
             
             delta_phi_norm = (phi_obs_ - phi_obs) / (torch.norm(phi_obs_ - phi_obs, p=2, dim=-1, keepdim=True) + 1e-8)
             option_norm = option / (distance_option + 1e-8)
@@ -561,12 +568,22 @@ class METRA(IOD):
             dist_reward = dist_theta - distance_next_option.squeeze(-1)
             dist_reward = torch.where(dist_reward > 0, 1, 0).float()
             
+            # RND: exploration reward
+            predict_next_feature = self.predict_traj_encoder(v["next_obs"]).mean
+            target_next_feature = self.target_traj_encoder(v["next_obs"]).mean.detach()
+            exp_reward = 1e3 * ((target_next_feature - predict_next_feature).pow(2).sum(1) / 2).detach()
+            forward_mse = nn.MSELoss(reduction='none')
+            update_proportion = 0.25
+            forward_loss = forward_mse(predict_next_feature, target_next_feature).mean(-1)
+            mask = torch.rand(len(forward_loss)).to(self.device)
+            mask = (mask < update_proportion).type(torch.FloatTensor).to(self.device)
+            forward_loss = (forward_loss * mask).sum() / torch.max(mask.sum(), torch.Tensor([1]).to(self.device))
+            
             # final reward: 
-            goal_reward = (delta_phi_norm * option_norm).sum(dim=1) + dist_reward
+            goal_reward = (delta_phi_norm * option_norm).sum(dim=1) + dist_reward + exp_reward 
             # goal_reward = ((phi_obs_ - phi_obs) * norm_option).sum(dim=1) + (distance_option - distance_next_option)
             policy_rewards = goal_reward * self._reward_scale_factor
-            
-            
+
             # ground truth reward:
             distance_xy = torch.norm(v['obs'][:2] - v['sub_goal'][:2], p=2, dim=-1, keepdim=True)
             
@@ -576,7 +593,9 @@ class METRA(IOD):
                 'inner_reward': (delta_phi_norm * option_norm).sum(dim=1).mean(),
                 'relative_dist_reward': relative_dist_reward.mean(),
                 'dist_reward': dist_reward.mean(),
+                'exp_reward': exp_reward.mean(),
                 'xy_dsitance_g_s': distance_xy.mean(),
+                'forward_loss': forward_loss.mean(),
             })
         elif policy_type == "explore": 
             option = v['options']

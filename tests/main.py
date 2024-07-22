@@ -51,6 +51,10 @@ from iod.dads import DADS
 from iod.utils import get_normalizer_preset
 
 from tests.make_env import make_env
+import copy
+
+import torch.nn as nn
+import torch.nn.init as init
 
 EXP_DIR = 'exp'
 if os.environ.get('START_METHOD') is not None:
@@ -411,6 +415,20 @@ def run(ctxt=None):
         )
         if args.encoder:
             qf2 = with_encoder(qf2)
+            
+        predict_traj_encoder = copy.deepcopy(traj_encoder)
+        target_traj_encoder = copy.deepcopy(traj_encoder)
+        for m in predict_traj_encoder.modules():
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+                init.orthogonal_(m.weight, np.sqrt(2))
+                m.bias.data.zero_()
+        for m in target_traj_encoder.modules():
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+                init.orthogonal_(m.weight, np.sqrt(2))
+                m.bias.data.zero_()
+        for param in target_traj_encoder.parameters():
+            param.requires_grad = False
+            
         log_alpha = ParameterModule(torch.Tensor([np.log(args.alpha)]))
         optimizers.update({
             'qf': torch.optim.Adam([
@@ -418,6 +436,9 @@ def run(ctxt=None):
             ]),
             'log_alpha': torch.optim.Adam([
                 {'params': log_alpha.parameters(), 'lr': _finalize_lr(args.sac_lr_a)},
+            ]),
+            'predict_encoder': torch.optim.Adam([
+                {'params': predict_traj_encoder.parameters(), 'lr': _finalize_lr(args.sac_lr_q)},
             ])
         })
 
@@ -461,6 +482,8 @@ def run(ctxt=None):
         discount=args.sac_discount,
         discrete=args.discrete,
         unit_length=args.unit_length,
+        predict_traj_encoder=predict_traj_encoder,
+        target_traj_encoder=target_traj_encoder,
     )
 
     skill_common_args = dict(

@@ -75,6 +75,7 @@ class IOD(RLAlgorithm):
             'traj_encoder': self.traj_encoder,
             'option_policy': self.option_policy,
             'dual_lam': self.dual_lam,
+            # 'predict_encoder': 
         }
         if skill_dynamics is not None:
             self.skill_dynamics = skill_dynamics.to(self.device)
