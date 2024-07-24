@@ -28,18 +28,6 @@ from iod.ant_eval import *
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 class METRA(IOD):
     def __init__(
             self,
@@ -129,9 +117,8 @@ class METRA(IOD):
         
         
         policy_for_agent = {
-            ""
-            
-            
+            "default_policy": self.option_policy,
+            "traj_encoder": self.traj_encoder,
         }
         
         self.policy_for_agent = AgentWrapper(
@@ -141,7 +128,7 @@ class METRA(IOD):
     @property
     def policy(self):
         return {
-            'option_policy': self.option_policy,
+            'option_policy': self.policy_for_agent,
         }
     
     def _get_concat_obs(self, obs, option):
@@ -210,9 +197,10 @@ class METRA(IOD):
             if self.method['explore'] == "explore-one":
                 # becasue We neet explore:0719
                 # 1. use two stage: (explore one, eval zero)
-                ones = np.ones((random_options.shape[0], 1))
-                random_options = np.concatenate([random_options, ones], axis=1)
-                extras = self._generate_option_extras(random_options) 
+                # ones = np.ones((random_options.shape[0], 1))
+                # random_options = np.concatenate([random_options, ones], axis=1)
+                # extras = self._generate_option_extras(random_options) 
+                pass
                 
             elif self.method['explore'] == 'buffer_explore':
                 if self.replay_buffer.n_transitions_stored > 100:
@@ -223,14 +211,14 @@ class METRA(IOD):
                     extras = self._generate_option_extras(random_options, v['sub_goal'])  
                     
                 else:
-                    zeros = np.zeros((random_options.shape[0], 1))
-                    random_options = np.concatenate([random_options, zeros], axis=1) 
+                    # zeros = np.zeros((random_options.shape[0], 1))
+                    # random_options = np.concatenate([random_options, zeros], axis=1) 
                     extras = self._generate_option_extras(random_options)   
                     
             elif self.method['explore'] == "baseline": 
                 # 2. use baseline: (all zero)
-                zeros = np.zeros((random_options.shape[0], 1))
-                random_options = np.concatenate([random_options, zeros], axis=1)  
+                # zeros = np.zeros((random_options.shape[0], 1))
+                # random_options = np.concatenate([random_options, zeros], axis=1)  
                 extras = self._generate_option_extras(random_options)      # 变成字典的形式；
             
         
@@ -538,8 +526,8 @@ class METRA(IOD):
         # policy_type = "sub_goal_reward"
         # policy_type = "baseline"
         policy_type = self.method["policy"]
-        if ep == True:
-            policy_type = "explore"
+        # if ep == True:
+        #     policy_type = "explore"
         
         if policy_type == "sub_goal_reward":
             '''
@@ -625,17 +613,17 @@ class METRA(IOD):
                 'policy_rewards': policy_rewards.mean(),
             })
             
-        if ep == False:    
-            if option.shape[1] < v['options'].shape[1]:
-                zeros = torch.zeros([option.shape[0], 1], dtype=float).to(self.device)
-                option = torch.cat([option, zeros], dim=1)
-                next_option = torch.cat([next_option, zeros], dim=1)
-            else:
-                option[:,-1] = 0
-                next_option[:,-1] = 0
-        else:
-            option[:,-1] = 1
-            next_option[:,-1] = 1
+        # if ep == False:    
+        #     if option.shape[1] < v['options'].shape[1]:
+        #         zeros = torch.zeros([option.shape[0], 1], dtype=float).to(self.device)
+        #         option = torch.cat([option, zeros], dim=1)
+        #         next_option = torch.cat([next_option, zeros], dim=1)
+        #     else:
+        #         option[:,-1] = 0
+        #         next_option[:,-1] = 0
+        # else:
+        #     option[:,-1] = 1
+        #     next_option[:,-1] = 1
             
         processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), option.float())
         next_processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['next_obs']), next_option.float())
@@ -661,14 +649,14 @@ class METRA(IOD):
 
     def _update_loss_op(self, tensors, v, ep=False):
         option = v['options']
-        if ep == False:    
-            # zeros = torch.zeros([option.shape[0], 1], dtype=float).to(self.device)
-            # option = torch.cat([option, zeros], dim=1)
-            option[:,-1] = 0
-        else:
-            # ones = torch.ones([option.shape[0], 1], dtype=float).to(self.device)
-            # option = torch.cat([option, ones], dim=1)           
-            option[:,-1] = 1
+        # if ep == False:    
+        #     # zeros = torch.zeros([option.shape[0], 1], dtype=float).to(self.device)
+        #     # option = torch.cat([option, zeros], dim=1)
+        #     option[:,-1] = 0
+        # else:
+        #     # ones = torch.ones([option.shape[0], 1], dtype=float).to(self.device)
+        #     # option = torch.cat([option, ones], dim=1)           
+        #     option[:,-1] = 1
             
         processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), option)
         sac_utils.update_loss_sacp(
@@ -748,13 +736,13 @@ class METRA(IOD):
                 if self.method["eval"] == "norm": 
                     option = option / torch.norm(option, p=2)   
                 # explore or not 
-                ep = False
-                if ep == False:    
-                    zeros = torch.zeros([option.shape[0], 1], dtype=float).to(self.device)
-                    option = torch.cat([option, zeros], dim=1)
-                else:
-                    ones = torch.ones([option.shape[0], 1], dtype=float).to(self.device)
-                    option = torch.cat([option, ones], dim=1)   
+                # ep = False
+                # if ep == False:    
+                #     zeros = torch.zeros([option.shape[0], 1], dtype=float).to(self.device)
+                #     option = torch.cat([option, zeros], dim=1)
+                # else:
+                #     ones = torch.ones([option.shape[0], 1], dtype=float).to(self.device)
+                #     option = torch.cat([option, ones], dim=1)   
                 obs_option = torch.cat((obs, option), -1).float()
                 # for viz
                 if Pepr_viz:
@@ -798,25 +786,28 @@ class METRA(IOD):
             "Average_Return:", All_Return_array.mean(), '\n',
             "All_GtReturn", All_GtReturn_array.mean()
         )
-        wandb.log(  
-                    {
-                        "test/Average_Return": All_Return_array.mean(),
-                        "test/All_GtReturn": All_GtReturn_array.mean()
-                    },
-                    step=runner.step_itr
-                )
-        
+
+            
         plot_trajectories(env, All_trajs_list, fig, ax)
         ax.legend(loc='lower right')
-        path = wandb.run.dir
-        filepath = os.path.join(path, "Maze_traj.png")
-        print(filepath)
-        plt.savefig(filepath) 
-        wandb.log(({"Maze_traj": wandb.Image(filepath)}))
         
-        if Pepr_viz:
-            PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length)
-            print('Repr_Space_traj saved')
+        if wandb.run is not None:
+            path = wandb.run.dir
+            filepath = os.path.join(path, "Maze_traj.png")
+            plt.savefig(filepath) 
+            print(filepath)
+            wandb.log(  
+                        {
+                            "test/Average_Return": All_Return_array.mean(),
+                            "test/All_GtReturn": All_GtReturn_array.mean(),
+                            "Maze_traj": wandb.Image(filepath),
+                        },
+                        step=runner.step_itr
+                    )
+        
+        # if Pepr_viz:
+        #     PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length)
+        #     print('Repr_Space_traj saved')
 
         # save model
         # torch.save(self.traj_encoder.state_dict(), 'traj_encoder.pth')

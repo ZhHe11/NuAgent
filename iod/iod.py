@@ -162,8 +162,10 @@ class IOD(RLAlgorithm):
                     train_log[k] = tensors[k].item()
                 else:
                     train_log[k] = np.array2string(tensors[k].detach().cpu().numpy(), suppress_small=True)
-            wandb.log(tensors, step=runner.step_itr)
-        
+            
+            if wandb.run is not None:
+                wandb.log(tensors, step=runner.step_itr)
+
         # if logging_enabled:
         #     prefix_tabular = global_context.get_metric_prefix()
         #     with dowel_wrapper.get_tabular().prefix(prefix_tabular + self.name + '/'), dowel_wrapper.get_tabular(
@@ -285,7 +287,7 @@ class IOD(RLAlgorithm):
         '''
         plot training traj
         '''
-        if (runner.step_itr + 2) % self.n_epochs_per_log == 0:
+        if (runner.step_itr + 2) % self.n_epochs_per_log == 0 and wandb.run is not None:
             fig, ax = plt.subplots()
             env = runner._env
             env.draw(ax)

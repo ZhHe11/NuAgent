@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from collections import OrderedDict
 
 
 class AgentWrapper(object):
@@ -24,7 +25,9 @@ class AgentWrapper(object):
                 param_dict[f"exploration_{k}"] = exploration_param_dict[k].detach()
         
         if self.traj_encoder:
-            traj_encoder_dict = self.traj_encoder.get_param_values()
+            # traj_encoder_dict = self.traj_encoder.get_param_values()
+            # traj_encoder_dict = OrderedDict((name, param.data) for name, param in self.traj_encoder.named_parameters())
+            traj_encoder_dict = self.traj_encoder.state_dict()
             for k in traj_encoder_dict.keys():
                 param_dict[f"traj_encoder_{k}"] = traj_encoder_dict[k].detach()
 
@@ -50,7 +53,8 @@ class AgentWrapper(object):
         if self.exploration_policy:
             self.exploration_policy.set_param_values(exploration_state_dict)
         if self.traj_encoder:
-            self.traj_encoder.set_param_values(traj_encoder_dict)
+            self.traj_encoder.load_state_dict(traj_encoder_dict)
+            # self.traj_encoder.set_param_values(traj_encoder_dict)
 
     def eval(self):
         self.default_policy.eval()
@@ -68,10 +72,10 @@ class AgentWrapper(object):
 
     def reset(self):
         self.default_policy.reset()
-        if self.exploration_policy:
-            self.exploration_policy.reset()
-        if self.traj_encoder:
-            self.traj_encoder.reset()
+        # if self.exploration_policy:
+        #     self.exploration_policy.reset()
+        # if self.traj_encoder:
+        #     self.traj_encoder.reset()
 
 
 

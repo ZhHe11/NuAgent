@@ -219,9 +219,9 @@ def get_gaussian_module_construction(args,
 
 @wrap_experiment(log_dir=get_log_dir(), name=get_exp_name()[0])
 def run(ctxt=None):
-    wandb_output_dir = get_log_dir()
-    wandb.init(group=args.run_group, name=get_exp_name()[0],
-                config=vars(args), dir=wandb_output_dir)
+    # wandb_output_dir = get_log_dir()
+    # wandb.init(group=args.run_group, name=get_exp_name()[0],
+    #             config=vars(args), dir=wandb_output_dir)
 
     dowel.logger.log('ARGS: ' + str(args))
     if args.n_thread is not None:
@@ -273,7 +273,7 @@ def run(ctxt=None):
         module_obs_dim = obs_dim
 
     option_info = {
-        'dim_option': args.dim_option + 1,
+        'dim_option': args.dim_option,
     }
 
     policy_kwargs = dict(
@@ -295,7 +295,7 @@ def run(ctxt=None):
         init_std=1.,
     ))
 
-    policy_q_input_dim = module_obs_dim + args.dim_option + 1
+    policy_q_input_dim = module_obs_dim + args.dim_option
     policy_module = module_cls(
         input_dim=policy_q_input_dim,
         output_dim=action_dim,

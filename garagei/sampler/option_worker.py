@@ -6,6 +6,7 @@ from garage.sampler import DefaultWorker
 
 from iod.utils import get_np_concat_obs
 
+import torch
 
 class OptionWorker(DefaultWorker):
     def __init__(
@@ -108,10 +109,10 @@ class OptionWorker(DefaultWorker):
                     cur_extra = self._cur_extras[self._cur_extra_idx][cur_extra_key]
                     if 'sub_goal' in self._cur_extras[self._cur_extra_idx].keys():
                         sub_goal = self._cur_extras[self._cur_extra_idx]['sub_goal'] 
-                        phi_sub_goal = self.traj_encoder(sub_goal).mean.detach().cpu().numpy()
-                        phi_obs = self.traj_encoder(self._prev_obs).mean.detach().cpu().numpy()
+                        phi_sub_goal = self.agent.traj_encoder(sub_goal).mean.detach().cpu().numpy()
+                        phi_obs = self.agent.traj_encoder(torch.tensor(self._prev_obs).to('cuda')).mean.detach().cpu().numpy()
                         cur_extra = phi_sub_goal - phi_obs
-                    
+                        
                 agent_input = get_np_concat_obs(
                     self._prev_obs, cur_extra,
                 )
@@ -120,7 +121,7 @@ class OptionWorker(DefaultWorker):
             if self._deterministic_policy is not None:
                 self.agent._force_use_mode_actions = self._deterministic_policy
 
-            a, agent_info = self.agent.get_action(agent_input)
+            a, agent_info = self.agent.default_policy.get_action(agent_input)
 
             if self._render:
                 next_o, r, d, env_info = self.env.step(a, render=self._render)

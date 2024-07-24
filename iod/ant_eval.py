@@ -6,11 +6,6 @@ from sklearn.decomposition import PCA
 import matplotlib.cm as cm
 
 
-
-'''
-# save the traj. as fig
-有空写到test里面去，写在这个太乱了；
-'''
 def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_PCA=False):
     Repr_obs_array = np.array(All_Repr_obs_list[0])
     All_Goal_obs_array = np.array(All_Goal_obs_list[0])
