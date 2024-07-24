@@ -22,42 +22,22 @@ import os
 import torch.nn as nn
 # from iod.SAC import *
 # from iod.RND import *
+from iod.agent import *
+from iod.ant_eval import *
 
 
-'''
-# save the traj. as fig
-有空写到test里面去，写在这个太乱了；
-'''
-def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_PCA=False):
-    Repr_obs_array = np.array(All_Repr_obs_list[0])
-    All_Goal_obs_array = np.array(All_Goal_obs_list[0])
-    for i in range(1,len(All_Repr_obs_list)):
-        Repr_obs_array = np.concatenate((Repr_obs_array, np.array(All_Repr_obs_list[i])), axis=0)
-        All_Goal_obs_array = np.concatenate((All_Goal_obs_array, np.array(All_Goal_obs_list[i])), axis=0)
-    # 创建 PCA 对象，指定降到2维
-    if is_PCA:
-        pca = PCA(n_components=2)
-        # 对数据进行 PCA
-        Repr_obs_2d = pca.fit_transform(Repr_obs_array)
-    else:
-        Repr_obs_2d = Repr_obs_array
-        All_Goal_obs_2d = All_Goal_obs_array
-    # 绘制 PCA 降维后的数据
-    plt.figure(figsize=(8, 6))
-    colors = cm.rainbow(np.linspace(0, 1, len(All_Repr_obs_list)))
-    for i in range(0,len(All_Repr_obs_list)):
-        color = colors[i]
-        start_index = i * path_len
-        end_index = (i+1) * path_len
-        plt.scatter(Repr_obs_2d[start_index:end_index, 0], Repr_obs_2d[start_index:end_index, 1], color=color, s=5, label="traj."+str(i))
-        plt.scatter(All_Goal_obs_2d[start_index, 0], All_Goal_obs_2d[start_index, 1], marker='*', s=100, c=color, label="option."+str(i))
-    file_path = os.path.join(path, "repr_traj.png")
-    plt.xlabel('z[0]')
-    plt.ylabel('z[1]')
-    plt.title('traj. in representation space')
-    plt.legend()
-    plt.savefig(file_path)
-    wandb.log(({"Repr_Space_traj": wandb.Image(file_path)}))
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 class METRA(IOD):
@@ -136,7 +116,8 @@ class METRA(IOD):
             "phi": "baseline",
             "policy": "sub_goal_reward", 
             # "policy": "baseline",
-            "explore": "baseline",
+            # "explore": "baseline",
+            "explore": "buffer_explore",
         }
         
         '''
@@ -145,6 +126,17 @@ class METRA(IOD):
         # self.rnd = RNDModel(29, 1)
         self.target_traj_encoder = target_traj_encoder.to(self.device)
         self.predict_traj_encoder = predict_traj_encoder.to(self.device)
+        
+        
+        policy_for_agent = {
+            ""
+            
+            
+        }
+        
+        self.policy_for_agent = AgentWrapper(
+            policies=policy_for_agent
+        ) 
         
     @property
     def policy(self):
@@ -220,11 +212,27 @@ class METRA(IOD):
                 # 1. use two stage: (explore one, eval zero)
                 ones = np.ones((random_options.shape[0], 1))
                 random_options = np.concatenate([random_options, ones], axis=1)
+                extras = self._generate_option_extras(random_options) 
+                
+            elif self.method['explore'] == 'buffer_explore':
+                if self.replay_buffer.n_transitions_stored > 100:
+                    v = self._sample_replay_buffer(batch_size=runner._train_args.batch_size)
+                    buffer_subgoal = self.traj_encoder(v['sub_goal']).mean.detach().cpu().numpy()
+                    buffer_state = self.traj_encoder(v['obs']).mean.detach().cpu().numpy()
+                    random_options = buffer_subgoal - buffer_state
+                    extras = self._generate_option_extras(random_options, v['sub_goal'])  
+                    
+                else:
+                    zeros = np.zeros((random_options.shape[0], 1))
+                    random_options = np.concatenate([random_options, zeros], axis=1) 
+                    extras = self._generate_option_extras(random_options)   
+                    
             elif self.method['explore'] == "baseline": 
                 # 2. use baseline: (all zero)
                 zeros = np.zeros((random_options.shape[0], 1))
-                random_options = np.concatenate([random_options, zeros], axis=1)            
-            extras = self._generate_option_extras(random_options)       # 变成字典的形式；
+                random_options = np.concatenate([random_options, zeros], axis=1)  
+                extras = self._generate_option_extras(random_options)      # 变成字典的形式；
+            
         
         return dict(
             extras=extras,
@@ -249,8 +257,10 @@ class METRA(IOD):
                     path[key] = cur_list
                 self.replay_buffer.add_path(path)
 
-    def _sample_replay_buffer(self):        # 看看是如何从buffer中加载数据的
-        samples = self.replay_buffer.sample_transitions(self._trans_minibatch_size)
+    def _sample_replay_buffer(self, batch_size=None):        # 看看是如何从buffer中加载数据的
+        if batch_size == None:
+            batch_size = self._trans_minibatch_size
+        samples = self.replay_buffer.sample_transitions(batch_size)
         data = {}
         for key, value in samples.items():
             if value.shape[1] == 1 and 'option' not in key:
@@ -582,7 +592,7 @@ class METRA(IOD):
             forward_loss = (forward_loss * mask).sum() / torch.max(mask.sum(), torch.Tensor([1]).to(self.device))
             
             # final reward: 
-            goal_reward = (delta_phi_norm * option_norm).sum(dim=1) + dist_reward + exp_reward + relative_dist_reward
+            goal_reward = (delta_phi_norm * option_norm).sum(dim=1) + dist_reward + exp_reward
             # goal_reward = ((phi_obs_ - phi_obs) * norm_option).sum(dim=1) + (distance_option - distance_next_option)
             policy_rewards = goal_reward * self._reward_scale_factor
 

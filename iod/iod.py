@@ -263,6 +263,7 @@ class IOD(RLAlgorithm):
             batch_size = len(extras)
         policy_sampler_key = sampler_key[6:] if sampler_key.startswith('local_') else sampler_key
         time_get_trajectories = [0.0]
+        
         with MeasureAndAccTime(time_get_trajectories):
             trajectories, infos = runner.obtain_exact_trajectories(
                 runner.step_itr,
@@ -416,8 +417,13 @@ class IOD(RLAlgorithm):
                 param_dict[k] = param_dict[k].detach()
         return param_dict
 
-    def _generate_option_extras(self, options):
-        return [{'option': option} for option in options]
+    def _generate_option_extras(self, options, sub_goal=None):
+        extras = [{"option": option, "exploration_type": 0} for option in options]
+        if sub_goal is not None:
+            for i in range(len(sub_goal)):
+                extras[i]["sub_goal"] = sub_goal[i]
+                
+        return extras
 
     def _gradient_descent(self, loss, optimizer_keys):
         self._optimizer.zero_grad(keys=optimizer_keys)

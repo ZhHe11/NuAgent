@@ -106,7 +106,12 @@ class OptionWorker(DefaultWorker):
                         self._cur_extras[self._cur_extra_idx][cur_extra_key][self._path_length] = cur_extra
                 else:
                     cur_extra = self._cur_extras[self._cur_extra_idx][cur_extra_key]
-
+                    if 'sub_goal' in self._cur_extras[self._cur_extra_idx].keys():
+                        sub_goal = self._cur_extras[self._cur_extra_idx]['sub_goal'] 
+                        phi_sub_goal = self.traj_encoder(sub_goal).mean.detach().cpu().numpy()
+                        phi_obs = self.traj_encoder(self._prev_obs).mean.detach().cpu().numpy()
+                        cur_extra = phi_sub_goal - phi_obs
+                    
                 agent_input = get_np_concat_obs(
                     self._prev_obs, cur_extra,
                 )
