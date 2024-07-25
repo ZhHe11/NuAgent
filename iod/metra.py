@@ -208,7 +208,7 @@ class METRA(IOD):
                     buffer_subgoal = self.traj_encoder(v['sub_goal']).mean.detach().cpu().numpy()
                     buffer_state = self.traj_encoder(v['obs']).mean.detach().cpu().numpy()
                     random_options = buffer_subgoal - buffer_state
-                    extras = self._generate_option_extras(random_options, v['sub_goal'])  
+                    extras = self._generate_option_extras(random_options, v['sub_goal'].detach().cpu().numpy())  
                     
                 else:
                     # zeros = np.zeros((random_options.shape[0], 1))
@@ -560,18 +560,17 @@ class METRA(IOD):
             
             delta_phi_norm = (phi_obs_ - phi_obs) / (torch.norm(phi_obs_ - phi_obs, p=2, dim=-1, keepdim=True) + 1e-8)
             option_norm = option / (distance_option + 1e-8)
-            option_norm = torch.where(distance_option < dist_theta, 0, option_norm).float()
+            # option_norm = torch.where(distance_option < dist_theta, 0, option_norm).float()
             # 相对的reward
-            relative_dist_reward = distance_option - distance_next_option
+            relative_dist_reward = 10*(distance_option - distance_next_option).squeeze(-1)
             
             # distance reward: 
-            dist_reward = 10 * (dist_theta - distance_next_option.squeeze(-1))
-            dist_reward = torch.where(dist_reward > 0, 1, 0).float()
+            dist_reward = torch.where(dist_theta > distance_next_option.squeeze(-1), 1, 0).float()
             
             # RND: exploration reward
             predict_next_feature = self.predict_traj_encoder(v["next_obs"]).mean
             target_next_feature = self.target_traj_encoder(v["next_obs"]).mean.detach()
-            exp_reward = 400 * ((target_next_feature - predict_next_feature).pow(2).sum(1) / 2).detach()
+            exp_reward = 500 * ((target_next_feature - predict_next_feature).pow(2).sum(1) / 2).detach()
             forward_mse = nn.MSELoss(reduction='none')
             update_proportion = 0.25
             forward_loss = forward_mse(predict_next_feature, target_next_feature).mean(-1)
@@ -580,7 +579,7 @@ class METRA(IOD):
             forward_loss = (forward_loss * mask).sum() / torch.max(mask.sum(), torch.Tensor([1]).to(self.device))
             
             # final reward: 
-            goal_reward = (delta_phi_norm * option_norm).sum(dim=1) + dist_reward + exp_reward
+            goal_reward = (delta_phi_norm * option_norm).sum(dim=1) * torch.exp(relative_dist_reward) + exp_reward
             # goal_reward = ((phi_obs_ - phi_obs) * norm_option).sum(dim=1) + (distance_option - distance_next_option)
             policy_rewards = goal_reward * self._reward_scale_factor
 

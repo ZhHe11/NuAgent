@@ -108,9 +108,10 @@ class OptionWorker(DefaultWorker):
                 else:
                     cur_extra = self._cur_extras[self._cur_extra_idx][cur_extra_key]
                     if 'sub_goal' in self._cur_extras[self._cur_extra_idx].keys():
-                        sub_goal = self._cur_extras[self._cur_extra_idx]['sub_goal'] 
-                        phi_sub_goal = self.agent.traj_encoder(sub_goal).mean.detach().cpu().numpy()
-                        phi_obs = self.agent.traj_encoder(torch.tensor(self._prev_obs).to('cuda')).mean.detach().cpu().numpy()
+                        sub_goal = self._cur_extras[self._cur_extra_idx]['sub_goal']
+                        traj_encoder = self.agent.traj_encoder.to('cpu')
+                        phi_sub_goal = traj_encoder(torch.tensor(sub_goal)).mean.detach().numpy()
+                        phi_obs = traj_encoder(torch.tensor(self._prev_obs)).mean.detach().numpy()
                         cur_extra = phi_sub_goal - phi_obs
                         
                 agent_input = get_np_concat_obs(
