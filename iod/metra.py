@@ -116,9 +116,14 @@ class METRA(IOD):
         self.predict_traj_encoder = predict_traj_encoder.to(self.device)
         
         
+        
+        self.explore_policy = copy.deepcopy(self.traj_encoder)
+        
+        
         policy_for_agent = {
             "default_policy": self.option_policy,
             "traj_encoder": self.traj_encoder,
+            "exploration_policy": 
         }
         
         self.policy_for_agent = AgentWrapper(
@@ -565,12 +570,12 @@ class METRA(IOD):
             relative_dist_reward = 10*(distance_option - distance_next_option).squeeze(-1)
             
             # distance reward: 
-            dist_reward = torch.where(dist_theta > distance_next_option.squeeze(-1), 1, 0).float()
+            dist_reward = torch.where(dist_theta > distance_next_option.squeeze(-1), 5, 0).float()
             
             # RND: exploration reward
             predict_next_feature = self.predict_traj_encoder(v["next_obs"]).mean
             target_next_feature = self.target_traj_encoder(v["next_obs"]).mean.detach()
-            exp_reward = 500 * ((target_next_feature - predict_next_feature).pow(2).sum(1) / 2).detach()
+            exp_reward = 5000 * ((target_next_feature - predict_next_feature).pow(2).sum(1) / 2).detach()
             forward_mse = nn.MSELoss(reduction='none')
             update_proportion = 0.25
             forward_loss = forward_mse(predict_next_feature, target_next_feature).mean(-1)
@@ -579,7 +584,8 @@ class METRA(IOD):
             forward_loss = (forward_loss * mask).sum() / torch.max(mask.sum(), torch.Tensor([1]).to(self.device))
             
             # final reward: 
-            goal_reward = (delta_phi_norm * option_norm).sum(dim=1) * torch.exp(relative_dist_reward) + exp_reward
+            goal_reward = (delta_phi_norm * option_norm).sum(dim=1) * torch.log(1 + torch.maximum(relative_dist_reward, torch.zeros_like(relative_dist_reward))) \
+                            + dist_reward + exp_reward
             # goal_reward = ((phi_obs_ - phi_obs) * norm_option).sum(dim=1) + (distance_option - distance_next_option)
             policy_rewards = goal_reward * self._reward_scale_factor
 
