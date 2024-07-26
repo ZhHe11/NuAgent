@@ -24,8 +24,7 @@ import torch.nn as nn
 # from iod.RND import *
 from iod.agent import *
 from iod.ant_eval import *
-
-
+from iod.update_policy import *
 
 
 class METRA(IOD):
@@ -100,8 +99,8 @@ class METRA(IOD):
         
         self.method = {
             "eval": "no_norm",
-            # "phi": "her_reward",
-            "phi": "baseline",
+            "phi": "her_reward",
+            # "phi": "baseline",
             "policy": "sub_goal_reward", 
             # "policy": "baseline",
             # "explore": "baseline",
@@ -114,21 +113,43 @@ class METRA(IOD):
         # self.rnd = RNDModel(29, 1)
         self.target_traj_encoder = target_traj_encoder.to(self.device)
         self.predict_traj_encoder = predict_traj_encoder.to(self.device)
+
+        
+        self.qf1 = qf1.to(self.device)
+        self.qf2 = qf2.to(self.device)
+
+        self.target_qf1 = copy.deepcopy(self.qf1)
+        self.target_qf2 = copy.deepcopy(self.qf2)
         
         
+        '''
+        add a explore policy model
+        '''
+        self.explore_policy, self.ep_qf1, self.ep_qf2, self.eq_target_qf1, self.eq_target_qf2 \
+            = copy_init_policy(self.option_policy, self.qf1, self.qf2)
+        self.ep_log_alpha = copy.deepcopy(self.log_alpha)
         
-        self.explore_policy = copy.deepcopy(self.traj_encoder)
+        self.param_modules.update(
+            ep_qf1=self.qf1,
+            ep_qf2=self.qf2,
+            ep_log_alpha=self.log_alpha,
+            explore_policy=self.explore_policy,
+        )
         
-        
+        '''
+        wrapper for agent for online interaction.
+        '''
         policy_for_agent = {
             "default_policy": self.option_policy,
             "traj_encoder": self.traj_encoder,
-            "exploration_policy": 
+            "exploration_policy": self.explore_policy,
         }
         
         self.policy_for_agent = AgentWrapper(
             policies=policy_for_agent
         ) 
+        
+        
         
     @property
     def policy(self):
@@ -285,7 +306,7 @@ class METRA(IOD):
             self._optimize_te(tensors, v)
             self._update_rewards(tensors, v)
             self._optimize_op(tensors, v)
-            # self._optimize_op(tensors, v, ep=True)
+            optimize_ep(self,tensors, v)
             
         return tensors
 
@@ -316,8 +337,8 @@ class METRA(IOD):
     '''
     【loss2】option policy已经SAC算法的loss:
     '''
-    def _optimize_op(self, tensors, internal_vars, ep=False):         # [loss] 对于q和policy的loss
-        self._update_loss_qf(tensors, internal_vars, ep)
+    def _optimize_op(self, tensors, internal_vars):         # [loss] 对于q和policy的loss
+        self._update_loss_qf(tensors, internal_vars)
 
         self._gradient_descent(
             tensors['LossQf1'] + tensors['LossQf2'],
@@ -328,7 +349,7 @@ class METRA(IOD):
             optimizer_keys=['predict_encoder'],
         )
 
-        self._update_loss_op(tensors, internal_vars, ep)
+        self._update_loss_op(tensors, internal_vars)
         self._gradient_descent(
             tensors['LossSacp'],
             optimizer_keys=['option_policy'],
@@ -421,7 +442,7 @@ class METRA(IOD):
             
             
             # new_reward = (z_start_next * z_sample).sum(dim=1) + skill_discount * (z_start_goal * z_sample).sum(dim=1) 
-            new_reward = (z_start_next_norm * z_train_norm.detach()).sum(dim=1)
+            new_reward = (z_start_next_norm * z_train_norm).sum(dim=1)
         
             ## 【ctb】len_weight:
             # 我想让离final越近的权重越大，离final越远的权重越小；
@@ -526,13 +547,9 @@ class METRA(IOD):
         model: SAC
         reward: doing
     '''
-    def _update_loss_qf(self, tensors, v, ep=False):
+    def _update_loss_qf(self, tensors, v):
 
-        # policy_type = "sub_goal_reward"
-        # policy_type = "baseline"
         policy_type = self.method["policy"]
-        # if ep == True:
-        #     policy_type = "explore"
         
         if policy_type == "sub_goal_reward":
             '''
@@ -570,12 +587,13 @@ class METRA(IOD):
             relative_dist_reward = 10*(distance_option - distance_next_option).squeeze(-1)
             
             # distance reward: 
-            dist_reward = torch.where(dist_theta > distance_next_option.squeeze(-1), 5, 0).float()
+            dist_reward = torch.where(dist_theta > distance_next_option.squeeze(-1), 1, 0).float()
             
             # RND: exploration reward
             predict_next_feature = self.predict_traj_encoder(v["next_obs"]).mean
             target_next_feature = self.target_traj_encoder(v["next_obs"]).mean.detach()
-            exp_reward = 5000 * ((target_next_feature - predict_next_feature).pow(2).sum(1) / 2).detach()
+                    
+            exp_reward =  ((target_next_feature - predict_next_feature).pow(2).sum(1) / 2).detach()
             forward_mse = nn.MSELoss(reduction='none')
             update_proportion = 0.25
             forward_loss = forward_mse(predict_next_feature, target_next_feature).mean(-1)
@@ -584,8 +602,8 @@ class METRA(IOD):
             forward_loss = (forward_loss * mask).sum() / torch.max(mask.sum(), torch.Tensor([1]).to(self.device))
             
             # final reward: 
-            goal_reward = (delta_phi_norm * option_norm).sum(dim=1) * torch.log(1 + torch.maximum(relative_dist_reward, torch.zeros_like(relative_dist_reward))) \
-                            + dist_reward + exp_reward
+            goal_reward = torch.log(1 + torch.clamp(relative_dist_reward, min=1e-2, max=1)) \
+                            + 5 * dist_reward + exp_reward
             # goal_reward = ((phi_obs_ - phi_obs) * norm_option).sum(dim=1) + (distance_option - distance_next_option)
             policy_rewards = goal_reward * self._reward_scale_factor
 
@@ -618,18 +636,6 @@ class METRA(IOD):
                 'policy_rewards': policy_rewards.mean(),
             })
             
-        # if ep == False:    
-        #     if option.shape[1] < v['options'].shape[1]:
-        #         zeros = torch.zeros([option.shape[0], 1], dtype=float).to(self.device)
-        #         option = torch.cat([option, zeros], dim=1)
-        #         next_option = torch.cat([next_option, zeros], dim=1)
-        #     else:
-        #         option[:,-1] = 0
-        #         next_option[:,-1] = 0
-        # else:
-        #     option[:,-1] = 1
-        #     next_option[:,-1] = 1
-            
         processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), option.float())
         next_processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['next_obs']), next_option.float())
         
@@ -644,6 +650,12 @@ class METRA(IOD):
             dones=v['dones'],
             rewards=policy_rewards,
             policy=self.option_policy,
+            qf1=self.qf1,
+            qf2=self.qf2,
+            alpha=self.log_alpha,
+            target_qf1=self.target_qf1,
+            target_qf2=self.target_qf2,
+            loss_type='',
         )
 
         v.update({
@@ -654,15 +666,6 @@ class METRA(IOD):
 
     def _update_loss_op(self, tensors, v, ep=False):
         option = v['options']
-        # if ep == False:    
-        #     # zeros = torch.zeros([option.shape[0], 1], dtype=float).to(self.device)
-        #     # option = torch.cat([option, zeros], dim=1)
-        #     option[:,-1] = 0
-        # else:
-        #     # ones = torch.ones([option.shape[0], 1], dtype=float).to(self.device)
-        #     # option = torch.cat([option, ones], dim=1)           
-        #     option[:,-1] = 1
-            
         processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), option)
         sac_utils.update_loss_sacp(
             self, tensors, v,

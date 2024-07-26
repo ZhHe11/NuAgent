@@ -40,7 +40,7 @@ from garagei.experiment.option_local_runner import OptionLocalRunner
 from garagei.envs.consistent_normalized_env import consistent_normalize
 from garagei.sampler.option_multiprocessing_sampler import OptionMultiprocessingSampler
 from garagei.torch.modules.with_encoder import WithEncoder, Encoder
-from garagei.torch.modules.gaussian_mlp_module_ex import GaussianMLPTwoHeadedModuleEx, GaussianMLPIndependentStdModuleEx, GaussianMLPModuleEx
+from garagei.torch.modules.gaussian_mlp_module_ex import GaussianMLPTwoHeadedModuleEx, GaussianMLPIndependentStdModuleEx, GaussianMLPModuleEx, XY_GaussianMLPIndependentStdModuleEx
 from garagei.torch.modules.parameter_module import ParameterModule
 from garagei.torch.policies.policy_ex import PolicyEx
 from garagei.torch.q_functions.continuous_mlp_q_function_ex import ContinuousMLPQFunctionEx
@@ -193,7 +193,11 @@ def get_gaussian_module_construction(args,
             init_std=init_std,
         ))
     else:
-        module_cls = GaussianMLPIndependentStdModuleEx
+        # for debug ask by JieWANG
+        module_cls = XY_GaussianMLPIndependentStdModuleEx
+        print("used XY_GaussianMLPIndependentStdModuleEx")
+        # original one
+        # module_cls = GaussianMLPIndependentStdModuleEx
         module_kwargs.update(dict(
             std_hidden_sizes=hidden_sizes,
             std_hidden_nonlinearity=hidden_nonlinearity,

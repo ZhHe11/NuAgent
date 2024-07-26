@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from collections import OrderedDict
-
+import copy
 
 class AgentWrapper(object):
     """Wrapper for communicating the agent weights with the sampler."""
@@ -79,7 +79,19 @@ class AgentWrapper(object):
 
 
 
+def copy_init_policy(policy, qf1, qf2):
+    policy = copy.deepcopy(policy)
+    qf1 = copy.deepcopy(qf1)
+    qf2 = copy.deepcopy(qf2)
+    target_qf1 = copy.deepcopy(qf1)
+    target_qf2 = copy.deepcopy(qf2)
+
+    return policy, qf1, qf2, target_qf1, target_qf2
     
+    
+    
+    
+     
     
     
     
