@@ -149,6 +149,7 @@ class METRA(IOD):
             policies=policy_for_agent
         ) 
         
+        self.MaxLenPhi = 0
         
         
     @property
@@ -306,7 +307,7 @@ class METRA(IOD):
             self._optimize_te(tensors, v)
             self._update_rewards(tensors, v)
             self._optimize_op(tensors, v)
-            optimize_ep(self,tensors, v)
+            # optimize_ep(self,tensors, v)
             
         return tensors
 
@@ -344,10 +345,11 @@ class METRA(IOD):
             tensors['LossQf1'] + tensors['LossQf2'],
             optimizer_keys=['qf'],
         )
-        self._gradient_descent(
-            tensors['forward_loss'],
-            optimizer_keys=['predict_encoder'],
-        )
+        if self.method['policy'] == "sub_goal_reward": 
+            self._gradient_descent(
+                tensors['forward_loss'],
+                optimizer_keys=['predict_encoder'],
+            )
 
         self._update_loss_op(tensors, internal_vars)
         self._gradient_descent(
@@ -429,21 +431,37 @@ class METRA(IOD):
             z_start_next = phi_s_next - phi_s
             # z_start_goal = phi_g - phi_s
             # z_next_goal = phi_g - phi_s_next
+            # phi_s_len = torch.norm(phi_s, p=2, dim=-1, keepdim=True).squeeze(-1)
             skill_discount = 0.5
             z_train = phi_sub_g - phi_s
-            # z_train_norm = z_train / (torch.norm(z_train, p=2, dim=-1, keepdim=True) + 1e-8)
-            # z_start_next_norm = z_start_next / (torch.norm(z_start_next) + 1e-8)
-            z_train_norm = z_train
-            z_start_next_norm = z_start_next
+            z_train_norm = z_train / (torch.norm(z_train, p=2, dim=-1, keepdim=True) + 1e-8)
+            z_start_next_norm = z_start_next / (torch.norm(z_start_next, p=2, dim=-1, keepdim=True) + 1e-8)
+            # z_train_norm = z_train
+            # z_start_next_norm = z_start_next
             
             # include dist_theta
             dist_theta = 0.1
             # z_train_norm = torch.where(z_train_norm < dist_theta, 0, z_train_norm).float()
             
+            # MaxLenPhi for max equation 
+            # PhiLen_alpha = 0.1
+            # phi_s_len = torch.norm(z_train, p=2, dim=-1, keepdim=True)
+            # self.MaxLenPhi = (self.MaxLenPhi + PhiLen_alpha * (torch.max(phi_s_len) - self.MaxLenPhi)).detach()
             
             # new_reward = (z_start_next * z_sample).sum(dim=1) + skill_discount * (z_start_goal * z_sample).sum(dim=1) 
-            new_reward = (z_start_next_norm * z_train_norm).sum(dim=1)
-        
+            # new_reward = (z_start_next_norm * z_train_norm).sum(dim=1) - self.MaxLenPhi * torch.norm(z_start_next, p=2, dim=-1, keepdim=True).squeeze(-1)
+            
+            
+            # MaxLenPhi for max equation 
+            PhiLen_alpha = 0.03
+            phi_s_len = torch.norm(phi_s, p=2, dim=-1, keepdim=True)
+            phi_s_norm = phi_s / (phi_s_len + 1e-8)
+            # phi_s_len = phi_s_len.squeeze(-1)
+            self.MaxLenPhi = (self.MaxLenPhi + PhiLen_alpha * (torch.max(phi_s_len) - self.MaxLenPhi)).detach()
+            
+            # new_reward = (z_start_next * (z_train - (self.MaxLenPhi - phi_s_len) * phi_s_norm)).sum(dim=1)
+            new_reward = (z_start_next_norm * z_train_norm).sum(dim=1) - (self.MaxLenPhi + phi_s_len) * torch.norm(z_start_next, p=2, dim=-1, keepdim=True).squeeze(-1)
+            
             ## 【ctb】len_weight:
             # 我想让离final越近的权重越大，离final越远的权重越小；
             # 方法1： 用step作为约束；
@@ -458,6 +476,7 @@ class METRA(IOD):
             
             tensors.update({
                 'PhiReward': new_reward.mean(),
+                'MaxLenPhi': self.MaxLenPhi,
             })
         
         obs = v['obs']
@@ -556,13 +575,7 @@ class METRA(IOD):
             zhanghe:
             change the policy learning process; using other z and reward, not the z_sample; let the train and eval the same target
             '''
-            # calculate z using obs' and obs
-            # 1. using final goal
-            # phi_goal = self.traj_encoder(v['goal']).mean.detach()
-            # phi_obs_ = self.traj_encoder(v['next_obs']).mean.detach()
-            # phi_obs = self.traj_encoder(v['obs']).mean.detach()
-            # option = phi_goal - phi_obs
-            # next_option = phi_goal - phi_obs_        
+            # calculate z using obs' and obs    
             
             # 2. using sub_goal
             phi_goal = self.traj_encoder(v['sub_goal']).mean.detach()
@@ -578,9 +591,9 @@ class METRA(IOD):
             # relative distance
             w1 = 10
             w2 = 0.1
-            dist_theta = 0.01
-            
-            delta_phi_norm = (phi_obs_ - phi_obs) / (torch.norm(phi_obs_ - phi_obs, p=2, dim=-1, keepdim=True) + 1e-8)
+            dist_theta = 1e-3
+            delta_phi = phi_obs_ - phi_obs
+            delta_phi_norm = delta_phi / (torch.norm(phi_obs_ - phi_obs, p=2, dim=-1, keepdim=True) + 1e-8)
             option_norm = option / (distance_option + 1e-8)
             # option_norm = torch.where(distance_option < dist_theta, 0, option_norm).float()
             # 相对的reward
@@ -594,6 +607,7 @@ class METRA(IOD):
             target_next_feature = self.target_traj_encoder(v["next_obs"]).mean.detach()
                     
             exp_reward =  ((target_next_feature - predict_next_feature).pow(2).sum(1) / 2).detach()
+            exp_reward = torch.clamp(exp_reward / (torch.norm(exp_reward) + 1e-8), min=1e-2, max=1)
             forward_mse = nn.MSELoss(reduction='none')
             update_proportion = 0.25
             forward_loss = forward_mse(predict_next_feature, target_next_feature).mean(-1)
@@ -602,9 +616,15 @@ class METRA(IOD):
             forward_loss = (forward_loss * mask).sum() / torch.max(mask.sum(), torch.Tensor([1]).to(self.device))
             
             # final reward: 
-            goal_reward = torch.log(1 + torch.clamp(relative_dist_reward, min=1e-2, max=1)) \
-                            + 5 * dist_reward + exp_reward
+            # goal_reward = torch.log(1 + torch.clamp(relative_dist_reward, min=1e-2, max=1)) \
+            #                 + dist_reward + exp_reward
             # goal_reward = ((phi_obs_ - phi_obs) * norm_option).sum(dim=1) + (distance_option - distance_next_option)
+            
+            # goal_reward = (delta_phi_norm * option_norm).sum(dim=1) * torch.log(1 + torch.clamp(relative_dist_reward, min=1e-2, max=1)) + dist_reward + exp_reward
+            # policy_rewards = goal_reward * self._reward_scale_factor
+
+            phi_s_len = torch.norm(phi_obs, p=2, dim=-1, keepdim=True)
+            goal_reward = (delta_phi_norm * option_norm).sum(dim=1) - (self.MaxLenPhi + phi_s_len) * torch.norm(delta_phi_norm, p=2, dim=-1, keepdim=True).squeeze(-1)
             policy_rewards = goal_reward * self._reward_scale_factor
 
             # ground truth reward:
@@ -671,13 +691,18 @@ class METRA(IOD):
             self, tensors, v,
             obs=processed_cat_obs,
             policy=self.option_policy,
+            qf1=self.qf1,
+            qf2=self.qf2,
+            alpha=self.log_alpha,
+            target_qf1=self.target_qf1,
+            target_qf2=self.target_qf2,
+            loss_type='',   
         )
 
     def _update_loss_alpha(self, tensors, v):
         sac_utils.update_loss_alpha(
-            self, tensors, v,
+            self, tensors, v, alpha=self.log_alpha, loss_type='', 
         )
-
 
     '''
     Evaluation
@@ -711,7 +736,9 @@ class METRA(IOD):
             [1.1, 12.9],
             [4.7, 4.5],
             [17.2, 0.9],
-            [20.2, 20.1]
+            [20.2, 20.1],
+            [4.7, 0.9],
+            [0.9, 4.7],
         ]
         num_eval = len(goals_list)
         goals = torch.tensor(np.array(goals_list)).to(self.device)
@@ -813,9 +840,9 @@ class METRA(IOD):
                         step=runner.step_itr
                     )
         
-        # if Pepr_viz:
-        #     PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length)
-        #     print('Repr_Space_traj saved')
+        if Pepr_viz:
+            PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length)
+            print('Repr_Space_traj saved')
 
         # save model
         # torch.save(self.traj_encoder.state_dict(), 'traj_encoder.pth')
@@ -834,3 +861,4 @@ class METRA(IOD):
             'dim_option': self.dim_option,
             'traj_encoder': self.traj_encoder,
         }, file_name)
+        

@@ -382,29 +382,30 @@ class IOD(RLAlgorithm):
             # 0718：随机选择subgoal,重采样整段作为subgoal；
             traj_len = len(path['observations'])
             data['sub_goal'].append(np.tile(path['observations'][-1], (traj_len, 1)))
-            subgoal_indices = np.random.choice(traj_len, 3, replace=False)
-            for j in range(len(subgoal_indices)):
-                subgoal_index = subgoal_indices[j]
-                data['obs'].append(path['observations'][:subgoal_index+1])
-                data['next_obs'].append(path['next_observations'][:subgoal_index+1])
-                data['actions'].append(path['actions'][:subgoal_index+1])
-                data['rewards'].append(path['rewards'][:subgoal_index+1])
-                data['dones'].append(path['dones'][:subgoal_index+1])
-                data['returns'].append(tensor_utils.discount_cumsum(path['rewards'][:subgoal_index+1], self.discount))
-                # 好像用不到这个ori_obs，用[1]列表代替；
-                # data['ori_obs'].append(path['env_infos']['ori_obs'])
-                # data['next_ori_obs'].append(path['env_infos']['next_ori_obs'])
-                data['ori_obs'].append(path['observations'][:subgoal_index+1])
-                data['next_ori_obs'].append(path['next_observations'][:subgoal_index+1])
-                if 'pre_tanh_value' in path['agent_infos']:
-                    data['pre_tanh_values'].append(path['agent_infos']['pre_tanh_value'][:subgoal_index+1])
-                if 'log_prob' in path['agent_infos']:
-                    data['log_probs'].append(path['agent_infos']['log_prob'][:subgoal_index+1])
-                if 'option' in path['agent_infos']:
-                    data['options'].append(path['agent_infos']['option'][:subgoal_index+1])
-                    data['next_options'].append(np.concatenate([path['agent_infos']['option'][:subgoal_index+1][1:], path['agent_infos']['option'][:subgoal_index+1][-1:]], axis=0))
-                data['sub_goal'].append(np.tile(path['observations'][:subgoal_index+1][-1], (subgoal_index+1, 1)))
-            
+            if traj_len > 100:
+                subgoal_indices = np.random.choice(traj_len, 3, replace=False)
+                for j in range(len(subgoal_indices)):
+                    subgoal_index = subgoal_indices[j]
+                    data['obs'].append(path['observations'][:subgoal_index+1])
+                    data['next_obs'].append(path['next_observations'][:subgoal_index+1])
+                    data['actions'].append(path['actions'][:subgoal_index+1])
+                    data['rewards'].append(path['rewards'][:subgoal_index+1])
+                    data['dones'].append(path['dones'][:subgoal_index+1])
+                    data['returns'].append(tensor_utils.discount_cumsum(path['rewards'][:subgoal_index+1], self.discount))
+                    # 好像用不到这个ori_obs，用[1]列表代替；
+                    # data['ori_obs'].append(path['env_infos']['ori_obs'])
+                    # data['next_ori_obs'].append(path['env_infos']['next_ori_obs'])
+                    data['ori_obs'].append(path['observations'][:subgoal_index+1])
+                    data['next_ori_obs'].append(path['next_observations'][:subgoal_index+1])
+                    if 'pre_tanh_value' in path['agent_infos']:
+                        data['pre_tanh_values'].append(path['agent_infos']['pre_tanh_value'][:subgoal_index+1])
+                    if 'log_prob' in path['agent_infos']:
+                        data['log_probs'].append(path['agent_infos']['log_prob'][:subgoal_index+1])
+                    if 'option' in path['agent_infos']:
+                        data['options'].append(path['agent_infos']['option'][:subgoal_index+1])
+                        data['next_options'].append(np.concatenate([path['agent_infos']['option'][:subgoal_index+1][1:], path['agent_infos']['option'][:subgoal_index+1][-1:]], axis=0))
+                    data['sub_goal'].append(np.tile(path['observations'][:subgoal_index+1][-1], (subgoal_index+1, 1)))
+                
             
             
         return data

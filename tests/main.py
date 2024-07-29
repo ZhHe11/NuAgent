@@ -195,9 +195,9 @@ def get_gaussian_module_construction(args,
     else:
         # for debug ask by JieWANG
         module_cls = XY_GaussianMLPIndependentStdModuleEx
-        print("used XY_GaussianMLPIndependentStdModuleEx")
+        # print("used XY_GaussianMLPIndependentStdModuleEx")
         # original one
-        # module_cls = GaussianMLPIndependentStdModuleEx
+        module_cls = GaussianMLPIndependentStdModuleEx
         module_kwargs.update(dict(
             std_hidden_sizes=hidden_sizes,
             std_hidden_nonlinearity=hidden_nonlinearity,

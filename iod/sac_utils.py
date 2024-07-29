@@ -122,7 +122,7 @@ def update_loss_alpha(
     })
 
 
-def update_targets(algo, tar):
+def update_targets(algo):
     """Update parameters in the target q-functions."""
     target_qfs = [algo.target_qf1, algo.target_qf2]
     qfs = [algo.qf1, algo.qf2]
