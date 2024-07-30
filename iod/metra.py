@@ -235,11 +235,13 @@ class METRA(IOD):
                     buffer_subgoal = self.traj_encoder(v['sub_goal']).mean.detach().cpu().numpy()
                     buffer_state = self.traj_encoder(v['obs']).mean.detach().cpu().numpy()
                     random_options = buffer_subgoal - buffer_state
-                    extras = self._generate_option_extras(random_options, v['sub_goal'].detach().cpu().numpy())  
+                    
+                    noise_std = 1  # 可以根据需要调整
+                    noise = torch.randn(v['sub_goal'].shape) * noise_std
+                    v['sub_goal'] = (v['sub_goal'].detach().cpu() + noise.float()).numpy()
+                    extras = self._generate_option_extras(random_options, v['sub_goal'])  
                     
                 else:
-                    # zeros = np.zeros((random_options.shape[0], 1))
-                    # random_options = np.concatenate([random_options, zeros], axis=1) 
                     extras = self._generate_option_extras(random_options)   
                     
             elif self.method['explore'] == "baseline": 
@@ -379,7 +381,7 @@ class METRA(IOD):
                 masks = (v['options'] - v['options'].mean(dim=1, keepdim=True)) * self.dim_option / (self.dim_option - 1 if self.dim_option != 1 else 1)
                 rewards = (target_z * masks).sum(dim=1)
             else:
-                inner = (target_z * v['options'][:,:-1]).sum(dim=1)
+                inner = (target_z * v['options']).sum(dim=1)
                 rewards = inner
 
             # For dual objectives
@@ -460,7 +462,7 @@ class METRA(IOD):
             self.MaxLenPhi = (self.MaxLenPhi + PhiLen_alpha * (torch.max(phi_s_len) - self.MaxLenPhi)).detach()
             
             # new_reward = (z_start_next * (z_train - (self.MaxLenPhi - phi_s_len) * phi_s_norm)).sum(dim=1)
-            new_reward = (z_start_next_norm * z_train_norm).sum(dim=1) - (self.MaxLenPhi + phi_s_len) * torch.norm(z_start_next, p=2, dim=-1, keepdim=True).squeeze(-1)
+            new_reward = (z_start_next_norm * z_train_norm).sum(dim=1) - ((self.MaxLenPhi + phi_s_len) * torch.norm(z_start_next, p=2, dim=-1, keepdim=True)).squeeze(-1)
             
             ## 【ctb】len_weight:
             # 我想让离final越近的权重越大，离final越远的权重越小；
@@ -601,7 +603,7 @@ class METRA(IOD):
             
             # distance reward: 
             dist_reward = torch.where(dist_theta > distance_next_option.squeeze(-1), 1, 0).float()
-            
+                        
             # RND: exploration reward
             predict_next_feature = self.predict_traj_encoder(v["next_obs"]).mean
             target_next_feature = self.target_traj_encoder(v["next_obs"]).mean.detach()
@@ -621,11 +623,15 @@ class METRA(IOD):
             # goal_reward = ((phi_obs_ - phi_obs) * norm_option).sum(dim=1) + (distance_option - distance_next_option)
             
             # goal_reward = (delta_phi_norm * option_norm).sum(dim=1) * torch.log(1 + torch.clamp(relative_dist_reward, min=1e-2, max=1)) + dist_reward + exp_reward
-            # policy_rewards = goal_reward * self._reward_scale_factor
-
-            phi_s_len = torch.norm(phi_obs, p=2, dim=-1, keepdim=True)
-            goal_reward = (delta_phi_norm * option_norm).sum(dim=1) - (self.MaxLenPhi + phi_s_len) * torch.norm(delta_phi_norm, p=2, dim=-1, keepdim=True).squeeze(-1)
+            
+            goal_reward = (delta_phi_norm * option_norm).sum(dim=1) * torch.log(1 + torch.clamp(relative_dist_reward, min=1e-2, max=1)) + dist_reward + exp_reward
+            
             policy_rewards = goal_reward * self._reward_scale_factor
+
+            # A0
+            # phi_s_len = torch.norm(phi_obs, p=2, dim=-1, keepdim=True)
+            # goal_reward = (delta_phi_norm * option_norm).sum(dim=1) - ((self.MaxLenPhi + phi_s_len) * torch.norm(delta_phi_norm, p=2, dim=-1, keepdim=True)).squeeze(-1) + dist_reward + exp_reward
+            # policy_rewards = goal_reward * self._reward_scale_factor
 
             # ground truth reward:
             distance_xy = torch.norm(v['obs'][:2] - v['sub_goal'][:2], p=2, dim=-1, keepdim=True)
@@ -752,6 +758,8 @@ class METRA(IOD):
             # 2.2 reset the env
             obs = env.reset()  
             obs = torch.tensor(obs).unsqueeze(0).to(self.device).float()
+            target_obs = env.get_target_obs(obs, goals[i])
+            phi_target_obs = self.traj_encoder(target_obs).mean
             phi_obs_ = self.traj_encoder(obs).mean
             Repr_obs_list = []
             Repr_goal_list = []
@@ -765,19 +773,9 @@ class METRA(IOD):
                 # calculate the phi_obs
                 phi_obs = phi_obs_
                 # calculate the option:
-                target_obs = env.get_target_obs(obs, goals[i])
-                phi_target_obs = self.traj_encoder(target_obs).mean
                 option = phi_target_obs - phi_obs 
                 if self.method["eval"] == "norm": 
                     option = option / torch.norm(option, p=2)   
-                # explore or not 
-                # ep = False
-                # if ep == False:    
-                #     zeros = torch.zeros([option.shape[0], 1], dtype=float).to(self.device)
-                #     option = torch.cat([option, zeros], dim=1)
-                # else:
-                #     ones = torch.ones([option.shape[0], 1], dtype=float).to(self.device)
-                #     option = torch.cat([option, ones], dim=1)   
                 obs_option = torch.cat((obs, option), -1).float()
                 # for viz
                 if Pepr_viz:
@@ -803,8 +801,8 @@ class METRA(IOD):
                 delta_phi_obs = phi_obs_ - phi_obs
                 
                 # option_reward and return
-                skill_vec = option[:,:-1]
-                option_reward = (skill_vec * delta_phi_obs).sum()
+                # skill_vec = option[:,:-1]
+                option_reward = (option * delta_phi_obs).sum()
                 option_return_list.append(option_reward.cpu().detach().numpy())
                 gt_reward = - gt_dist / (30 * max_path_length)
                 gt_return_list.append(gt_reward)
@@ -840,7 +838,7 @@ class METRA(IOD):
                         step=runner.step_itr
                     )
         
-        if Pepr_viz:
+        if Pepr_viz and self.dim_option==2:
             PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length)
             print('Repr_Space_traj saved')
 

@@ -293,6 +293,11 @@ class IOD(RLAlgorithm):
             env.draw(ax)
             list_viz_traj = []
             for i in range(len(trajectories)):
+                # plot the subgoal
+                if 'sub_goal' in trajectories[i]['agent_infos'].keys():
+                    sub_goal = trajectories[i]['agent_infos']['sub_goal'][0]
+                    ax.scatter(sub_goal[0], sub_goal[1], s=50, marker='x', alpha=1, edgecolors='black', label='target.'+str(i))
+                # plot the traj
                 viz_traj = {}
                 viz_traj['observation'] = trajectories[i]['observations']
                 viz_traj['info'] = []
