@@ -488,6 +488,7 @@ def run(ctxt=None):
         unit_length=args.unit_length,
         predict_traj_encoder=predict_traj_encoder,
         target_traj_encoder=target_traj_encoder,
+        init_obs=env.reset(),
     )
 
     skill_common_args = dict(
@@ -540,7 +541,7 @@ def run(ctxt=None):
     algo.option_policy.to(device)
 
     runner.train(n_epochs=args.n_epochs, batch_size=args.traj_batch_size)
-
+    
 
 if __name__ == '__main__':
     mp.set_start_method(START_METHOD)

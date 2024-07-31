@@ -383,12 +383,11 @@ class IOD(RLAlgorithm):
             # path_subgoal[split_index_2+1:] = np.tile(path['observations'][-1], (traj_len-1-split_index_2, 1)) 
             
             # data['sub_goal'].append(path_subgoal)
-            
+            data['sub_goal'].append(path["agent_infos"]["sub_goal"])
             # 0718：随机选择subgoal,重采样整段作为subgoal；
             traj_len = len(path['observations'])
-            data['sub_goal'].append(np.tile(path['observations'][-1], (traj_len, 1)))
             if traj_len > 100:
-                subgoal_indices = np.random.choice(traj_len, 3, replace=False)
+                subgoal_indices = np.random.choice(traj_len, 2, replace=False)
                 for j in range(len(subgoal_indices)):
                     subgoal_index = subgoal_indices[j]
                     data['obs'].append(path['observations'][:subgoal_index+1])
