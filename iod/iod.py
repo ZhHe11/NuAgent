@@ -394,6 +394,7 @@ class IOD(RLAlgorithm):
                     data['next_obs'].append(path['next_observations'][:subgoal_index+1])
                     data['actions'].append(path['actions'][:subgoal_index+1])
                     data['rewards'].append(path['rewards'][:subgoal_index+1])
+                    path['dones'][subgoal_index] = 1
                     data['dones'].append(path['dones'][:subgoal_index+1])
                     data['returns'].append(tensor_utils.discount_cumsum(path['rewards'][:subgoal_index+1], self.discount))
                     # 好像用不到这个ori_obs，用[1]列表代替；

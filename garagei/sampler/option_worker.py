@@ -110,10 +110,10 @@ class OptionWorker(DefaultWorker):
                     if 'sub_goal' in self._cur_extras[self._cur_extra_idx].keys():
                         sub_goal = self._cur_extras[self._cur_extra_idx]['sub_goal']
                         traj_encoder = self.agent.traj_encoder.to('cpu')
-                        phi_sub_goal = traj_encoder(torch.tensor(sub_goal)).mean.detach().numpy()
-                        phi_obs = traj_encoder(torch.tensor(self._prev_obs)).mean.detach().numpy()
-                        cur_extra = phi_sub_goal - phi_obs
-                        
+                        phi_sub_goal = traj_encoder(torch.tensor(sub_goal)).mean.detach()
+                        phi_obs = traj_encoder(torch.tensor(self._prev_obs)).mean.detach()
+                        cur_extra = (phi_sub_goal - phi_obs) / (torch.norm((phi_sub_goal - phi_obs), p=2, dim=-1, keepdim=True) + 1e-8)
+                        cur_extra = cur_extra.numpy()
                         # 设置采样概率
                         sampling_probability = 0.5
 
