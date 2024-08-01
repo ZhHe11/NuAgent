@@ -27,6 +27,7 @@ class OptionWorker(DefaultWorker):
         self._cur_extra_keys = set()
         self._render = False
         self._deterministic_policy = None
+        self.z = None
 
     def update_env(self, env_update):
         if env_update is not None:
@@ -105,24 +106,44 @@ class OptionWorker(DefaultWorker):
                     if cur_extra is None:
                         cur_extra = self._prev_extra
                         self._cur_extras[self._cur_extra_idx][cur_extra_key][self._path_length] = cur_extra
-                else:
-                    cur_extra = self._cur_extras[self._cur_extra_idx][cur_extra_key]
-                    if 'sub_goal' in self._cur_extras[self._cur_extra_idx].keys():
-                        sub_goal = self._cur_extras[self._cur_extra_idx]['sub_goal']
-                        traj_encoder = self.agent.traj_encoder.to('cpu')
-                        phi_sub_goal = traj_encoder(torch.tensor(sub_goal)).mean.detach()
-                        phi_obs = traj_encoder(torch.tensor(self._prev_obs)).mean.detach()
-                        cur_extra = (phi_sub_goal - phi_obs) / (torch.norm((phi_sub_goal - phi_obs), p=2, dim=-1, keepdim=True) + 1e-8)
-                        cur_extra = cur_extra.numpy()
-                        # 设置采样概率
-                        sampling_probability = 0.5
+                # else:
+                #     cur_extra = self._cur_extras[self._cur_extra_idx][cur_extra_key]
+                #     if 'sub_goal' in self._cur_extras[self._cur_extra_idx].keys():
+                #         sub_goal = self._cur_extras[self._cur_extra_idx]['sub_goal']
+                #         traj_encoder = self.agent.traj_encoder.to('cpu')
+                #         phi_sub_goal = traj_encoder(torch.tensor(sub_goal)).mean.detach()
+                #         phi_obs = traj_encoder(torch.tensor(self._prev_obs)).mean.detach()
+                #         cur_extra = (phi_sub_goal - phi_obs) / (torch.norm((phi_sub_goal - phi_obs), p=2, dim=-1, keepdim=True) + 1e-8)
+                #         # 设置采样概率
+                #         sampling_probability = 0.5
 
-                        # 决定是否进行随机采样
-                        if np.random.rand() < sampling_probability:
-                            # 进行随机采样，这里假设采样自正态分布，您可以根据需要更改分布类型和参数
-                            cur_extra = np.random.normal(loc=cur_extra, scale=1)  # loc为均值，scale为标准差
+                #         # 决定是否进行随机采样
+                #         if np.random.rand() < sampling_probability:
+                #             # 进行随机采样，这里假设采样自正态分布，您可以根据需要更改分布类型和参数
+                #             cur_extra = np.random.normal(loc=cur_extra, scale=1)  # loc为均值，scale为标准差
 
-                        
+                #         if self.last_z is not None:
+                #             option = self.last_option
+                #             next_option = cur_extra
+                #             distance_next_option = torch.norm(next_option, p=2, dim=-1, keepdim=True)
+                #             distance_option = torch.norm(option, p=2, dim=-1, keepdim=True)
+                #             z_s_next_s = self.vec_norm(phi_obs - self.last_z)
+                #             # relative distance
+                #             dist_theta = 1e-7
+                #             relative_dist_reward = (distance_option - distance_next_option).squeeze(-1)
+                            
+                #             # distance reward: 
+                #             dist_reward = torch.where(dist_theta > distance_option.squeeze(-1), 1, 0).float()
+        
+                #             # final reward:                     
+                #             goal_reward = (z_s_next_s * option).sum(dim=1) * (0.1 + torch.log(1 + torch.clamp(relative_dist_reward, min=1e-2, max=1))) + dist_reward
+                            
+                            
+                            
+                #         self.last_z = phi_obs
+                #         self.last_option = cur_extra 
+                #         cur_extra = cur_extra.numpy()
+
                         
                 agent_input = get_np_concat_obs(
                     self._prev_obs, cur_extra,

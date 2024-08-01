@@ -139,6 +139,10 @@ def get_argparser():
     parser.add_argument('--dual_slack', type=float, default=1e-3)
     parser.add_argument('--dual_dist', type=str, default='one', choices=['l2', 's2_from_s', 'one'])
     parser.add_argument('--dual_lr', type=float, default=None)
+    
+    parser.add_argument('--phi_type', type=str, default=None)
+    parser.add_argument('--policy_type', type=str, default=None)
+    parser.add_argument('--explore_type', type=str, default=None)
 
     return parser
 
@@ -489,6 +493,10 @@ def run(ctxt=None):
         predict_traj_encoder=predict_traj_encoder,
         target_traj_encoder=target_traj_encoder,
         init_obs=env.reset(),
+        phi_type=args.phi_type,
+        policy_type=args.policy_type,
+        explore_type=args.explore_type,
+        
     )
 
     skill_common_args = dict(
