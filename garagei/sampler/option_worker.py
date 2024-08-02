@@ -106,8 +106,8 @@ class OptionWorker(DefaultWorker):
                     if cur_extra is None:
                         cur_extra = self._prev_extra
                         self._cur_extras[self._cur_extra_idx][cur_extra_key][self._path_length] = cur_extra
-                # else:
-                #     cur_extra = self._cur_extras[self._cur_extra_idx][cur_extra_key]
+                else:
+                    cur_extra = self._cur_extras[self._cur_extra_idx][cur_extra_key]
                 #     if 'sub_goal' in self._cur_extras[self._cur_extra_idx].keys():
                 #         sub_goal = self._cur_extras[self._cur_extra_idx]['sub_goal']
                 #         traj_encoder = self.agent.traj_encoder.to('cpu')

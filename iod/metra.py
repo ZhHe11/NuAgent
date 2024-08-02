@@ -121,33 +121,16 @@ class METRA(IOD):
         self.target_qf1 = copy.deepcopy(self.qf1)
         self.target_qf2 = copy.deepcopy(self.qf2)
         
-        
-        '''
-        add a explore policy model
-        '''
-        # self.explore_policy, self.ep_qf1, self.ep_qf2, self.eq_target_qf1, self.eq_target_qf2 \
-        #     = copy_init_policy(self.option_policy, self.qf1, self.qf2)
-        # self.ep_log_alpha = copy.deepcopy(self.log_alpha)
-        
-        # self.param_modules.update(
-        #     ep_qf1=self.qf1,
-        #     ep_qf2=self.qf2,
-        #     ep_log_alpha=self.log_alpha,
-        #     explore_policy=self.explore_policy,
-        # )
-        
+
         '''
         wrapper for agent for online interaction.
         '''
         policy_for_agent = {
             "default_policy": self.option_policy,
             "traj_encoder": self.traj_encoder,
-            "exploration_policy": self.explore_policy,
+            # "exploration_policy": self.explore_policy,
         }
-        
-        self.policy_for_agent = AgentWrapper(
-            policies=policy_for_agent
-        ) 
+        self.policy_for_agent = AgentWrapper(policies=policy_for_agent) 
         
         self.MaxLenPhi = 0
         
@@ -162,10 +145,8 @@ class METRA(IOD):
             'option_policy': self.policy_for_agent,
         }
     
-    
     def vec_norm(self, vec):
         return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
-    
     
     def _get_concat_obs(self, obs, option):
         return get_torch_concat_obs(obs, option)
