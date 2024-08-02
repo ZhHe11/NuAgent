@@ -211,15 +211,6 @@ class METRA(IOD):
             random_options = np.random.randn(runner._train_args.batch_size, self.dim_option)
             if self.unit_length:
                 random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
-            if self.method['explore'] == "explore-one":
-                # becasue We neet explore:0719
-                # 1. use two stage: (explore one, eval zero)
-                ones = np.ones((random_options.shape[0], 1))
-                random_options = np.concatenate([random_options, ones], axis=1)
-            elif self.method['explore'] == "baseline": 
-                # 2. use baseline: (all zero)
-                zeros = np.zeros((random_options.shape[0], 1))
-                random_options = np.concatenate([random_options, zeros], axis=1)            
             extras = self._generate_option_extras(random_options)       # 变成字典的形式；
         
         return dict(
@@ -310,15 +301,15 @@ class METRA(IOD):
     '''
     【loss2】option policy已经SAC算法的loss:
     '''
-    def _optimize_op(self, tensors, internal_vars, ep=False):         # [loss] 对于q和policy的loss
-        self._update_loss_qf(tensors, internal_vars, ep)
+    def _optimize_op(self, tensors, internal_vars):         # [loss] 对于q和policy的loss
+        self._update_loss_qf(tensors, internal_vars)
 
         self._gradient_descent(
             tensors['LossQf1'] + tensors['LossQf2'],
             optimizer_keys=['qf'],
         )
 
-        self._update_loss_op(tensors, internal_vars, ep)
+        self._update_loss_op(tensors, internal_vars)
         self._gradient_descent(
             tensors['LossSacp'],
             optimizer_keys=['option_policy'],
@@ -355,7 +346,7 @@ class METRA(IOD):
                 masks = (v['options'] - v['options'].mean(dim=1, keepdim=True)) * self.dim_option / (self.dim_option - 1 if self.dim_option != 1 else 1)
                 rewards = (target_z * masks).sum(dim=1)
             else:
-                inner = (target_z * v['options'][:,:-1]).sum(dim=1)
+                inner = (target_z * v['options']).sum(dim=1)
                 rewards = inner
 
             # For dual objectives
@@ -523,13 +514,11 @@ class METRA(IOD):
         model: SAC
         reward: doing
     '''
-    def _update_loss_qf(self, tensors, v, ep=False):
+    def _update_loss_qf(self, tensors, v):
 
         # policy_type = "sub_goal_reward"
         # policy_type = "baseline"
         policy_type = self.method["policy"]
-        if ep == True:
-            policy_type = "explore"
         
         if policy_type == "sub_goal_reward":
             '''
@@ -603,18 +592,6 @@ class METRA(IOD):
                 'policy_rewards': policy_rewards.mean(),
             })
             
-        if ep == False:    
-            if option.shape[1] < v['options'].shape[1]:
-                zeros = torch.zeros([option.shape[0], 1], dtype=float).to(self.device)
-                option = torch.cat([option, zeros], dim=1)
-                next_option = torch.cat([next_option, zeros], dim=1)
-            else:
-                option[:,-1] = 0
-                next_option[:,-1] = 0
-        else:
-            option[:,-1] = 1
-            next_option[:,-1] = 1
-            
         processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), option.float())
         next_processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['next_obs']), next_option.float())
         
@@ -637,18 +614,9 @@ class METRA(IOD):
         })
 
 
-    def _update_loss_op(self, tensors, v, ep=False):
+    def _update_loss_op(self, tensors, v):
         option = v['options']
-        if ep == False:    
-            # zeros = torch.zeros([option.shape[0], 1], dtype=float).to(self.device)
-            # option = torch.cat([option, zeros], dim=1)
-            option[:,-1] = 0
-        else:
-            # ones = torch.ones([option.shape[0], 1], dtype=float).to(self.device)
-            # option = torch.cat([option, ones], dim=1)           
-            option[:,-1] = 1
-            
-        processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), option)
+        processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), option.detach())
         sac_utils.update_loss_sacp(
             self, tensors, v,
             obs=processed_cat_obs,
@@ -725,14 +693,6 @@ class METRA(IOD):
                 option = phi_target_obs - phi_obs 
                 if self.method["eval"] == "norm": 
                     option = option / torch.norm(option, p=2)   
-                # explore or not 
-                ep = False
-                if ep == False:    
-                    zeros = torch.zeros([option.shape[0], 1], dtype=float).to(self.device)
-                    option = torch.cat([option, zeros], dim=1)
-                else:
-                    ones = torch.ones([option.shape[0], 1], dtype=float).to(self.device)
-                    option = torch.cat([option, ones], dim=1)   
                 obs_option = torch.cat((obs, option), -1).float()
                 # for viz
                 if Pepr_viz:
@@ -758,7 +718,7 @@ class METRA(IOD):
                 delta_phi_obs = phi_obs_ - phi_obs
                 
                 # option_reward and return
-                skill_vec = option[:,:-1]
+                skill_vec = option
                 option_reward = (skill_vec * delta_phi_obs).sum()
                 option_return_list.append(option_reward.cpu().detach().numpy())
                 gt_reward = - gt_dist / (30 * max_path_length)
