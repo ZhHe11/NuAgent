@@ -21,9 +21,8 @@ import os
 
 # from iod.SAC import *
 
-
-
-
+def vec_norm(vec):
+    return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
 
 '''
 # save the traj. as fig
@@ -128,7 +127,7 @@ class METRA(IOD):
         '''
         
         self.method = {
-            "eval": "no_norm",
+            "eval": "norm",
             # "phi": "her_reward",
             "phi": "baseline",
             # "policy": "sub_goal_reward", 
@@ -275,11 +274,12 @@ class METRA(IOD):
                 v = self._get_mini_tensors(epoch_data)
             else:
                 v = self._sample_replay_buffer()
-
+            
+            self._update_rewards(tensors, v)
             self._optimize_te(tensors, v)
             self._update_rewards(tensors, v)
             self._optimize_op(tensors, v)
-            self._optimize_op(tensors, v, ep=True)
+            # self._optimize_op(tensors, v, ep=True)
             
         return tensors
 
@@ -336,11 +336,20 @@ class METRA(IOD):
     def _update_rewards(self, tensors, v):                      # 【修改】这里修改reward的计算方法；
         obs = v['obs']
         next_obs = v['next_obs']
-
+        
         if self.inner:
             cur_z = self.traj_encoder(obs).mean
             next_z = self.traj_encoder(next_obs).mean
             target_z = next_z - cur_z
+            update_option = True
+            if update_option:
+                goal = v['goal']
+                option = vec_norm(self.traj_encoder(goal).mean - cur_z)
+                next_option = vec_norm(self.traj_encoder(goal).mean - next_z)
+                v.update({
+                    'options': option,
+                    'next_options': next_option,
+                })
 
             if self.discrete == 1:
                 masks = (v['options'] - v['options'].mean(dim=1, keepdim=True)) * self.dim_option / (self.dim_option - 1 if self.dim_option != 1 else 1)
@@ -367,7 +376,7 @@ class METRA(IOD):
             'PureRewardMean': rewards.mean(),
             'PureRewardStd': rewards.std(),
         })
-
+        
         v['rewards'] = rewards
 
     

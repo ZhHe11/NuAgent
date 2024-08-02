@@ -354,7 +354,7 @@ class IOD(RLAlgorithm):
             '''
             # Method 2:
             
-            # data['goal'].append(np.tile(path['observations'][-1], (path['observations'].shape[0], 1)))       # 不知道最后一个需不需要特殊在意，感觉问题不大；
+            data['goal'].append(np.tile(path['observations'][-1], (path['observations'].shape[0], 1)))       # 不知道最后一个需不需要特殊在意，感觉问题不大；
             # traj_len = len(path['observations'])
             # now_index = np.arange(traj_len)
             # random_index = np.random.randint(1, traj_len-1, size=traj_len)
@@ -362,18 +362,18 @@ class IOD(RLAlgorithm):
             # data['sub_goal'].append(path['observations'][future_index])
             
             # 0717: 随机截断，作为subgoal
-            start = 0
-            traj_len = len(path['observations'])
-            min_sub_traj_len = int(traj_len / 5)
-            split_index_1 = np.random.randint(min_sub_traj_len, traj_len - 3*min_sub_traj_len)
-            split_index_2 = np.random.randint(split_index_1 + min_sub_traj_len, traj_len - min_sub_traj_len)
+            # start = 0
+            # traj_len = len(path['observations'])
+            # min_sub_traj_len = int(traj_len / 5)
+            # split_index_1 = np.random.randint(min_sub_traj_len, traj_len - 3*min_sub_traj_len)
+            # split_index_2 = np.random.randint(split_index_1 + min_sub_traj_len, traj_len - min_sub_traj_len)
             
-            path_subgoal = np.zeros(path['observations'].shape)
-            path_subgoal[0:split_index_1+1] = np.tile(path['observations'][split_index_1], (split_index_1+1, 1)) 
-            path_subgoal[split_index_1+1:split_index_2+1] = np.tile(path['observations'][split_index_2], (split_index_2 - split_index_1, 1)) 
-            path_subgoal[split_index_2+1:] = np.tile(path['observations'][-1], (traj_len-1-split_index_2, 1)) 
+            # path_subgoal = np.zeros(path['observations'].shape)
+            # path_subgoal[0:split_index_1+1] = np.tile(path['observations'][split_index_1], (split_index_1+1, 1)) 
+            # path_subgoal[split_index_1+1:split_index_2+1] = np.tile(path['observations'][split_index_2], (split_index_2 - split_index_1, 1)) 
+            # path_subgoal[split_index_2+1:] = np.tile(path['observations'][-1], (traj_len-1-split_index_2, 1)) 
             
-            data['sub_goal'].append(path_subgoal)
+            # data['sub_goal'].append(path_subgoal)
             
             # 0718：随机选择subgoal，但是
             
