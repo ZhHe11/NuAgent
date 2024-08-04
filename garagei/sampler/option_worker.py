@@ -7,6 +7,7 @@ from garage.sampler import DefaultWorker
 from iod.utils import get_np_concat_obs
 
 import torch
+import torch.optim as optim
 
 class OptionWorker(DefaultWorker):
     def __init__(
@@ -81,7 +82,17 @@ class OptionWorker(DefaultWorker):
         self._prev_obs = self.env.reset(**reset_kwargs)
         self._prev_extra = None
 
+
+        '''
+        for psro: find difficult z;
+        '''
+        self.device = 'cuda'
+        self.option_dim = 2
+        self.exp_z = torch.randn((1, self.option_dim), requires_grad=True).to(self.device).detach().clone().requires_grad_(True)
+        self.exp_z_optimizer = optim.Adam([self.exp_z], lr=0.1)
+        
         self.agent.reset()
+        
 
     def step_rollout(self):
         """Take a single time-step in the current rollout.
@@ -108,6 +119,7 @@ class OptionWorker(DefaultWorker):
                         self._cur_extras[self._cur_extra_idx][cur_extra_key][self._path_length] = cur_extra
                 else:
                     cur_extra = self._cur_extras[self._cur_extra_idx][cur_extra_key]
+                    
                 #     if 'sub_goal' in self._cur_extras[self._cur_extra_idx].keys():
                 #         sub_goal = self._cur_extras[self._cur_extra_idx]['sub_goal']
                 #         traj_encoder = self.agent.traj_encoder.to('cpu')
