@@ -126,14 +126,14 @@ class OptionWorker(DefaultWorker):
                 #         phi_sub_goal = traj_encoder(torch.tensor(sub_goal)).mean.detach()
                 #         phi_obs = traj_encoder(torch.tensor(self._prev_obs)).mean.detach()
                 #         cur_extra = (phi_sub_goal - phi_obs) / (torch.norm((phi_sub_goal - phi_obs), p=2, dim=-1, keepdim=True) + 1e-8)
-                #         # 设置采样概率
-                #         sampling_probability = 0.5
+                    # 设置采样概率
+                    # sampling_probability = 0.3
 
-                #         # 决定是否进行随机采样
-                #         if np.random.rand() < sampling_probability:
-                #             # 进行随机采样，这里假设采样自正态分布，您可以根据需要更改分布类型和参数
-                #             cur_extra = np.random.normal(loc=cur_extra, scale=1)  # loc为均值，scale为标准差
-
+                    # 决定是否进行随机采样
+                    # if np.random.rand() < sampling_probability:
+                        # 进行随机采样，这里假设采样自正态分布，您可以根据需要更改分布类型和参数
+                        # cur_extra = np.random.normal(loc=cur_extra, scale=1)  # loc为均值，scale为标准差
+                        # cur_extra = cur_extra / (np.linalg.norm(cur_extra) + 1e-8)
                 #         if self.last_z is not None:
                 #             option = self.last_option
                 #             next_option = cur_extra

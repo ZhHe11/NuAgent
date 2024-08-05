@@ -363,7 +363,7 @@ class IOD(RLAlgorithm):
             '''
             # Method 2:
             
-            # data['goal'].append(np.tile(path['observations'][-1], (path['observations'].shape[0], 1)))       # 不知道最后一个需不需要特殊在意，感觉问题不大；
+            data['sub_goal'].append(np.tile(path['observations'][-1], (path['observations'].shape[0], 1)))       # 不知道最后一个需不需要特殊在意，感觉问题不大；
             # traj_len = len(path['observations'])
             # now_index = np.arange(traj_len)
             # random_index = np.random.randint(1, traj_len-1, size=traj_len)
