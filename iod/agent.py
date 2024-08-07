@@ -25,8 +25,6 @@ class AgentWrapper(object):
                 param_dict[f"exploration_{k}"] = exploration_param_dict[k].detach()
         
         if self.traj_encoder:
-            # traj_encoder_dict = self.traj_encoder.get_param_values()
-            # traj_encoder_dict = OrderedDict((name, param.data) for name, param in self.traj_encoder.named_parameters())
             traj_encoder_dict = self.traj_encoder.state_dict()
             for k in traj_encoder_dict.keys():
                 param_dict[f"traj_encoder_{k}"] = traj_encoder_dict[k].detach()

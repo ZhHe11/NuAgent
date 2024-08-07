@@ -342,9 +342,6 @@ class IOD(RLAlgorithm):
             data['rewards'].append(path['rewards'])
             data['dones'].append(path['dones'])
             data['returns'].append(tensor_utils.discount_cumsum(path['rewards'], self.discount))
-            # 好像用不到这个ori_obs，用[1]列表代替；
-            # data['ori_obs'].append(path['env_infos']['ori_obs'])
-            # data['next_ori_obs'].append(path['env_infos']['next_ori_obs'])
             data['ori_obs'].append(path['observations'])
             data['next_ori_obs'].append(path['next_observations'])
             if 'pre_tanh_value' in path['agent_infos']:
@@ -354,44 +351,18 @@ class IOD(RLAlgorithm):
             if 'option' in path['agent_infos']:
                 data['options'].append(path['agent_infos']['option'])
                 data['next_options'].append(np.concatenate([path['agent_infos']['option'][1:], path['agent_infos']['option'][-1:]], axis=0))
-            '''
-            zhanghe:
-            add goal into the turple;
-            1. random sample from the future traj.;
-            2. using the final one;
-            3. together;
-            '''
-            # Method 2:
-            
-            data['sub_goal'].append(np.tile(path['observations'][-1], (path['observations'].shape[0], 1)))       # 不知道最后一个需不需要特殊在意，感觉问题不大；
-            # traj_len = len(path['observations'])
-            # now_index = np.arange(traj_len)
-            # random_index = np.random.randint(1, traj_len-1, size=traj_len)
-            # future_index = np.minimum(now_index + random_index, traj_len-1)
-            # data['sub_goal'].append(path['observations'][future_index])
-            
-            # 0717: 随机截断，作为subgoal
-            # start = 0
-            # traj_len = len(path['observations'])
-            # min_sub_traj_len = int(traj_len / 5)
-            # split_index_1 = np.random.randint(min_sub_traj_len, traj_len - 3*min_sub_traj_len)
-            # split_index_2 = np.random.randint(split_index_1 + min_sub_traj_len, traj_len - min_sub_traj_len)
-            
-            # path_subgoal = np.zeros(path['observations'].shape)
-            # path_subgoal[0:split_index_1+1] = np.tile(path['observations'][split_index_1], (split_index_1+1, 1)) 
-            # path_subgoal[split_index_1+1:split_index_2+1] = np.tile(path['observations'][split_index_2], (split_index_2 - split_index_1, 1)) 
-            # path_subgoal[split_index_2+1:] = np.tile(path['observations'][-1], (traj_len-1-split_index_2, 1)) 
-            
-            # data['sub_goal'].append(path_subgoal)
             
             if 'sub_goal' in path['agent_infos']:
-                data['sub_goal'].append(path["agent_infos"]["sub_goal"])
-                # 0718：随机选择subgoal,重采样整段作为subgoal；
                 traj_len = len(path['observations'])
+                data['sub_goal'].append(path["agent_infos"]["sub_goal"])
+                index = np.arange(0, traj_len)
+                data['goal_distance'].append(traj_len-1-index)
+                
                 if traj_len > 100:
                     subgoal_indices = np.random.choice(traj_len, 2, replace=False)
                     for j in range(len(subgoal_indices)):
                         subgoal_index = subgoal_indices[j]
+                        data['goal_distance'].append(subgoal_index-index[:subgoal_index+1])
                         data['obs'].append(path['observations'][:subgoal_index+1])
                         data['next_obs'].append(path['next_observations'][:subgoal_index+1])
                         data['actions'].append(path['actions'][:subgoal_index+1])
@@ -399,9 +370,6 @@ class IOD(RLAlgorithm):
                         path['dones'][subgoal_index] = 1
                         data['dones'].append(path['dones'][:subgoal_index+1])
                         data['returns'].append(tensor_utils.discount_cumsum(path['rewards'][:subgoal_index+1], self.discount))
-                        # 好像用不到这个ori_obs，用[1]列表代替；
-                        # data['ori_obs'].append(path['env_infos']['ori_obs'])
-                        # data['next_ori_obs'].append(path['env_infos']['next_ori_obs'])
                         data['ori_obs'].append(path['observations'][:subgoal_index+1])
                         data['next_ori_obs'].append(path['next_observations'][:subgoal_index+1])
                         if 'pre_tanh_value' in path['agent_infos']:
@@ -412,7 +380,10 @@ class IOD(RLAlgorithm):
                             data['options'].append(path['agent_infos']['option'][:subgoal_index+1])
                             data['next_options'].append(np.concatenate([path['agent_infos']['option'][:subgoal_index+1][1:], path['agent_infos']['option'][:subgoal_index+1][-1:]], axis=0))
                         data['sub_goal'].append(np.tile(path['observations'][:subgoal_index+1][-1], (subgoal_index+1, 1)))
-                    
+                        
+            else: 
+                data['sub_goal'].append(np.tile(path['observations'][-1], (path['observations'].shape[0], 1)))
+
                 
             
         return data
