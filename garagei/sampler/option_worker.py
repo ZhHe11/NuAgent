@@ -123,6 +123,7 @@ class OptionWorker(DefaultWorker):
                     if 'sub_goal' in self._cur_extras[self._cur_extra_idx].keys():
                         sub_goal = self._cur_extras[self._cur_extra_idx]['sub_goal']
                         cur_extra = self.agent.gen_z(torch.tensor(sub_goal), torch.tensor(self._prev_obs), device="cpu").numpy()
+                        
                     # 设置采样概率
                     # sampling_probability = 0.3
 

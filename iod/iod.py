@@ -350,43 +350,48 @@ class IOD(RLAlgorithm):
                 data['next_options'].append(np.concatenate([path['agent_infos']['option'][1:], path['agent_infos']['option'][-1:]], axis=0))
             
             if 'sub_goal' in path['agent_infos']:
-                # traj_len = len(path['observations'])
-                # data['sub_goal'].append(path["agent_infos"]["sub_goal"])
-                # index = np.arange(0, traj_len)
-                # data['goal_distance'].append(traj_len-1-index)
-                
                 traj_len = len(path['observations'])
-                path_goal_dist = np.zeros(path['observations'].shape[0])
-                path_subgoal = np.zeros(path['observations'].shape)
-                for t in range(traj_len):
-                    t_pos = np.random.choice(traj_len-t, 1, replace=False)
-                    path_goal_dist[t] = t_pos
-                    path_subgoal[t] = path['observations'][t + t_pos]
-                data['goal_distance'].append(path_goal_dist)
-                data['sub_goal'].append(path_subgoal)
+                data['sub_goal'].append(path["agent_infos"]["sub_goal"])
+                index = np.arange(0, traj_len)
+                data['goal_distance'].append(traj_len-1-index)
+                
+                ## for contrastive positive sample：
+                # traj_len = len(path['observations'])
+                # path_goal_dist = np.zeros(path['observations'].shape[0])
+                # path_subgoal = np.zeros(path['observations'].shape)
+                # for t in range(traj_len):
+                #     t_pos = np.random.choice(traj_len-t, 1, replace=False)
+                #     path_goal_dist[t] = t_pos
+                #     path_subgoal[t] = path['observations'][t + t_pos]
+                # data['goal_distance'].append(path_goal_dist)
+                # data['sub_goal'].append(path_subgoal)
 
-                # if traj_len > 100:
-                #     subgoal_indices = np.random.choice(traj_len, 1, replace=False)
-                #     for j in range(len(subgoal_indices)):
-                #         subgoal_index = subgoal_indices[j]
-                #         data['goal_distance'].append(subgoal_index-index[:subgoal_index+1])
-                #         data['obs'].append(path['observations'][:subgoal_index+1])
-                #         data['next_obs'].append(path['next_observations'][:subgoal_index+1])
-                #         data['actions'].append(path['actions'][:subgoal_index+1])
-                #         data['rewards'].append(path['rewards'][:subgoal_index+1])
-                #         path['dones'][subgoal_index] = 1
-                #         data['dones'].append(path['dones'][:subgoal_index+1])
-                #         data['returns'].append(tensor_utils.discount_cumsum(path['rewards'][:subgoal_index+1], self.discount))
-                #         data['ori_obs'].append(path['observations'][:subgoal_index+1])
-                #         data['next_ori_obs'].append(path['next_observations'][:subgoal_index+1])
-                #         if 'pre_tanh_value' in path['agent_infos']:
-                #             data['pre_tanh_values'].append(path['agent_infos']['pre_tanh_value'][:subgoal_index+1])
-                #         if 'log_prob' in path['agent_infos']:
-                #             data['log_probs'].append(path['agent_infos']['log_prob'][:subgoal_index+1])
-                #         if 'option' in path['agent_infos']:
-                #             data['options'].append(path['agent_infos']['option'][:subgoal_index+1])
-                #             data['next_options'].append(np.concatenate([path['agent_infos']['option'][:subgoal_index+1][1:], path['agent_infos']['option'][:subgoal_index+1][-1:]], axis=0))
-                #         data['sub_goal'].append(np.tile(path['observations'][:subgoal_index+1][-1], (subgoal_index+1, 1)))
+                # for HER resample sub_goal
+                her_resample = False
+                if her_resample:
+                    subgoal_indices = np.random.choice(traj_len, 1, replace=False)
+                    for j in range(len(subgoal_indices)):
+                        subgoal_index = subgoal_indices[j]
+                        data['goal_distance'].append(subgoal_index-index[:subgoal_index+1])
+                        data['obs'].append(path['observations'][:subgoal_index+1])
+                        data['next_obs'].append(path['next_observations'][:subgoal_index+1])
+                        data['actions'].append(path['actions'][:subgoal_index+1])
+                        data['rewards'].append(path['rewards'][:subgoal_index+1])
+                        path['dones'][subgoal_index] = 1
+                        data['dones'].append(path['dones'][:subgoal_index+1])
+                        data['returns'].append(tensor_utils.discount_cumsum(path['rewards'][:subgoal_index+1], self.discount))
+                        data['ori_obs'].append(path['observations'][:subgoal_index+1])
+                        data['next_ori_obs'].append(path['next_observations'][:subgoal_index+1])
+                        if 'pre_tanh_value' in path['agent_infos']:
+                            data['pre_tanh_values'].append(path['agent_infos']['pre_tanh_value'][:subgoal_index+1])
+                        if 'log_prob' in path['agent_infos']:
+                            data['log_probs'].append(path['agent_infos']['log_prob'][:subgoal_index+1])
+                        if 'option' in path['agent_infos']:
+                            data['options'].append(path['agent_infos']['option'][:subgoal_index+1])
+                            data['next_options'].append(np.concatenate([path['agent_infos']['option'][:subgoal_index+1][1:], path['agent_infos']['option'][:subgoal_index+1][-1:]], axis=0))
+                        data['sub_goal'].append(np.tile(path['observations'][:subgoal_index+1][-1], (subgoal_index+1, 1)))
+                 
+                 
                         
             else: 
                 ## sub_goal part:

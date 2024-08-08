@@ -739,16 +739,15 @@ class METRA(IOD):
             print(filepath)
             wandb.log(  
                         {
-                            "test/Average_Return": All_Return_array.mean(),
                             "test/All_GtReturn": All_GtReturn_array.mean(),
                             "Maze_traj": wandb.Image(filepath),
                         },
                         step=runner.step_itr
                     )
         
-        if Pepr_viz and self.dim_option==2:
-            PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length)
-            print('Repr_Space_traj saved')
+            if Pepr_viz and self.dim_option==2:
+                PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length)
+                print('Repr_Space_traj saved')
 
         file_name = 'option_policy.pt'
         torch.save({
