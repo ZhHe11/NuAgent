@@ -227,7 +227,7 @@ class IOD(RLAlgorithm):
                     p.eval()
                 self.traj_encoder.eval()
                 # test process
-                if self.n_epochs_per_eval != 0 and runner.step_itr % self.n_epochs_per_eval == 0:
+                if self.n_epochs_per_eval != 0 and runner.step_itr % self.n_epochs_per_eval == 0 and runner.step_itr != 0:
                     self._evaluate_policy(runner)
 
                 # change mode
@@ -382,12 +382,24 @@ class IOD(RLAlgorithm):
                 #         data['sub_goal'].append(np.tile(path['observations'][:subgoal_index+1][-1], (subgoal_index+1, 1)))
                         
             else: 
-                data['sub_goal'].append(np.tile(path['observations'][-1], (path['observations'].shape[0], 1)))
-                traj_len = len(path['observations'])
-                index = np.arange(0, traj_len)
-                data['goal_distance'].append(traj_len-1-index)
+                ## sub_goal part:
                 
-            
+                ## baseline part
+                # data['sub_goal'].append(np.tile(path['observations'][-1], (path['observations'].shape[0], 1)))
+                # traj_len = len(path['observations'])
+                # index = np.arange(0, traj_len)
+                # data['goal_distance'].append(traj_len-1-index)
+                ## if contrastive:
+                traj_len = len(path['observations'])
+                path_goal_dist = np.zeros(path['observations'].shape[0])
+                path_subgoal = np.zeros(path['observations'].shape)
+                for t in range(traj_len):
+                    t_pos = np.random.choice(traj_len-t, 1, replace=False)
+                    path_goal_dist[t] = t_pos
+                    path_subgoal[t] = path['observations'][t + t_pos]
+                data['goal_distance'].append(path_goal_dist)
+                data['sub_goal'].append(path_subgoal)
+                
         return data
 
 

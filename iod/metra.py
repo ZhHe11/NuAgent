@@ -414,8 +414,8 @@ class METRA(IOD):
         if self.method["phi"] in ['her_reward', 'contrastive']:
             # option_goal_detach = v['option_goal'].detach()
             goal_z = v['goal_z']
-            # discount = 0.99
-            # w = discount ** (v['goal_distance'])
+            discount = 0.99
+            w = discount ** (v['goal_distance'])
             
             # 对比学习的loss应该用矩阵来计算neg的loss；
             
@@ -430,17 +430,17 @@ class METRA(IOD):
             
             ## goal-conditioned contrastive leraning
             ## 有bug，训练的时候neg是0，pos没有上升过；
-            vec_phi_s_s_next = self.vec_norm(phi_s_next - phi_s)
+            vec_phi_s_s_next = phi_s_next - phi_s
             vec_phi_g = goal_z.detach()
-            matrix_s_g = torch.matmul(vec_phi_s_s_next, vec_phi_g.T)
-            vec_diff = (vec_phi_s_s_next * phi_s).sum(dim=1)
-            matrix = (matrix_s_g - vec_diff) / (torch.norm(vec_phi_g - phi_s, p=2, dim=-1, keepdim=True) + 1e-8)
             
+            matrix_s_g = vec_phi_g.unsqueeze(0) - phi_s.unsqueeze(1)
+            matrix_s_g_norm = matrix_s_g / (torch.norm(matrix_s_g, p=2, dim=-1, keepdim=True) + 1e-8)
+            matrix = (vec_phi_s_s_next.unsqueeze(1) * matrix_s_g_norm.detach()).sum(dim=-1)
+                        
             mask_pos = torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
             inner_pos = torch.diag(matrix)
             inner_neg = (matrix * (1 - mask_pos)).sum(dim=1) / (phi_s.shape[0]-1)
-            new_reward = torch.log(F.sigmoid(inner_pos)) + torch.log(1 + 1e-5 - F.sigmoid((inner_neg)))
-            
+            new_reward = w * torch.log(F.sigmoid(inner_pos)) + torch.log(1 + 1e-5 - F.sigmoid((inner_neg)))
             
             ## z-sampled constrastive learnnig 
             # vec_phi_s_s_next = self.vec_norm(phi_s_next - phi_s)
@@ -502,7 +502,10 @@ class METRA(IOD):
             cst_penalty = cst_dist - torch.square(phi_s_next - phi_s).mean(dim=1)        # 这是后面的约束项，约束skill表征的大小；
             cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)             # 限制最大值；trick，如果惩罚项太大，会导致优化困难；
             
-            te_obj = rewards + dual_lam.detach() * cst_penalty                      # 这是最终的loss： reward + 惩罚项；
+            if self.method["phi"] in ['contrastive']:
+                te_obj = rewards + dual_lam.detach() * cst_penalty    
+            else:
+                te_obj = rewards + dual_lam.detach() * cst_penalty                      # 这是最终的loss： reward + 惩罚项；
 
             v.update({
                 'cst_penalty': cst_penalty
