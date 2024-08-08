@@ -2,78 +2,53 @@ import torch
 import torch.nn as nn
 from collections import OrderedDict
 import copy
+import torch
+
 
 class AgentWrapper(object):
     """Wrapper for communicating the agent weights with the sampler."""
 
     def __init__(self, policies):
-        # assert isinstance(policies, dict) and "default_policy" in policies
-        self.default_policy = policies["default_policy"]
-        self.exploration_policy = policies.get("exploration_policy", None)
-        self.traj_encoder = policies.get("traj_encoder", None)
+        for k, v in policies.items():
+            setattr(self, k, v)
+
+    def vec_norm(self, vec):
+        return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
         
+    @torch.no_grad()
+    def gen_z(self, sub_goal, obs, device="cpu", ret_emb: bool = False):
+        traj_encoder = self.target_traj_encoder.to(device)
+        goal_z = traj_encoder(sub_goal).mean
+        target_cur_z = traj_encoder(obs).mean
+
+        z = self.vec_norm(goal_z - target_cur_z)
+        if ret_emb:
+            return z, target_cur_z, goal_z
+        else:
+            return z
         
     def get_param_values(self):
         param_dict = {}
-        default_param_dict = self.default_policy.get_param_values()
-        for k in default_param_dict.keys():
-            param_dict[f"default_{k}"] = default_param_dict[k].detach()
-
-        if self.exploration_policy:
-            exploration_param_dict = self.exploration_policy.get_param_values()
-            for k in exploration_param_dict.keys():
-                param_dict[f"exploration_{k}"] = exploration_param_dict[k].detach()
-        
-        if self.traj_encoder:
-            traj_encoder_dict = self.traj_encoder.state_dict()
-            for k in traj_encoder_dict.keys():
-                param_dict[f"traj_encoder_{k}"] = traj_encoder_dict[k].detach()
+        for k, v in self.__dict__.items():
+            param_dict[k] = v.state_dict() if hasattr(v, "state_dict") else v.get_param_values()
 
         return param_dict
 
     def set_param_values(self, state_dict):
-        default_state_dict = {}
-        exploration_state_dict = {}
-        traj_encoder_dict = {}
-
         for k, v in state_dict.items():
-            k: str
-            if k.startswith("default_"):
-                default_state_dict[k.replace("default_", "", 1)] = v
-            elif k.startswith("exploration_"):
-                exploration_state_dict[k.replace("exploration_", "", 1)] = v
-            elif k.startswith("traj_encoder_"):
-                traj_encoder_dict[k.replace("traj_encoder_", "", 1)] = v
-            else:
-                raise ValueError(f"Unknown key: {k}")
-            
-        self.default_policy.set_param_values(default_state_dict)
-        if self.exploration_policy:
-            self.exploration_policy.set_param_values(exploration_state_dict)
-        if self.traj_encoder:
-            self.traj_encoder.load_state_dict(traj_encoder_dict)
-            # self.traj_encoder.set_param_values(traj_encoder_dict)
+            net = getattr(self, k)
+            net.load_state_dict(v)
 
     def eval(self):
-        self.default_policy.eval()
-        if self.exploration_policy:
-            self.exploration_policy.eval()
-        if self.traj_encoder:
-            self.traj_encoder.eval()
+        for v in self.__dict__.values():
+            v.eval()
 
     def train(self):
-        self.default_policy.train()
-        if self.exploration_policy:
-            self.exploration_policy.train()
-        if self.traj_encoder:
-            self.traj_encoder.train()
+        for v in self.__dict__.values():
+            v.train()
 
     def reset(self):
         self.default_policy.reset()
-        # if self.exploration_policy:
-        #     self.exploration_policy.reset()
-        # if self.traj_encoder:
-        #     self.traj_encoder.reset()
 
 
 

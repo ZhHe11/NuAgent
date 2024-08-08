@@ -75,7 +75,6 @@ class IOD(RLAlgorithm):
             'traj_encoder': self.traj_encoder,
             'option_policy': self.option_policy,
             'dual_lam': self.dual_lam,
-            # 'predict_encoder': 
         }
         if skill_dynamics is not None:
             self.skill_dynamics = skill_dynamics.to(self.device)
@@ -205,7 +204,6 @@ class IOD(RLAlgorithm):
                 # _record_histogram('ExternalUndiscountedReturns', np.asarray(undiscounted_returns))
 
         return np.mean(undiscounted_returns)
-
     
     '''
     核心函数：
@@ -227,7 +225,7 @@ class IOD(RLAlgorithm):
                     p.eval()
                 self.traj_encoder.eval()
                 # test process
-                if self.n_epochs_per_eval != 0 and runner.step_itr % self.n_epochs_per_eval == 0 and runner.step_itr != 0:
+                if self.n_epochs_per_eval != 0 and runner.step_itr % self.n_epochs_per_eval == 0:
                     self._evaluate_policy(runner)
 
                 # change mode
@@ -265,13 +263,12 @@ class IOD(RLAlgorithm):
             batch_size = len(extras)
         policy_sampler_key = sampler_key[6:] if sampler_key.startswith('local_') else sampler_key
         time_get_trajectories = [0.0]
-        
         with MeasureAndAccTime(time_get_trajectories):
             trajectories, infos = runner.obtain_exact_trajectories(
                 runner.step_itr,
                 sampler_key=sampler_key,
                 batch_size=batch_size,
-                agent_update=self._get_policy_param_values(policy_sampler_key),
+                agent_update=self._get_policy_param_values(policy_sampler_key),     # 是option_worker中的self.agent, 使用对应的policy在线交互；
                 env_update=env_update,
                 worker_update=worker_update,
                 extras=extras,
@@ -353,11 +350,21 @@ class IOD(RLAlgorithm):
                 data['next_options'].append(np.concatenate([path['agent_infos']['option'][1:], path['agent_infos']['option'][-1:]], axis=0))
             
             if 'sub_goal' in path['agent_infos']:
-                traj_len = len(path['observations'])
-                data['sub_goal'].append(path["agent_infos"]["sub_goal"])
+                # traj_len = len(path['observations'])
+                # data['sub_goal'].append(path["agent_infos"]["sub_goal"])
                 # index = np.arange(0, traj_len)
                 # data['goal_distance'].append(traj_len-1-index)
                 
+                traj_len = len(path['observations'])
+                path_goal_dist = np.zeros(path['observations'].shape[0])
+                path_subgoal = np.zeros(path['observations'].shape)
+                for t in range(traj_len):
+                    t_pos = np.random.choice(traj_len-t, 1, replace=False)
+                    path_goal_dist[t] = t_pos
+                    path_subgoal[t] = path['observations'][t + t_pos]
+                data['goal_distance'].append(path_goal_dist)
+                data['sub_goal'].append(path_subgoal)
+
                 # if traj_len > 100:
                 #     subgoal_indices = np.random.choice(traj_len, 1, replace=False)
                 #     for j in range(len(subgoal_indices)):
@@ -407,9 +414,9 @@ class IOD(RLAlgorithm):
         param_dict = self.policy[key].get_param_values()
         for k in param_dict.keys():
             if self.sample_cpu:
-                param_dict[k] = param_dict[k].detach().cpu()
+                param_dict[k] = {k: v.detach().cpu() for k, v in param_dict[k].items()}
             else:
-                param_dict[k] = param_dict[k].detach()
+                param_dict[k] = {k: v.detach() for k, v in param_dict[k].items()}
         return param_dict
 
     def _generate_option_extras(self, options, sub_goal=None):

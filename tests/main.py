@@ -143,7 +143,9 @@ def get_argparser():
     parser.add_argument('--phi_type', type=str, default=None)
     parser.add_argument('--policy_type', type=str, default=None)
     parser.add_argument('--explore_type', type=str, default=None)
-
+    
+    parser.add_argument('--is_wandb', type=int, default=0)
+    
     return parser
 
 
@@ -227,9 +229,10 @@ def get_gaussian_module_construction(args,
 
 @wrap_experiment(log_dir=get_log_dir(), name=get_exp_name()[0])
 def run(ctxt=None):
-    wandb_output_dir = get_log_dir()
-    wandb.init(group=args.run_group, name=get_exp_name()[0],
-                config=vars(args), dir=wandb_output_dir)
+    if args.is_wandb:
+        wandb_output_dir = get_log_dir()
+        wandb.init(group=args.run_group, name=get_exp_name()[0],
+                    config=vars(args), dir=wandb_output_dir)
 
     dowel.logger.log('ARGS: ' + str(args))
     if args.n_thread is not None:
@@ -424,19 +427,6 @@ def run(ctxt=None):
         if args.encoder:
             qf2 = with_encoder(qf2)
             
-        predict_traj_encoder = copy.deepcopy(traj_encoder)
-        target_traj_encoder = copy.deepcopy(traj_encoder)
-        for m in predict_traj_encoder.modules():
-            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
-                init.orthogonal_(m.weight, np.sqrt(2))
-                m.bias.data.zero_()
-        for m in target_traj_encoder.modules():
-            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
-                init.orthogonal_(m.weight, np.sqrt(2))
-                m.bias.data.zero_()
-        for param in target_traj_encoder.parameters():
-            param.requires_grad = False
-            
         log_alpha = ParameterModule(torch.Tensor([np.log(args.alpha)]))
         optimizers.update({
             'qf': torch.optim.Adam([
@@ -445,9 +435,6 @@ def run(ctxt=None):
             'log_alpha': torch.optim.Adam([
                 {'params': log_alpha.parameters(), 'lr': _finalize_lr(args.sac_lr_a)},
             ]),
-            'predict_encoder': torch.optim.Adam([
-                {'params': predict_traj_encoder.parameters(), 'lr': _finalize_lr(args.sac_lr_q)},
-            ])
         })
 
     optimizer = OptimizerGroupWrapper(
@@ -490,8 +477,6 @@ def run(ctxt=None):
         discount=args.sac_discount,
         discrete=args.discrete,
         unit_length=args.unit_length,
-        predict_traj_encoder=predict_traj_encoder,
-        target_traj_encoder=target_traj_encoder,
         init_obs=env.reset(),
         phi_type=args.phi_type,
         policy_type=args.policy_type,

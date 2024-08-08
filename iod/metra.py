@@ -11,7 +11,7 @@ import copy
 from iod.utils import get_torch_concat_obs, FigManager, get_option_colors, record_video, draw_2d_gaussians
 
 import matplotlib.pyplot as plt
-from tqdm import trange
+from tqdm import trange, tqdm
 from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze, plot_trajectories, plot_value
 from sklearn.decomposition import PCA
 import matplotlib.cm as cm
@@ -53,9 +53,6 @@ class METRA(IOD):
             dual_dist,
 
             pixel_shape=None,
-                        
-            predict_traj_encoder=None,
-            target_traj_encoder=None,
             
             init_obs=None,
             
@@ -109,15 +106,9 @@ class METRA(IOD):
         }
         
         '''
-        add a inner reward model: RND
+        for updating option;
         '''
         self.target_traj_encoder = copy.deepcopy(self.traj_encoder)
-
-        self.qf1 = qf1.to(self.device)
-        self.qf2 = qf2.to(self.device)
-
-        self.target_qf1 = copy.deepcopy(self.qf1)
-        self.target_qf2 = copy.deepcopy(self.qf2)
         
         '''
         wrapper for agent for online interaction.
@@ -125,6 +116,7 @@ class METRA(IOD):
         policy_for_agent = {
             "default_policy": self.option_policy,
             "traj_encoder": self.traj_encoder,
+            "target_traj_encoder": self.target_traj_encoder,
         }
         self.policy_for_agent = AgentWrapper(policies=policy_for_agent) 
         
@@ -144,6 +136,7 @@ class METRA(IOD):
     
     def _get_concat_obs(self, obs, option):
         return get_torch_concat_obs(obs, option)
+
 
     '''
     For soft-update
@@ -348,7 +341,19 @@ class METRA(IOD):
         )
 
         sac_utils.update_targets(self)
-        
+    
+    @torch.no_grad()
+    def gen_z(self, sub_goal, obs, device="cpu", ret_emb: bool = False):
+        traj_encoder = self.target_traj_encoder.to(device)
+        goal_z = traj_encoder(sub_goal).mean
+        target_cur_z = traj_encoder(obs).mean
+
+        z = self.vec_norm(goal_z - target_cur_z)
+        if ret_emb:
+            return z, target_cur_z, goal_z
+        else:
+            return z
+
     '''
     【3】更新reward；更新option；更新phi_s；
     '''
@@ -356,13 +361,15 @@ class METRA(IOD):
         obs = v['obs']
         next_obs = v['next_obs']
         cur_z = self.traj_encoder(obs).mean
-        next_z = self.traj_encoder(next_obs).mean
+        next_z = self.traj_encoder(next_obs).mean.detach()
 
         if self.method['phi'] in ['soft_update', 'her_reward', 'contrastive']:   
             sub_goal = v['sub_goal']
-            goal_z = self.target_traj_encoder(sub_goal).mean.detach()
             option = v['options']
-            option_goal = self.vec_norm(goal_z - cur_z)
+
+            goal_z = self.target_traj_encoder(sub_goal).mean.detach()
+            target_cur_z = self.target_traj_encoder(obs).mean.detach()
+            option_goal = self.vec_norm(goal_z - target_cur_z)
             option_s_s_next = next_z - cur_z
             ###########################################
             v.update({
@@ -400,7 +407,11 @@ class METRA(IOD):
     
     '''
     【1.1】计算phi函数的loss
-    '''   
+    '''
+    
+    def compute_loss(self):
+        raise NotImplementedError
+   
     def _update_loss_te(self, tensors, v): 
         self._update_rewards(tensors, v)      
         rewards = v['rewards']
@@ -408,8 +419,8 @@ class METRA(IOD):
         next_obs = v['next_obs']
         phi_s = v['cur_z']
         phi_s_next = v['next_z']
-        options = v['options']
         option_s_s_next = v['option_s_s_next']
+        option_goal = v['option_goal']
         
         if self.method["phi"] in ['her_reward', 'contrastive']:
             # option_goal_detach = v['option_goal'].detach()
@@ -460,9 +471,8 @@ class METRA(IOD):
             })
         
         elif self.method["phi"] in ['soft_update']:
-            goal_z = v['goal_z']
-            new_reward = ((phi_s_next.detach() - phi_s) * self.vec_norm(goal_z.detach() - phi_s)).sum(dim=1)
-            rewards = new_reward
+            assert option_s_s_next.shape == option_goal.shape, (option_s_s_next.shape, option_goal.shape)
+            rewards = (option_s_s_next * option_goal).sum(dim=1)
             tensors.update({
                 'next_z_reward': rewards.mean(),
             })
@@ -541,16 +551,17 @@ class METRA(IOD):
     '''
     def _update_loss_qf(self, tensors, v):
         if self.method["policy"] == "her_reward":
-            option = self.vec_norm(v['goal_z'] - v['cur_z']).detach()
-            next_option = self.vec_norm(v['goal_z'] - v['next_z']).detach()
+            option = self.vec_norm(v['option_goal']).detach()
+            next_option = self.vec_norm(v['goal_z'] - v['next_z'])
             
             # arr_reward = torch.where((torch.norm(v['obs'] - v['sub_goal'], p=2, dim=-1, keepdim=True) + 1e-8)< 1e-5, 1, 0).squeeze(-1)
                 
             # 对应的reward
-            goal_reward = ((v['next_z'] - v['cur_z']) * option).sum(dim=1) 
+            assert v['option_s_s_next'].shape == option.shape, (v['option_s_s_next'].shape, option.shape)
+            goal_reward = ((v['option_s_s_next']) * option).sum(dim=1) 
             
             # final reward
-            policy_rewards = goal_reward.detach() * self._reward_scale_factor
+            policy_rewards = goal_reward * self._reward_scale_factor
 
             # update to logs
             tensors.update({
@@ -625,6 +636,7 @@ class METRA(IOD):
     '''
     Evaluation
     '''
+    @torch.no_grad()
     def _evaluate_policy(self, runner):
         '''
         this is for zero-shot task evaluation;
@@ -662,7 +674,8 @@ class METRA(IOD):
         goals = torch.tensor(np.array(goals_list)).to(self.device)
         
         # 2. interact with the env
-        for i in trange(num_eval):
+        progress = tqdm(range(num_eval), desc="Evaluation")
+        for i in progress:
             # 2.1 calculate the goal;
             # goal = env.env.goal_sampler(np_random)
             ax.scatter(goals_list[i][0], goals_list[i][1], s=50, marker='x', alpha=1, edgecolors='black', label='target.'+str(i))
@@ -682,53 +695,36 @@ class METRA(IOD):
             traj_list["info"] = []
             # 2.3 interact loop
             for t in range(max_path_length):
-                # calculate the phi_obs
-                phi_obs = phi_obs_
-                # calculate the option:
-                option = phi_target_obs - phi_obs 
-                option = option / (torch.norm(option, p=2) + 1e-8)
-                print("options:", option)
+                option, phi_obs_, phi_target_obs = self.gen_z(target_obs, obs, device=self.device, ret_emb=True)
                 obs_option = torch.cat((obs, option), -1).float()
                 # for viz
                 if Pepr_viz:
-                    Repr_obs_list.append(phi_obs.cpu().detach().numpy()[0])
-                    Repr_goal_list.append(phi_target_obs.cpu().detach().numpy()[0])
-
+                    Repr_obs_list.append(phi_obs_.cpu().numpy()[0])
+                    Repr_goal_list.append(phi_target_obs.cpu().numpy()[0])
                 # get actions from policy
-
-                action = self.option_policy(obs_option)[1]['mean']
-
+                # action = self.option_policy(obs_option)[1]['mean']
+                action, agent_info = self.option_policy.get_action(obs_option)
                 # interact with the env
-                obs, reward, done, info = env.step(action.cpu().detach().numpy()[0])
+                obs, reward, dones, info = env.step(action)
                 gt_dist = np.linalg.norm(goals[i].cpu() - obs[:2])
-                
                 # for recording traj.2
                 traj_list["observation"].append(obs)
                 info['x'], info['y'] = env.env.get_xy()
                 traj_list["info"].append(info)
-                
                 # calculate the repr phi
                 obs = torch.tensor(obs).unsqueeze(0).to(self.device).float()
-                phi_obs_ = self.traj_encoder(obs).mean
-                delta_phi_obs = phi_obs_ - phi_obs
-                
-                # option_reward and return
-                # skill_vec = option[:,:-1]
-                option_reward = (option * delta_phi_obs).sum()
-                option_return_list.append(option_reward.cpu().detach().numpy())
                 gt_reward = - gt_dist / (30 * max_path_length)
                 gt_return_list.append(gt_reward)
                 
             All_Repr_obs_list.append(Repr_obs_list)
             All_Goal_obs_list.append(Repr_goal_list)
-            All_Return_list.append(option_return_list)
             All_GtReturn_list.append(gt_return_list)
             All_trajs_list.append(traj_list)
+            progress.set_postfix_str(
+                f"gt_ret={sum(gt_return_list):.3f},final_dist={gt_return_list[-1]:.3f}")
             
-        All_Return_array = np.array([np.array(i).sum() for i in All_Return_list])
         All_GtReturn_array = np.array([np.array(i).sum() for i in All_GtReturn_list])
         print(
-            "Average_Return:", All_Return_array.mean(), '\n',
             "All_GtReturn", All_GtReturn_array.mean()
         )
 
