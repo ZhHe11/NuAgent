@@ -248,14 +248,14 @@ class METRA(IOD):
             elif self.method['explore'] == "freeze":
                 init_obs = self.init_obs.cpu().numpy()
                 goals_list = [
-                                [4.7, 0.9],
-                                [0.9, 4.7],
+                                [12.7, 16.5],
+                                [1.1, 12.9],
                                 [4.7, 4.5],
+                                [17.2, 0.9],
+                                [20.2, 20.1],
                                 [4.7, 0.9],
                                 [0.9, 4.7],
-                                [0, 0],
-                                [2.0, 2.0],
-                                [2.0, 0.9]
+                                [5.0, 5.0],
                             ]
                 goals_np = np.array(goals_list)
                 init_obs[:,:2] = goals_np
@@ -358,7 +358,7 @@ class METRA(IOD):
         cur_z = self.traj_encoder(obs).mean
         next_z = self.traj_encoder(next_obs).mean
 
-        if self.method['phi'] in ['soft_update', 'her_reward']:   
+        if self.method['phi'] in ['soft_update', 'her_reward', 'contrastive']:   
             sub_goal = v['sub_goal']
             goal_z = self.target_traj_encoder(sub_goal).mean.detach()
             option = v['options']
@@ -408,27 +408,55 @@ class METRA(IOD):
         next_obs = v['next_obs']
         phi_s = v['cur_z']
         phi_s_next = v['next_z']
+        options = v['options']
         option_s_s_next = v['option_s_s_next']
         
         if self.method["phi"] in ['her_reward', 'contrastive']:
             # option_goal_detach = v['option_goal'].detach()
             goal_z = v['goal_z']
-            discount = 0.99
-            w = discount ** (v['goal_distance'])
+            # discount = 0.99
+            # w = discount ** (v['goal_distance'])
             
+            # 对比学习的loss应该用矩阵来计算neg的loss；
+            
+                        
             # 这里的phi_s_next加detach()
-            inner_s_s_next_pos = w * ((phi_s_next - phi_s) * self.vec_norm(goal_z.detach() - phi_s)).sum(dim=1)
+            # inner_s_s_next_pos = w * ((phi_s_next - phi_s) * self.vec_norm(goal_z.detach() - phi_s)).sum(dim=1)
             
-            goal_z_neg = torch.cat((goal_z[-1:], goal_z[:-1]))
-            inner_s_s_next_neg = ((phi_s_next - phi_s) * self.vec_norm(goal_z_neg.detach() - phi_s)).sum(dim=1)
+            # goal_z_neg = torch.cat((goal_z[-1:], goal_z[:-1]))
+            # inner_s_s_next_neg = ((phi_s_next - phi_s) * self.vec_norm(goal_z_neg.detach() - phi_s)).sum(dim=1)
             
-            new_reward = torch.log(F.sigmoid(inner_s_s_next_pos)) + torch.log(1 - F.sigmoid((inner_s_s_next_neg)))
+            # new_reward = torch.log(F.sigmoid(inner_s_s_next_pos)) + torch.log(1 - F.sigmoid((inner_s_s_next_neg)))
+            
+            ## goal-conditioned contrastive leraning
+            ## 有bug，训练的时候neg是0，pos没有上升过；
+            vec_phi_s_s_next = self.vec_norm(phi_s_next - phi_s)
+            vec_phi_g = goal_z.detach()
+            matrix_s_g = torch.matmul(vec_phi_s_s_next, vec_phi_g.T)
+            vec_diff = (vec_phi_s_s_next * phi_s).sum(dim=1)
+            matrix = (matrix_s_g - vec_diff) / (torch.norm(vec_phi_g - phi_s, p=2, dim=-1, keepdim=True) + 1e-8)
+            
+            mask_pos = torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
+            inner_pos = torch.diag(matrix)
+            inner_neg = (matrix * (1 - mask_pos)).sum(dim=1) / (phi_s.shape[0]-1)
+            new_reward = torch.log(F.sigmoid(inner_pos)) + torch.log(1 + 1e-5 - F.sigmoid((inner_neg)))
+            
+            
+            ## z-sampled constrastive learnnig 
+            # vec_phi_s_s_next = self.vec_norm(phi_s_next - phi_s)
+            
+            # matrix = torch.matmul(vec_phi_s_s_next, options.T)
+            # mask_pos = torch.eye(options.shape[0], options.shape[0]).to(self.device)
+            # inner_pos = w * torch.diag(matrix)
+            # inner_neg = (matrix * (1 - mask_pos)).sum(dim=1) / (options.shape[0]-1)
+            
+            # new_reward = torch.log(F.sigmoid(w * inner_pos)) + torch.log(1 + 1e-5 - F.sigmoid((inner_neg)))
             
             rewards = new_reward
             tensors.update({
                 'next_z_reward': rewards.mean(),
-                'inner_s_s_next_pos': inner_s_s_next_pos.max(),
-                'inner_s_s_next_neg': inner_s_s_next_neg.max(),
+                'inner_s_s_next_pos': inner_pos.mean(),
+                'inner_s_s_next_neg': inner_neg.mean(),
             })
         
         elif self.method["phi"] in ['soft_update']:

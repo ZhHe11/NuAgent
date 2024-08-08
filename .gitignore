@@ -153,7 +153,6 @@ sandbox/
 MUJOCO_LOG.TXT
 *.pkl
 exp
-*.sh
 make_sbatch
 ipynbs
 
