@@ -210,24 +210,21 @@ class METRA(IOD):
             elif self.method['explore'] == 'psro':
                 # 暂时不用，先固定goal得到一定的效果；
                 if self.replay_buffer.n_transitions_stored > 100:
-                #     # find more difficult one;
                     v = self._sample_replay_buffer(batch_size=runner._train_args.batch_size)
                     self.exp_z = v['sub_goal']
-                #     self.exp_z_optimizer.zero_grad()
-                #     option = self.vec_norm(self.traj_encoder(self.exp_z).mean - self.traj_encoder(self.init_obs).mean)
-                #     obs_option = torch.cat((self.init_obs, option), -1).float()
-                #     action = self.option_policy(obs_option)[1]['mean']
-                #     qf_obs_option = self._get_concat_obs(self.option_policy.process_observations(self.init_obs), option)
-                #     q_value = torch.min(self.qf1(qf_obs_option, action), self.qf2(qf_obs_option, action))
-                #     loss = q_value.mean()
-                #     loss.backward()
-                #     self.exp_z_optimizer.step()
-                #     opt_subgoal = self.exp_z.detach().cpu().numpy()
-                #     print("self.option", option)
-                #     v['sub_goal'] = opt_subgoal
-                #     extras = self._generate_option_extras(option, v['sub_goal'])
-                
-                
+                    self.exp_z_optimizer.zero_grad()
+                    option = self.vec_norm(self.target_traj_encoder(self.exp_z).mean - self.target_traj_encoder(self.init_obs).mean)
+                    obs_option = torch.cat((self.init_obs, option), -1).float()
+                    action = self.option_policy(obs_option)[1]['mean']
+                    qf_obs_option = self._get_concat_obs(self.option_policy.process_observations(self.init_obs), option)
+                    q_value = torch.min(self.qf1(qf_obs_option, action), self.qf2(qf_obs_option, action))
+                    loss = q_value.mean()
+                    loss.backward()
+                    self.exp_z_optimizer.step()
+                    opt_subgoal = self.exp_z.detach().cpu().numpy()
+                    print("opt_subgoal", opt_subgoal[:,:2])
+                    v['sub_goal'] = opt_subgoal
+                    extras = self._generate_option_extras(random_options, v['sub_goal'])
                 else:
                     extras = self._generate_option_extras(random_options)  
                 
