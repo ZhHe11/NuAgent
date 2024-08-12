@@ -140,9 +140,11 @@ def get_argparser():
     parser.add_argument('--dual_dist', type=str, default='one', choices=['l2', 's2_from_s', 'one'])
     parser.add_argument('--dual_lr', type=float, default=None)
     
+    # method type    
     parser.add_argument('--phi_type', type=str, default=None)
     parser.add_argument('--policy_type', type=str, default=None)
     parser.add_argument('--explore_type', type=str, default=None)
+    parser.add_argument('--sample_type', type=str, default=None)
     
     parser.add_argument('--is_wandb', type=int, default=0)
     
@@ -481,6 +483,7 @@ def run(ctxt=None):
         phi_type=args.phi_type,
         policy_type=args.policy_type,
         explore_type=args.explore_type,
+        sample_type=args.sample_type,
         
     )
 

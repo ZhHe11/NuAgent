@@ -122,7 +122,10 @@ class METRA(IOD):
         
         self.MaxLenPhi = 0
         
+        # for psro:
         self.init_obs = torch.tensor(init_obs).unsqueeze(0).expand(8, -1).to(self.device)
+        self.exp_z = torch.randn((8, self._skill_dynamics_obs_dim), requires_grad=True).to(self.device).detach().clone().requires_grad_(True)
+        self.exp_z_optimizer = optim.Adam([self.exp_z], lr=0.1)        
         
         
     @property
@@ -192,9 +195,9 @@ class METRA(IOD):
             if self.method['explore'] == 'buffer_explore':
                 if self.replay_buffer.n_transitions_stored > 100:
                     v = self._sample_replay_buffer(batch_size=runner._train_args.batch_size)
-                    buffer_subgoal = self.traj_encoder(v['sub_goal']).mean.detach().cpu().numpy()
-                    buffer_state = self.traj_encoder(v['obs']).mean.detach().cpu().numpy()
-                    random_options = self.vec_norm(buffer_subgoal - buffer_state)
+                    buffer_subgoal = self.traj_encoder(v['sub_goal']).mean.detach()
+                    buffer_state = self.traj_encoder(v['obs']).mean.detach()
+                    random_options = self.vec_norm(buffer_subgoal - buffer_state).cpu().numpy()
                     
                     noise_std = 1  # 可以根据需要调整
                     noise = torch.randn(v['sub_goal'].shape) * noise_std
@@ -202,27 +205,14 @@ class METRA(IOD):
                     extras = self._generate_option_extras(random_options, v['sub_goal'])  
                     
                 else:
-                    init_obs = self.init_obs.cpu().numpy()
-                    goals_list = [
-                                    [4.7, 0.9],
-                                    [0.9, 4.7],
-                                    [4.7, 4.5],
-                                    [4.7, 0.9],
-                                    [0.9, 4.7],
-                                    [0, 0],
-                                    [2.0, 2.0],
-                                    [2.0, 0.9]
-                                ]
-                    goals_np = np.array(goals_list)
-                    init_obs[:,:2] = goals_np 
-                    extras = self._generate_option_extras(random_options, init_obs)
+                    extras = self._generate_option_extras(random_options)  
 
             elif self.method['explore'] == 'psro':
                 # 暂时不用，先固定goal得到一定的效果；
-                # if self.replay_buffer.n_transitions_stored > 100:
+                if self.replay_buffer.n_transitions_stored > 100:
                 #     # find more difficult one;
-                #     v = self._sample_replay_buffer(batch_size=runner._train_args.batch_size)
-                #     self.exp_z = v['sub_goal']
+                    v = self._sample_replay_buffer(batch_size=runner._train_args.batch_size)
+                    self.exp_z = v['sub_goal']
                 #     self.exp_z_optimizer.zero_grad()
                 #     option = self.vec_norm(self.traj_encoder(self.exp_z).mean - self.traj_encoder(self.init_obs).mean)
                 #     obs_option = torch.cat((self.init_obs, option), -1).float()
@@ -236,7 +226,10 @@ class METRA(IOD):
                 #     print("self.option", option)
                 #     v['sub_goal'] = opt_subgoal
                 #     extras = self._generate_option_extras(option, v['sub_goal'])
-                pass
+                
+                
+                else:
+                    extras = self._generate_option_extras(random_options)  
                 
             elif self.method['explore'] == "freeze":
                 init_obs = self.init_obs.cpu().numpy()
@@ -253,7 +246,11 @@ class METRA(IOD):
                 goals_np = np.array(goals_list)
                 init_obs[:,:2] = goals_np
                 extras = self._generate_option_extras(random_options, init_obs)
+            
+            # elif self.method['explore'] == '':
                 
+            
+            
             elif self.method['explore'] == "baseline": 
                 extras = self._generate_option_extras(random_options)      # 变成字典的形式；
             
@@ -361,7 +358,7 @@ class METRA(IOD):
         obs = v['obs']
         next_obs = v['next_obs']
         cur_z = self.traj_encoder(obs).mean
-        next_z = self.traj_encoder(next_obs).mean.detach()
+        next_z = self.traj_encoder(next_obs).mean               # 试试不detach
 
         if self.method['phi'] in ['soft_update', 'her_reward', 'contrastive']:   
             sub_goal = v['sub_goal']
@@ -369,7 +366,9 @@ class METRA(IOD):
 
             goal_z = self.target_traj_encoder(sub_goal).mean.detach()
             target_cur_z = self.target_traj_encoder(obs).mean.detach()
+            target_next_z = self.target_traj_encoder(next_obs).mean.detach()
             option_goal = self.vec_norm(goal_z - target_cur_z)
+            next_option_goal = self.vec_norm(goal_z - target_next_z)
             option_s_s_next = next_z - cur_z
             ###########################################
             v.update({
@@ -378,9 +377,11 @@ class METRA(IOD):
                 'goal_z': goal_z,
                 'options': option,                      # 是online采样时候用的option；
                 'option_goal': option_goal,             # 是phi_sub_g - phi_s / norm()
-                'option_s_s_next': option_s_s_next      # 是phi_s_next - phi_s
+                'option_s_s_next': option_s_s_next,     # 是phi_s_next - phi_s
+                'next_option_goal': next_option_goal,   # 为了输入next_option
             })
             ###########################################
+            
         else:
             option_s_s_next = next_z - cur_z
             option = v['options']
@@ -422,46 +423,25 @@ class METRA(IOD):
         option_s_s_next = v['option_s_s_next']
         option_goal = v['option_goal']
         
-        if self.method["phi"] in ['her_reward', 'contrastive']:
+        if self.method["phi"] in ['contrastive']:
             # option_goal_detach = v['option_goal'].detach()
-            goal_z = v['goal_z']
-            discount = 0.99
-            w = discount ** (v['goal_distance'])
-            
-            # 对比学习的loss应该用矩阵来计算neg的loss；
-            
-                        
-            # 这里的phi_s_next加detach()
-            # inner_s_s_next_pos = w * ((phi_s_next - phi_s) * self.vec_norm(goal_z.detach() - phi_s)).sum(dim=1)
-            
-            # goal_z_neg = torch.cat((goal_z[-1:], goal_z[:-1]))
-            # inner_s_s_next_neg = ((phi_s_next - phi_s) * self.vec_norm(goal_z_neg.detach() - phi_s)).sum(dim=1)
-            
-            # new_reward = torch.log(F.sigmoid(inner_s_s_next_pos)) + torch.log(1 - F.sigmoid((inner_s_s_next_neg)))
+            samples = self.traj_encoder(v['pos_sample']).mean
+            discount = 0.9
+            w = discount ** (v['pos_sample_distance'])
             
             ## goal-conditioned contrastive leraning
             ## 有bug，训练的时候neg是0，pos没有上升过；
             vec_phi_s_s_next = phi_s_next - phi_s
-            vec_phi_g = goal_z.detach()
+            vec_phi_sample = samples
             
-            matrix_s_g = vec_phi_g.unsqueeze(0) - phi_s.unsqueeze(1)
-            matrix_s_g_norm = matrix_s_g / (torch.norm(matrix_s_g, p=2, dim=-1, keepdim=True) + 1e-8)
-            matrix = (vec_phi_s_s_next.unsqueeze(1) * matrix_s_g_norm.detach()).sum(dim=-1)
+            matrix_s_sample = vec_phi_sample.unsqueeze(0) - phi_s.unsqueeze(1)
+            matrix_s_sp_norm = matrix_s_sample / (torch.norm(matrix_s_sample, p=2, dim=-1, keepdim=True) + 1e-8)
+            matrix = (vec_phi_s_s_next.unsqueeze(1) * matrix_s_sp_norm).sum(dim=-1)
                         
             mask_pos = torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
             inner_pos = torch.diag(matrix)
             inner_neg = (matrix * (1 - mask_pos)).sum(dim=1) / (phi_s.shape[0]-1)
-            new_reward = w * torch.log(F.sigmoid(inner_pos)) + torch.log(1 + 1e-5 - F.sigmoid((inner_neg)))
-            
-            ## z-sampled constrastive learnnig 
-            # vec_phi_s_s_next = self.vec_norm(phi_s_next - phi_s)
-            
-            # matrix = torch.matmul(vec_phi_s_s_next, options.T)
-            # mask_pos = torch.eye(options.shape[0], options.shape[0]).to(self.device)
-            # inner_pos = w * torch.diag(matrix)
-            # inner_neg = (matrix * (1 - mask_pos)).sum(dim=1) / (options.shape[0]-1)
-            
-            # new_reward = torch.log(F.sigmoid(w * inner_pos)) + torch.log(1 + 1e-5 - F.sigmoid((inner_neg)))
+            new_reward = w * torch.log(F.sigmoid(inner_pos)) + w * torch.log(1 - F.sigmoid((inner_neg)))
             
             rewards = new_reward
             tensors.update({
@@ -550,9 +530,9 @@ class METRA(IOD):
     【2.1】计算qf的reward
     '''
     def _update_loss_qf(self, tensors, v):
-        if self.method["policy"] == "her_reward":
-            option = self.vec_norm(v['option_goal']).detach()
-            next_option = self.vec_norm(v['goal_z'] - v['next_z'])
+        if self.method["policy"] in ['her_reward']:
+            option = v['option_goal']
+            next_option = v['next_option_goal']
             
             # arr_reward = torch.where((torch.norm(v['obs'] - v['sub_goal'], p=2, dim=-1, keepdim=True) + 1e-8)< 1e-5, 1, 0).squeeze(-1)
                 
@@ -566,13 +546,13 @@ class METRA(IOD):
             # update to logs
             tensors.update({
                 'policy_rewards': policy_rewards.mean(),
-                'goal_reward': goal_reward.mean(),
+                'norm_option_s_s_next': torch.norm(v['option_s_s_next'], p=2, dim=-1).mean(),
             })
         
         else: # basline
-            option = v['options'].detach()
-            next_option = v['next_options'].detach()
-            policy_rewards = v['rewards'].detach() * self._reward_scale_factor
+            option = v['options']
+            next_option = v['next_options']
+            policy_rewards = v['rewards'] * self._reward_scale_factor
             tensors.update({
                 'policy_rewards': policy_rewards.mean(),
             })
@@ -721,7 +701,7 @@ class METRA(IOD):
             All_GtReturn_list.append(gt_return_list)
             All_trajs_list.append(traj_list)
             progress.set_postfix_str(
-                f"gt_ret={sum(gt_return_list):.3f},final_dist={gt_return_list[-1]:.3f}")
+                f"gt_ret={sum(gt_return_list):.3f},final_dist={gt_dist:.3f}")
             
         All_GtReturn_array = np.array([np.array(i).sum() for i in All_GtReturn_list])
         print(
