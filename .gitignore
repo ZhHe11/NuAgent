@@ -153,7 +153,6 @@ sandbox/
 MUJOCO_LOG.TXT
 *.pkl
 exp
-*.sh
 make_sbatch
 ipynbs
 
@@ -163,3 +162,7 @@ ipynbs
 .vscode
 __pycache__
 tests/videos
+d4rl
+*.pth
+*.pt
+

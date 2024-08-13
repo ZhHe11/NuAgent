@@ -13,6 +13,12 @@ from garagei import log_performance_ex
 from garagei.torch.optimizers.optimizer_group_wrapper import OptimizerGroupWrapper
 from garagei.torch.utils import compute_total_norm
 from iod.utils import MeasureAndAccTime
+import wandb
+
+
+from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze, plot_trajectories, plot_value
+import matplotlib.pyplot as plt
+import os
 
 
 class IOD(RLAlgorithm):
@@ -53,6 +59,7 @@ class IOD(RLAlgorithm):
             trans_optimization_epochs=None,
             discrete=False,
             unit_length=False,
+            sample_type=None,
     ):
         self.env_name = env_name
         self.algo = algo
@@ -116,6 +123,7 @@ class IOD(RLAlgorithm):
         self.unit_length = unit_length
 
         self.traj_encoder.eval()
+        self.sample_type=sample_type
 
     @property
     def policy(self):
@@ -148,45 +156,60 @@ class IOD(RLAlgorithm):
         discounted_returns = performence['discounted_returns']
         undiscounted_returns = performence['undiscounted_returns']
 
-        if logging_enabled:
-            prefix_tabular = global_context.get_metric_prefix()
-            with dowel_wrapper.get_tabular().prefix(prefix_tabular + self.name + '/'), dowel_wrapper.get_tabular(
-                    'plot').prefix(prefix_tabular + self.name + '/'):
-                def _record_scalar(key, val):
-                    dowel_wrapper.get_tabular().record(key, val)
+        train_log = {}
+        if (runner.step_itr + 1) % self.n_epochs_per_log == 0:
+            for k in tensors.keys():
+                if tensors[k].numel() == 1:
+                    train_log[k] = tensors[k].item()
+                else:
+                    train_log[k] = np.array2string(tensors[k].detach().cpu().numpy(), suppress_small=True)
+            
+            if wandb.run is not None:
+                wandb.log(tensors, step=runner.step_itr)
 
-                def _record_histogram(key, val):
-                    dowel_wrapper.get_tabular('plot').record(key, Histogram(val))
+        # if logging_enabled:
+        #     prefix_tabular = global_context.get_metric_prefix()
+        #     with dowel_wrapper.get_tabular().prefix(prefix_tabular + self.name + '/'), dowel_wrapper.get_tabular(
+        #             'plot').prefix(prefix_tabular + self.name + '/'):
+        #         def _record_scalar(key, val):
+        #             dowel_wrapper.get_tabular().record(key, val)
 
-                for k in tensors.keys():
-                    if tensors[k].numel() == 1:
-                        _record_scalar(f'{k}', tensors[k].item())
-                    else:
-                        _record_scalar(f'{k}', np.array2string(tensors[k].detach().cpu().numpy(), suppress_small=True))
-                with torch.no_grad():
-                    total_norm = compute_total_norm(self.all_parameters())
-                    _record_scalar('TotalGradNormAll', total_norm.item())
-                    for key, module in self.param_modules.items():
-                        total_norm = compute_total_norm(module.parameters())
-                        _record_scalar(f'TotalGradNorm{key.replace("_", " ").title().replace(" ", "")}', total_norm.item())
-                for k, v in extra_scalar_metrics.items():
-                    _record_scalar(k, v)
-                _record_scalar('TimeComputingMetrics', time_computing_metrics[0])
-                _record_scalar('TimeTraining', time_training[0])
+        #         def _record_histogram(key, val):
+        #             dowel_wrapper.get_tabular('plot').record(key, Histogram(val))
 
-                path_lengths = [
-                    len(path['actions'])
-                    for path in paths
-                ]
-                _record_scalar('PathLengthMean', np.mean(path_lengths))
-                _record_scalar('PathLengthMax', np.max(path_lengths))
-                _record_scalar('PathLengthMin', np.min(path_lengths))
+        #         for k in tensors.keys():
+        #             if tensors[k].numel() == 1:
+        #                 _record_scalar(f'{k}', tensors[k].item())
+        #             else:
+        #                 _record_scalar(f'{k}', np.array2string(tensors[k].detach().cpu().numpy(), suppress_small=True))
+                
+                # with torch.no_grad():
+                #     total_norm = compute_total_norm(self.all_parameters())
+                #     _record_scalar('TotalGradNormAll', total_norm.item())
+                #     for key, module in self.param_modules.items():
+                #         total_norm = compute_total_norm(module.parameters())
+                #         _record_scalar(f'TotalGradNorm{key.replace("_", " ").title().replace(" ", "")}', total_norm.item())
+                # for k, v in extra_scalar_metrics.items():
+                    # _record_scalar(k, v)
+                # _record_scalar('TimeComputingMetrics', time_computing_metrics[0])
+                # _record_scalar('TimeTraining', time_training[0])
 
-                _record_histogram('ExternalDiscountedReturns', np.asarray(discounted_returns))
-                _record_histogram('ExternalUndiscountedReturns', np.asarray(undiscounted_returns))
+                # path_lengths = [
+                #     len(path['actions'])
+                #     for path in paths
+                # ]
+                # _record_scalar('PathLengthMean', np.mean(path_lengths))
+                # _record_scalar('PathLengthMax', np.max(path_lengths))
+                # _record_scalar('PathLengthMin', np.min(path_lengths))
+
+                # _record_histogram('ExternalDiscountedReturns', np.asarray(discounted_returns))
+                # _record_histogram('ExternalUndiscountedReturns', np.asarray(undiscounted_returns))
 
         return np.mean(undiscounted_returns)
-
+    
+    '''
+    核心函数：
+    '''
     def train(self, runner):
         last_return = None
 
@@ -199,17 +222,19 @@ class IOD(RLAlgorithm):
                     pkl_update_period=self.n_epochs_per_pkl_update,
                     new_save_period=self.n_epochs_per_save,
             ):
+                # change mode
                 for p in self.policy.values():
                     p.eval()
                 self.traj_encoder.eval()
-
-                if self.n_epochs_per_eval != 0 and runner.step_itr % self.n_epochs_per_eval == 0:
+                # test process
+                if self.n_epochs_per_eval != 0 and runner.step_itr % self.n_epochs_per_eval == 0 and runner.step_itr != 0:
                     self._evaluate_policy(runner)
 
+                # change mode
                 for p in self.policy.values():
                     p.train()
                 self.traj_encoder.train()
-
+                # train process
                 for _ in range(self._num_train_per_epoch):
                     time_sampling = [0.0]
                     with MeasureAndAccTime(time_sampling):
@@ -226,7 +251,8 @@ class IOD(RLAlgorithm):
                 runner.step_itr += 1
 
         return last_return
-
+    
+    # 在得到option之后的具体采样
     def _get_trajectories(self,
                           runner,
                           sampler_key,
@@ -244,7 +270,7 @@ class IOD(RLAlgorithm):
                 runner.step_itr,
                 sampler_key=sampler_key,
                 batch_size=batch_size,
-                agent_update=self._get_policy_param_values(policy_sampler_key),
+                agent_update=self._get_policy_param_values(policy_sampler_key),     # 是option_worker中的self.agent, 使用对应的policy在线交互；
                 env_update=env_update,
                 worker_update=worker_update,
                 extras=extras,
@@ -256,9 +282,39 @@ class IOD(RLAlgorithm):
             for key in ['ori_obs', 'next_ori_obs', 'coordinates', 'next_coordinates']:
                 if key not in traj['env_infos']:
                     continue
-
+                
+        '''
+        plot training traj
+        '''
+        if (runner.step_itr + 2) % self.n_epochs_per_log == 0 and wandb.run is not None:
+            fig, ax = plt.subplots()
+            env = runner._env
+            env.draw(ax)
+            list_viz_traj = []
+            for i in range(len(trajectories)):
+                # plot the subgoal
+                if 'sub_goal' in trajectories[i]['agent_infos'].keys():
+                    sub_goal = trajectories[i]['agent_infos']['sub_goal'][0]
+                    ax.scatter(sub_goal[0], sub_goal[1], s=50, marker='x', alpha=1, edgecolors='black', label='target.'+str(i))
+                # plot the traj
+                viz_traj = {}
+                viz_traj['observation'] = trajectories[i]['observations']
+                viz_traj['info'] = []
+                for j in range(len(trajectories[i]['observations'])):
+                    viz_traj['info'].append({'x':viz_traj['observation'][j][0], 'y':viz_traj['observation'][j][1]})
+                list_viz_traj.append(viz_traj)
+            plot_trajectories(env, list_viz_traj, fig, ax)
+            ax.legend(loc='lower right')
+            path = wandb.run.dir
+            filepath = os.path.join(path, "train_Maze_traj.png")
+            print(filepath)
+            plt.savefig(filepath) 
+            wandb.log(({"train_Maze_traj": wandb.Image(filepath)}), step=runner.step_itr)
+            
         return trajectories
 
+
+    # 【训练步骤1：采样】得到训练轨迹，先得到option，然后再采样；
     def _get_train_trajectories(self, runner):
         default_kwargs = dict(
             runner=runner,
@@ -271,21 +327,22 @@ class IOD(RLAlgorithm):
         )
         kwargs = dict(default_kwargs, **self._get_train_trajectories_kwargs(runner))    # 在这里设置生成options
 
-        paths = self._get_trajectories(**kwargs)        # 在这里sample trajectories
+        paths = self._get_trajectories(**kwargs)        # 在这里用计算得到的options来 sample trajectories
 
         return paths
 
     def process_samples(self, paths):       # 【修改】我需要再这里做修改，修改buffer的训练元组；
         data = defaultdict(list)
-        for path in paths:                  # 【效率】一条一条处理，不知道能不能向量化？变成tensor按照矩阵处理？
+        for i in range(len(paths)):                  # 【效率】一条一条处理，不知道能不能向量化？变成tensor按照矩阵处理？
+            path = paths[i]
             data['obs'].append(path['observations'])
             data['next_obs'].append(path['next_observations'])
             data['actions'].append(path['actions'])
             data['rewards'].append(path['rewards'])
             data['dones'].append(path['dones'])
             data['returns'].append(tensor_utils.discount_cumsum(path['rewards'], self.discount))
-            data['ori_obs'].append(path['env_infos']['ori_obs'])
-            data['next_ori_obs'].append(path['env_infos']['next_ori_obs'])
+            data['ori_obs'].append(path['observations'])
+            data['next_ori_obs'].append(path['next_observations'])
             if 'pre_tanh_value' in path['agent_infos']:
                 data['pre_tanh_values'].append(path['agent_infos']['pre_tanh_value'])
             if 'log_prob' in path['agent_infos']:
@@ -293,29 +350,89 @@ class IOD(RLAlgorithm):
             if 'option' in path['agent_infos']:
                 data['options'].append(path['agent_infos']['option'])
                 data['next_options'].append(np.concatenate([path['agent_infos']['option'][1:], path['agent_infos']['option'][-1:]], axis=0))
-            '''
-            zhanghe:
-            add goal into the turple;
-            1. random sample from the future traj.;
-            2. using the final one;
-            3. together;
-            '''
-            # Method 2:
-            data['goal'].append(np.tile(path['observations'][-1], (path['observations'].shape[0], 1)))       # 不知道最后一个需不需要特殊在意，感觉问题不大；
-
+            
+            traj_len = len(path['observations'])
+            index = np.arange(0, traj_len)
+            ## use sub_goal from path; if not exist, use the last one as subgoal;
+            if 'sub_goal' in path['agent_infos']:
+                traj_len = len(path['observations'])
+                data['sub_goal'].append(path["agent_infos"]["sub_goal"])
+                data['goal_distance'].append(traj_len-1-index)
+            else:
+                traj_len = len(path['observations'])
+                path_goal_dist = np.zeros(path['observations'].shape[0])
+                path_subgoal = np.zeros(path['observations'].shape)
+                for t in range(traj_len):
+                    t_pos = np.random.choice(traj_len-t, 1, replace=False)
+                    path_goal_dist[t] = t_pos
+                    path_subgoal[t] = path['observations'][t + t_pos]
+                data['goal_distance'].append(path_goal_dist)
+                data['sub_goal'].append(path_subgoal)
+    
+    
+            ## for contrastive positive sample：
+            if self.sample_type in ['contrastive']:
+                traj_len = len(path['observations'])
+                path_goal_dist = np.zeros(path['observations'].shape[0])
+                path_subgoal = np.zeros(path['observations'].shape)
+                for t in range(traj_len):
+                    t_pos = np.random.choice(traj_len-t, 1, replace=False)
+                    path_goal_dist[t] = t_pos
+                    path_subgoal[t] = path['observations'][t + t_pos]
+                data['pos_sample_distance'].append(path_goal_dist)
+                data['pos_sample'].append(path_subgoal)
+    
+    
+            ## for HER resample sub_goal:
+            if self.sample_type in ['her_reward', 'contrastive']:
+                subgoal_indices = np.random.choice(traj_len, 1, replace=False)
+                for j in range(len(subgoal_indices)):
+                    subgoal_index = subgoal_indices[j]
+                    data['goal_distance'].append(subgoal_index-index[:subgoal_index+1])
+                    data['obs'].append(path['observations'][:subgoal_index+1])
+                    data['next_obs'].append(path['next_observations'][:subgoal_index+1])
+                    data['actions'].append(path['actions'][:subgoal_index+1])
+                    data['rewards'].append(path['rewards'][:subgoal_index+1])
+                    path['dones'][subgoal_index] = 1
+                    data['dones'].append(path['dones'][:subgoal_index+1])
+                    data['returns'].append(tensor_utils.discount_cumsum(path['rewards'][:subgoal_index+1], self.discount))
+                    data['ori_obs'].append(path['observations'][:subgoal_index+1])
+                    data['next_ori_obs'].append(path['next_observations'][:subgoal_index+1])
+                    if 'pre_tanh_value' in path['agent_infos']:
+                        data['pre_tanh_values'].append(path['agent_infos']['pre_tanh_value'][:subgoal_index+1])
+                    if 'log_prob' in path['agent_infos']:
+                        data['log_probs'].append(path['agent_infos']['log_prob'][:subgoal_index+1])
+                    if 'option' in path['agent_infos']:
+                        data['options'].append(path['agent_infos']['option'][:subgoal_index+1])
+                        data['next_options'].append(np.concatenate([path['agent_infos']['option'][:subgoal_index+1][1:], path['agent_infos']['option'][:subgoal_index+1][-1:]], axis=0))
+                    if self.sample_type in ['contrastive']:
+                        data['pos_sample_distance'].append(data['pos_sample_distance'][0][:subgoal_index+1])
+                        data['pos_sample'].append(data['pos_sample'][0][:subgoal_index+1])
+                    data['sub_goal'].append(np.tile(path['observations'][:subgoal_index+1][-1], (subgoal_index+1, 1)))
+                 
         return data
+
 
     def _get_policy_param_values(self, key):
         param_dict = self.policy[key].get_param_values()
         for k in param_dict.keys():
             if self.sample_cpu:
-                param_dict[k] = param_dict[k].detach().cpu()
+                param_dict[k] = {k: v.detach().cpu() for k, v in param_dict[k].items()}
             else:
-                param_dict[k] = param_dict[k].detach()
+                param_dict[k] = {k: v.detach() for k, v in param_dict[k].items()}
         return param_dict
 
-    def _generate_option_extras(self, options):
-        return [{'option': option} for option in options]
+    def _generate_option_extras(self, options, sub_goal=None, phi_sub_goal=None):
+        extras = [{"option": option, "exploration_type": 0} for option in options]
+        if sub_goal is not None:
+            for i in range(len(sub_goal)):
+                extras[i]["sub_goal"] = sub_goal[i]
+        
+        if phi_sub_goal is not None:
+            for i in range(len(sub_goal)):
+                extras[i]["phi_sub_goal"] = phi_sub_goal[i]
+                
+        return extras
 
     def _gradient_descent(self, loss, optimizer_keys):
         self._optimizer.zero_grad(keys=optimizer_keys)

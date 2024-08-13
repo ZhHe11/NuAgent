@@ -16,6 +16,7 @@ import sys
 import platform
 import torch.multiprocessing as mp
 
+
 if 'mac' in platform.platform():
     pass
 else:
@@ -39,7 +40,7 @@ from garagei.experiment.option_local_runner import OptionLocalRunner
 from garagei.envs.consistent_normalized_env import consistent_normalize
 from garagei.sampler.option_multiprocessing_sampler import OptionMultiprocessingSampler
 from garagei.torch.modules.with_encoder import WithEncoder, Encoder
-from garagei.torch.modules.gaussian_mlp_module_ex import GaussianMLPTwoHeadedModuleEx, GaussianMLPIndependentStdModuleEx, GaussianMLPModuleEx
+from garagei.torch.modules.gaussian_mlp_module_ex import GaussianMLPTwoHeadedModuleEx, GaussianMLPIndependentStdModuleEx, GaussianMLPModuleEx, XY_GaussianMLPIndependentStdModuleEx
 from garagei.torch.modules.parameter_module import ParameterModule
 from garagei.torch.policies.policy_ex import PolicyEx
 from garagei.torch.q_functions.continuous_mlp_q_function_ex import ContinuousMLPQFunctionEx
@@ -49,6 +50,11 @@ from iod.metra import METRA
 from iod.dads import DADS
 from iod.utils import get_normalizer_preset
 
+from tests.make_env import make_env
+import copy
+
+import torch.nn as nn
+import torch.nn.init as init
 
 EXP_DIR = 'exp'
 if os.environ.get('START_METHOD') is not None:
@@ -63,9 +69,10 @@ def get_argparser():
     parser.add_argument('--run_group', type=str, default='Debug')
     parser.add_argument('--normalizer_type', type=str, default='off', choices=['off', 'preset'])
     parser.add_argument('--encoder', type=int, default=0)
+    parser.add_argument('--exp_name', type=str, default='')
 
     parser.add_argument('--env', type=str, default='kitchen', choices=[
-        'maze', 'half_cheetah', 'ant', 'dmc_cheetah', 'dmc_quadruped', 'dmc_humanoid', 'kitchen',
+        'maze', 'half_cheetah', 'ant', 'dmc_cheetah', 'dmc_quadruped', 'dmc_humanoid', 'kitchen', 'ant_maze',
     ])
     parser.add_argument('--frame_stack', type=int, default=None)
 
@@ -132,7 +139,15 @@ def get_argparser():
     parser.add_argument('--dual_slack', type=float, default=1e-3)
     parser.add_argument('--dual_dist', type=str, default='one', choices=['l2', 's2_from_s', 'one'])
     parser.add_argument('--dual_lr', type=float, default=None)
-
+    
+    # method type    
+    parser.add_argument('--phi_type', type=str, default=None)
+    parser.add_argument('--policy_type', type=str, default=None)
+    parser.add_argument('--explore_type', type=str, default=None)
+    parser.add_argument('--sample_type', type=str, default=None)
+    
+    parser.add_argument('--is_wandb', type=int, default=0)
+    
     return parser
 
 
@@ -141,7 +156,7 @@ g_start_time = int(datetime.datetime.now().timestamp())
 
 
 def get_exp_name():
-    exp_name = ''
+    exp_name = args.exp_name
     exp_name += f'sd{args.seed:03d}_'
     if 'SLURM_JOB_ID' in os.environ:
         exp_name += f's_{os.environ["SLURM_JOB_ID"]}.'
@@ -163,7 +178,7 @@ def get_log_dir():
     assert len(exp_name) <= os.pathconf('/', 'PC_NAME_MAX')
     # Resolve symlinks to prevent runs from crashing in case of home nfs crashing.
     log_dir = os.path.realpath(os.path.join(EXP_DIR, args.run_group, exp_name))
-    assert not os.path.exists(log_dir), f'The following path already exists: {log_dir}'
+    # assert not os.path.exists(log_dir), f'The following path already exists: {log_dir}'
 
     return log_dir
 
@@ -174,8 +189,8 @@ def get_gaussian_module_construction(args,
                                      const_std=False,
                                      hidden_nonlinearity=torch.relu,
                                      w_init=torch.nn.init.xavier_uniform_,
-                                     init_std=1.0,
-                                     min_std=1e-6,
+                                     init_std=1.0,  # 1.0
+                                     min_std=1e-6,  # 1e-6
                                      max_std=None,
                                      **kwargs):
     module_kwargs = dict()
@@ -186,6 +201,10 @@ def get_gaussian_module_construction(args,
             init_std=init_std,
         ))
     else:
+        # for debug ask by JieWANG
+        module_cls = XY_GaussianMLPIndependentStdModuleEx
+        # print("used XY_GaussianMLPIndependentStdModuleEx")
+        # original one
         module_cls = GaussianMLPIndependentStdModuleEx
         module_kwargs.update(dict(
             std_hidden_sizes=hidden_sizes,
@@ -210,65 +229,12 @@ def get_gaussian_module_construction(args,
     return module_cls, module_kwargs
 
 
-def make_env(args, max_path_length):
-    if args.env == 'maze':
-        from envs.maze_env import MazeEnv
-        env = MazeEnv(
-            max_path_length=max_path_length,
-            action_range=0.2,
-        )
-    elif args.env == 'half_cheetah':
-        from envs.mujoco.half_cheetah_env import HalfCheetahEnv
-        env = HalfCheetahEnv(render_hw=100)
-    elif args.env == 'ant':
-        from envs.mujoco.ant_env import AntEnv
-        env = AntEnv(render_hw=100)
-    elif args.env.startswith('dmc'):
-        from envs.custom_dmc_tasks import dmc
-        from envs.custom_dmc_tasks.pixel_wrappers import RenderWrapper
-        assert args.encoder  # Only support pixel-based environments
-        if args.env == 'dmc_cheetah':
-            env = dmc.make('cheetah_run_forward_color', obs_type='states', frame_stack=1, action_repeat=2, seed=args.seed)
-            env = RenderWrapper(env)
-        elif args.env == 'dmc_quadruped':
-            env = dmc.make('quadruped_run_forward_color', obs_type='states', frame_stack=1, action_repeat=2, seed=args.seed)
-            env = RenderWrapper(env)
-        elif args.env == 'dmc_humanoid':
-            env = dmc.make('humanoid_run_color', obs_type='states', frame_stack=1, action_repeat=2, seed=args.seed)
-            env = RenderWrapper(env)
-        else:
-            raise NotImplementedError
-    elif args.env == 'kitchen':
-        sys.path.append('lexa')
-        from envs.lexa.mykitchen import MyKitchenEnv
-        assert args.encoder  # Only support pixel-based environments
-        env = MyKitchenEnv(log_per_goal=True)
-    else:
-        raise NotImplementedError
-
-    if args.frame_stack is not None:
-        from envs.custom_dmc_tasks.pixel_wrappers import FrameStackWrapper
-        env = FrameStackWrapper(env, args.frame_stack)
-
-    normalizer_type = args.normalizer_type
-    normalizer_kwargs = {}
-
-    if normalizer_type == 'off':
-        env = consistent_normalize(env, normalize_obs=False, **normalizer_kwargs)
-    elif normalizer_type == 'preset':
-        normalizer_name = args.env
-        normalizer_mean, normalizer_std = get_normalizer_preset(f'{normalizer_name}_preset')
-        env = consistent_normalize(env, normalize_obs=True, mean=normalizer_mean, std=normalizer_std, **normalizer_kwargs)
-
-    return env
-
-
 @wrap_experiment(log_dir=get_log_dir(), name=get_exp_name()[0])
 def run(ctxt=None):
-    if 'WANDB_API_KEY' in os.environ:
-        wandb_output_dir = tempfile.mkdtemp()
-        wandb.init(project='metra', entity='', group=args.run_group, name=get_exp_name()[0],
-                   config=vars(args), dir=wandb_output_dir)
+    if args.is_wandb:
+        wandb_output_dir = get_log_dir()
+        wandb.init(group=args.run_group, name=get_exp_name()[0],
+                    config=vars(args), dir=wandb_output_dir)
 
     dowel.logger.log('ARGS: ' + str(args))
     if args.n_thread is not None:
@@ -462,6 +428,7 @@ def run(ctxt=None):
         )
         if args.encoder:
             qf2 = with_encoder(qf2)
+            
         log_alpha = ParameterModule(torch.Tensor([np.log(args.alpha)]))
         optimizers.update({
             'qf': torch.optim.Adam([
@@ -469,7 +436,7 @@ def run(ctxt=None):
             ]),
             'log_alpha': torch.optim.Adam([
                 {'params': log_alpha.parameters(), 'lr': _finalize_lr(args.sac_lr_a)},
-            ])
+            ]),
         })
 
     optimizer = OptimizerGroupWrapper(
@@ -512,6 +479,12 @@ def run(ctxt=None):
         discount=args.sac_discount,
         discrete=args.discrete,
         unit_length=args.unit_length,
+        init_obs=env.reset(),
+        phi_type=args.phi_type,
+        policy_type=args.policy_type,
+        explore_type=args.explore_type,
+        sample_type=args.sample_type,
+        
     )
 
     skill_common_args = dict(
@@ -564,7 +537,7 @@ def run(ctxt=None):
     algo.option_policy.to(device)
 
     runner.train(n_epochs=args.n_epochs, batch_size=args.traj_batch_size)
-
+    
 
 if __name__ == '__main__':
     mp.set_start_method(START_METHOD)

@@ -306,7 +306,8 @@ class OptionLocalRunner(LocalRunner):
                                   max_path_length_override=None,
                                   get_attrs=None,
                                   update_normalized_env_ex=None,
-                                  update_stats=True):
+                                  update_stats=True, 
+                                  ):
         if batch_size is None and self._train_args.batch_size is None:
             raise ValueError('Runner was not initialized with `batch_size`. '
                              'Either provide `batch_size` to runner.train, '
@@ -385,13 +386,17 @@ class OptionLocalRunner(LocalRunner):
             paths = paths.to_trajectory_list()
 
         if update_stats:
-            # XXX: Assume that env_infos always contains 2D coordinates.
-            self._stats.total_env_steps += sum([
-                (len(p['env_infos']['coordinates'].reshape(-1, 2))
-                 if p['env_infos']['coordinates'].dtype != object
-                 else sum(len(l) for l in p['env_infos']['coordinates']))
-                for p in paths
-            ])
+            # # XXX: Assume that env_infos always contains 2D coordinates.
+            # self._stats.total_env_steps += sum([
+            #     (len(p['env_infos']['coordinates'].reshape(-1, 2))
+            #      if p['env_infos']['coordinates'].dtype != object
+            #      else sum(len(l) for l in p['env_infos']['coordinates']))
+            #     for p in paths
+            # ])
+            '''
+            zhanghe: my env have no coordinates
+            '''
+            self._stats.total_env_steps += 1
 
         return paths, infos
 

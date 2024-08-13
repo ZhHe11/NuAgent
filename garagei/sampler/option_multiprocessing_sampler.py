@@ -87,7 +87,8 @@ class OptionMultiprocessingSampler(MultiprocessingSampler):
                                   agent_update,
                                   env_update=None,
                                   worker_update=None,
-                                  get_attrs=None):
+                                  get_attrs=None,
+                                  traj_encoder=None):
         """Same as the parent method except that n_traj_per_workers can be either an integer or a list."""
         if isinstance(n_traj_per_workers, int):
             n_traj_per_workers = [n_traj_per_workers] * self._factory.n_workers
@@ -124,7 +125,7 @@ class OptionMultiprocessingSampler(MultiprocessingSampler):
                         trajectories[worker_n].append(batch)
                         if len(trajectories[worker_n]) < n_traj_per_workers[worker_n]:
                             self._to_worker[worker_n].put_nowait(
-                                ('rollout', ()))
+                                ('rollout', (traj_encoder)))
                         elif len(trajectories[worker_n]) == n_traj_per_workers[worker_n]:
                             self._to_worker[worker_n].put_nowait(
                                 ('stop', ()))

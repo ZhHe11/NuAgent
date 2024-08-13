@@ -55,6 +55,7 @@ from iod.metra import METRA
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from sklearn.decomposition import PCA
+from tests.GetArgparser import get_argparser
 
 
 '''
@@ -63,30 +64,36 @@ from sklearn.decomposition import PCA
 2. 画表征z的轨迹图；
 3. 
 '''
+
 # save the traj. as fig
-def PCA_plot_traj(All_Repr_obs_list, path, path_len=100):
+def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_PCA=False):
     Repr_obs_array = np.array(All_Repr_obs_list[0])
+    All_Goal_obs_array = np.array(All_Goal_obs_list[0])
     for i in range(1,len(All_Repr_obs_list)):
         Repr_obs_array = np.concatenate((Repr_obs_array, np.array(All_Repr_obs_list[i])), axis=0)
-    print(len(Repr_obs_array), len(Repr_obs_array[1]))
+        All_Goal_obs_array = np.concatenate((All_Goal_obs_array, np.array(All_Goal_obs_list[i])), axis=0)
     # 创建 PCA 对象，指定降到2维
-    pca = PCA(n_components=2)
-    # 对数据进行 PCA
-    Repr_obs_2d = pca.fit_transform(Repr_obs_array)
+    if is_PCA:
+        pca = PCA(n_components=2)
+        # 对数据进行 PCA
+        Repr_obs_2d = pca.fit_transform(Repr_obs_array)
+    else:
+        Repr_obs_2d = Repr_obs_array
+        All_Goal_obs_2d = All_Goal_obs_array
     # 绘制 PCA 降维后的数据
     plt.figure(figsize=(8, 6))
     colors = cm.rainbow(np.linspace(0, 1, len(All_Repr_obs_list)))
     for i in range(0,len(All_Repr_obs_list)):
         color = colors[i]
-        print(color)
-        plt.scatter(Repr_obs_2d[i:i+path_len, 0], Repr_obs_2d[i:i+path_len, 1], color=color, s=5)
-        path_file_traj = path + "traj_PCA" + str(i) + ".png"
-        plt.savefig(path_file_traj)
-    plt.xlabel('Principal Component 1')
-    plt.ylabel('Principal Component 2')
-    plt.title('PCA of Repr_obs_list')
-    plt.show()
-    path_file_traj = path + "traj_PCA.png"
+        start_index = i * path_len
+        end_index = (i+1) * path_len
+        plt.scatter(Repr_obs_2d[start_index:end_index, 0], Repr_obs_2d[start_index:end_index, 1], color=color, s=5, label="traj."+str(i))
+        plt.scatter(All_Goal_obs_2d[start_index, 0], All_Goal_obs_2d[start_index, 1], marker='*', s=100, c=color, label="option."+str(i))
+    path_file_traj = path + "traj" + ".png"
+    plt.xlabel('z[0]')
+    plt.ylabel('z[1]')
+    plt.title('traj. in representation space')
+    plt.legend()
     plt.savefig(path_file_traj)
 
 
@@ -132,89 +139,8 @@ def get_gaussian_module_construction(args,
     return module_cls, module_kwargs
 
 
-
-def get_argparser():
-    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-
-    # parser.add_argument('--run_group', type=str, default='Debug')
-    # parser.add_argument('--normalizer_type', type=str, default='off', choices=['off', 'preset'])
-    parser.add_argument('--encoder', type=int, default=0)
-
-    parser.add_argument('--env', type=str, default='maze', choices=[
-        'maze', 'half_cheetah', 'ant', 'dmc_cheetah', 'dmc_quadruped', 'dmc_humanoid', 'kitchen',
-    ])
-    parser.add_argument('--frame_stack', type=int, default=None)
-
-    parser.add_argument('--max_path_length', type=int, default=50)
-
-    parser.add_argument('--use_gpu', type=int, default=1, choices=[0, 1])
-    parser.add_argument('--sample_cpu', type=int, default=1, choices=[0, 1])
-    parser.add_argument('--seed', type=int, default=0)
-    parser.add_argument('--n_parallel', type=int, default=4)
-    parser.add_argument('--n_thread', type=int, default=1)
-
-    parser.add_argument('--n_epochs', type=int, default=1000000)
-    parser.add_argument('--traj_batch_size', type=int, default=8)
-    parser.add_argument('--trans_minibatch_size', type=int, default=256)
-    parser.add_argument('--trans_optimization_epochs', type=int, default=200)
-
-    parser.add_argument('--n_epochs_per_eval', type=int, default=125)
-    parser.add_argument('--n_epochs_per_log', type=int, default=25)
-    parser.add_argument('--n_epochs_per_save', type=int, default=1000)
-    parser.add_argument('--n_epochs_per_pt_save', type=int, default=1000)
-    parser.add_argument('--n_epochs_per_pkl_update', type=int, default=None)
-    parser.add_argument('--num_random_trajectories', type=int, default=48)
-    parser.add_argument('--num_video_repeats', type=int, default=2)
-    parser.add_argument('--eval_record_video', type=int, default=1)
-    parser.add_argument('--eval_plot_axis', type=float, default=None, nargs='*')
-    parser.add_argument('--video_skip_frames', type=int, default=1)
-
-    parser.add_argument('--dim_option', type=int, default=2)
-
-    parser.add_argument('--common_lr', type=float, default=1e-4)
-    parser.add_argument('--lr_op', type=float, default=None)
-    parser.add_argument('--lr_te', type=float, default=None)
-
-    parser.add_argument('--alpha', type=float, default=0.01)
-
-    parser.add_argument('--algo', type=str, default='metra', choices=['metra', 'dads'])
-
-    parser.add_argument('--sac_tau', type=float, default=5e-3)
-    parser.add_argument('--sac_lr_q', type=float, default=None)
-    parser.add_argument('--sac_lr_a', type=float, default=None)
-    parser.add_argument('--sac_discount', type=float, default=0.99)
-    parser.add_argument('--sac_scale_reward', type=float, default=1.)
-    parser.add_argument('--sac_target_coef', type=float, default=1.)
-    parser.add_argument('--sac_min_buffer_size', type=int, default=10000)
-    parser.add_argument('--sac_max_buffer_size', type=int, default=300000)
-
-    parser.add_argument('--spectral_normalization', type=int, default=0, choices=[0, 1])
-
-    parser.add_argument('--model_master_dim', type=int, default=1024)
-    parser.add_argument('--model_master_num_layers', type=int, default=2)
-    parser.add_argument('--model_master_nonlinearity', type=str, default=None, choices=['relu', 'tanh'])
-    parser.add_argument('--sd_const_std', type=int, default=1)
-    parser.add_argument('--sd_batch_norm', type=int, default=1, choices=[0, 1])
-
-    parser.add_argument('--num_alt_samples', type=int, default=100)
-    parser.add_argument('--split_group', type=int, default=65536)
-
-    parser.add_argument('--discrete', type=int, default=0, choices=[0, 1, 2])
-    parser.add_argument('--inner', type=int, default=1, choices=[0, 1])
-    parser.add_argument('--unit_length', type=int, default=1, choices=[0, 1])  # Only for continuous skills
-
-    parser.add_argument('--dual_reg', type=int, default=1, choices=[0, 1])
-    parser.add_argument('--dual_lam', type=float, default=30)
-    parser.add_argument('--dual_slack', type=float, default=1e-3)
-    parser.add_argument('--dual_dist', type=str, default='one', choices=['l2', 's2_from_s', 'one'])
-    parser.add_argument('--dual_lr', type=float, default=None)
-
-    return parser
-
-
 if __name__ == '__main__':
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
+            
     # define the params
     args = get_argparser().parse_args()
     args.env = 'kitchen'
@@ -226,62 +152,97 @@ if __name__ == '__main__':
     args.device = 'cuda:0'
     device = args.device
 
-
     # make env
     env = make_env(args, args.max_path_length)
 
-    # load model
-    load_option_policy = torch.load("/mnt/nfs2/zhanghe/project001/METRA/exp/Debug_Kitchen_len_weight/sd000_1719553773_kitchen_metra/option_policy250.pt")
-    load_traj_encoder = torch.load("/mnt/nfs2/zhanghe/project001/METRA/exp/Debug/sd000_1717672779_kitchen_metra/traj_encoder24000.pt")
-    # eval mode
+    # # load model
+    load_option_policy = torch.load("/data/zh/project12_Metra/METRA/exp/KItchen_her/0709/option_policy9500.pt")
+    load_traj_encoder = torch.load("/data/zh/project12_Metra/METRA/exp/KItchen_her/0709/traj_encoder9500.pt")
+    # # eval mode
     agent_policy = load_option_policy['policy'].eval()
     agent_traj_encoder = load_traj_encoder['traj_encoder'].eval()
     
     # open the env, and set the init lists
     frames = []
     All_Repr_obs_list = []
+    All_Goal_obs_list = []
+    All_Return_list = []
     
-    Pepr_viz = False
+    Pepr_viz = True
     option_dim = 2
 
-    for i in range(option_dim):
+    
+    # 确定的goal，用于可视化；
+    # goals = [[1,1], [-1, -1], [1, -1], [-1, 1]]
+    # goals = [[1,-1], [-1, 1], [1, 1]]
+    # goals = torch.tensor(np.array(goals)).to(device)
+    # 随机的goal，用于多次评估，计算return；
+    num_eval = 10
+    goals = torch.randn((num_eval, option_dim)).to(device)
+    
+    
+    for i in range(num_eval):
         env.reset()
         obs = env.reset()  
+        obs = torch.tensor(obs).unsqueeze(0).to(device)
+        phi_obs_ = agent_traj_encoder(obs).mean
+        
         Repr_obs_list = []
-        env.reset()
+        Repr_goal_list = []
+        option_return_list = []
+        
+        # in the kichen env
         obs_img = env.last_state['image']
         frames.append(obs_img)
-        goal = torch.zeros(1,option_dim).to(device)
-        for t in range(100):
-            # caluculate the representaions
-            obs = torch.tensor(obs).unsqueeze(0).to(device)
-            if Pepr_viz:
-                phi_obs = agent_traj_encoder(obs).mean
-                Repr_obs_list.append(phi_obs.cpu().detach().numpy()[0])
+
+        for t in range(args.max_path_length):
             # calculate the option:
-            goal[0,i] = 4
-            option = goal
+            option = goals[i].unsqueeze(0)
+            if t == 0:
+                print("option", option)
             obs_option = torch.cat((obs, option), -1)
+            # for viz
+            # if Pepr_viz:
+            phi_obs = phi_obs_
+            Repr_obs_list.append(phi_obs.cpu().detach().numpy()[0])
+            Repr_goal_list.append(option.cpu().detach().numpy()[0])
 
             # get actions from policy
             action = agent_policy(obs_option)[1]['mean']
 
             # interact with the env
             obs, reward, done, info = env.step(action.cpu().detach().numpy()[0])
-
+            # calculate the repr phi
+            obs = torch.tensor(obs).unsqueeze(0).to(device)
+            phi_obs_ = agent_traj_encoder(obs).mean
+            delta_phi_obs = phi_obs_ - phi_obs
+            
+            # option_reward and return
+            option_reward = (option * delta_phi_obs).sum()
+            option_return_list.append(option_reward.cpu().detach().numpy())
+            
             # for saving 
             obs_img = info['image']
             frames.append(obs_img)
         All_Repr_obs_list.append(Repr_obs_list)
+        All_Goal_obs_list.append(Repr_goal_list)
+        All_Return_list.append(option_return_list)
 
-    # save the env as gif
-    path = "/mnt/nfs2/zhanghe/project001/METRA/tests/videos/"
-    path_file = path + "kitchen_test.gif"
-    imageio.mimsave(path_file, frames, duration=1/24)
-    print('video saved')
-    if Pepr_viz:
-        PCA_plot_traj(All_Repr_obs_list, path)
-        print('Repr_traj saved')
+    All_Return_array = np.array([np.array(i).sum() for i in All_Return_list])
+    print(
+        "All_Return_array:", All_Return_array, '\n',
+        "Mean:", All_Return_array.mean()
+    )
+    
+    
+    # # save the env as gif
+    # path = "/mnt/nfs2/zhanghe/project001/METRA/tests/videos/"
+    # path_file = path + "kitchen_test.gif"
+    # imageio.mimsave(path_file, frames, duration=1/24)
+    # print('video saved')
+    # if Pepr_viz:
+    #     PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=path_len)
+    #     print('Repr_traj saved')
 
 
 

@@ -203,3 +203,15 @@ class GaussianMixtureMLPModule(GaussianMLPBaseModule):
         dist = MixtureSameFamily(categorical_dist, norm_dist)
 
         return dist
+
+
+class XY_GaussianMLPIndependentStdModuleEx(GaussianMLPIndependentStdModuleEx):
+    def forward(self, x):
+        # print("only use xy to repr")
+        if x.ndim == 1:
+            x = torch.cat([x[:2], torch.zeros_like(x[2:])])
+        else: 
+            x = torch.cat([x[:, :2], torch.zeros_like(x[:, 2:])], dim=1)
+        # 调用父类的forward方法处理截取后的数据
+        return super().forward(x) 
+

@@ -23,12 +23,19 @@ def update_loss_qf(
         dones,
         rewards,
         policy,
+        alpha,
+        qf1, 
+        target_qf1,
+        qf2, 
+        target_qf2,
+        loss_type='',
 ):
+    
     with torch.no_grad():
-        alpha = algo.log_alpha.param.exp()
+        alpha = alpha.param.exp()
 
-    q1_pred = algo.qf1(obs, actions).flatten()
-    q2_pred = algo.qf2(obs, actions).flatten()
+    q1_pred = qf1(obs, actions).flatten()
+    q2_pred = qf2(obs, actions).flatten()
 
     next_action_dists, *_ = policy(next_obs)
     if hasattr(next_action_dists, 'rsample_with_pre_tanh_value'):
@@ -40,8 +47,8 @@ def update_loss_qf(
         new_next_action_log_probs = next_action_dists.log_prob(new_next_actions)
 
     target_q_values = torch.min(
-        algo.target_qf1(next_obs, new_next_actions).flatten(),
-        algo.target_qf2(next_obs, new_next_actions).flatten(),
+        target_qf1(next_obs, new_next_actions).flatten(),
+        target_qf2(next_obs, new_next_actions).flatten(),
     )
     target_q_values = target_q_values - alpha * new_next_action_log_probs
     target_q_values = target_q_values * algo.discount
@@ -54,10 +61,10 @@ def update_loss_qf(
     loss_qf2 = F.mse_loss(q2_pred, q_target) * 0.5
 
     tensors.update({
-        'QTargetsMean': q_target.mean(),
-        'QTdErrsMean': ((q_target - q1_pred).mean() + (q_target - q2_pred).mean()) / 2,
-        'LossQf1': loss_qf1,
-        'LossQf2': loss_qf2,
+        loss_type + 'QTargetsMean': q_target.mean(),
+        loss_type + 'QTdErrsMean': ((q_target - q1_pred).mean() + (q_target - q2_pred).mean()) / 2,
+        loss_type + 'LossQf1': loss_qf1,
+        loss_type + 'LossQf2': loss_qf2,
     })
 
 
@@ -65,9 +72,16 @@ def update_loss_sacp(
         algo, tensors, v,
         obs,
         policy,
+        alpha,
+        qf1, 
+        target_qf1,
+        qf2, 
+        target_qf2,
+        loss_type='',
+        
 ):
     with torch.no_grad():
-        alpha = algo.log_alpha.param.exp()
+        alpha = alpha.param.exp()
 
     action_dists, *_ = policy(obs)
     if hasattr(action_dists, 'rsample_with_pre_tanh_value'):
@@ -79,32 +93,32 @@ def update_loss_sacp(
         new_action_log_probs = action_dists.log_prob(new_actions)
 
     min_q_values = torch.min(
-        algo.qf1(obs, new_actions).flatten(),
-        algo.qf2(obs, new_actions).flatten(),
+        qf1(obs, new_actions).flatten(),
+        qf2(obs, new_actions).flatten(),
     )
 
     loss_sacp = (alpha * new_action_log_probs - min_q_values).mean()
 
     tensors.update({
-        'SacpNewActionLogProbMean': new_action_log_probs.mean(),
-        'LossSacp': loss_sacp,
+        loss_type + 'SacpNewActionLogProbMean': new_action_log_probs.mean(),
+        loss_type + 'LossSacp': loss_sacp,
     })
 
     v.update({
-        'new_action_log_probs': new_action_log_probs,
-    })
+        loss_type + 'new_action_log_probs': new_action_log_probs,
+    }) 
 
 
 def update_loss_alpha(
-        algo, tensors, v,
+        algo, tensors, v, alpha, loss_type='',
 ):
-    loss_alpha = (-algo.log_alpha.param * (
+    loss_alpha = (-alpha.param * (
             v['new_action_log_probs'].detach() + algo._target_entropy
     )).mean()
 
     tensors.update({
-        'Alpha': algo.log_alpha.param.exp(),
-        'LossAlpha': loss_alpha,
+        loss_type + 'Alpha': algo.log_alpha.param.exp(),
+        loss_type + 'LossAlpha': loss_alpha,
     })
 
 
@@ -116,3 +130,4 @@ def update_targets(algo):
         for t_param, param in zip(target_qf.parameters(), qf.parameters()):
             t_param.data.copy_(t_param.data * (1.0 - algo.tau) +
                                param.data * algo.tau)
+
