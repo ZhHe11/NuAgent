@@ -429,7 +429,7 @@ class IOD(RLAlgorithm):
                 extras[i]["sub_goal"] = sub_goal[i]
         
         if phi_sub_goal is not None:
-            for i in range(len(sub_goal)):
+            for i in range(len(phi_sub_goal)):
                 extras[i]["phi_sub_goal"] = phi_sub_goal[i]
                 
         return extras

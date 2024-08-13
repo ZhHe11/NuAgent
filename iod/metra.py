@@ -235,31 +235,47 @@ class METRA(IOD):
                     
                     ## 2. using goal
                     # if self.exp_z == None:
-                    v = self._sample_replay_buffer(batch_size=runner._train_args.batch_size)
-                    self.exp_z = nn.Parameter(v['sub_goal'].data.clone())
-                    self.exp_z_optimizer = optim.Adam([self.exp_z], lr=0.1)        
-                        
-                    self.exp_z_optimizer.zero_grad()
-                    phi_g = self.target_traj_encoder(self.exp_z).mean
-                    phi_s0 = self.target_traj_encoder(self.init_obs).mean
-                    loss = - ( torch.norm(phi_g - phi_s0, p=2, dim=-1, keepdim=True) ).mean()
-                    loss.backward()
-                    self.exp_z_optimizer.step()
-                    opt_subgoal = self.exp_z.detach().cpu().numpy()
-                    print("opt_subgoal", opt_subgoal[:,:2])
-                    extras = self._generate_option_extras(random_options, opt_subgoal)
-                    if wandb.run is not None:
-                        wandb.log(  
-                                    {
-                                        "sample/phi_g_loss": loss,
-                                    },
-                                    step=runner.step_itr
-                                )
+                    # v = self._sample_replay_buffer(batch_size=runner._train_args.batch_size)
+                    # self.exp_z = nn.Parameter(v['sub_goal'].data.clone())
+                    # self.exp_z_optimizer = optim.Adam([self.exp_z], lr=0.1)        
+                    # self.exp_z_optimizer.zero_grad()
+                    # phi_g = self.target_traj_encoder(self.exp_z).mean
+                    # phi_s0 = self.target_traj_encoder(self.init_obs).mean
+                    # loss = - ( torch.norm(phi_g - phi_s0, p=2, dim=-1, keepdim=True) ).mean()
+                    # loss.backward()
+                    # self.exp_z_optimizer.step()
+                    # opt_subgoal = self.exp_z.detach().cpu().numpy()
+                    # print("opt_subgoal", opt_subgoal[:,:2])
+                    # extras = self._generate_option_extras(random_options, opt_subgoal)
+                    # if wandb.run is not None:
+                    #     wandb.log(  
+                    #                 {
+                    #                     "sample/phi_g_loss": loss,
+                    #                 },
+                    #                 step=runner.step_itr
+                    #             )
                     
-                    ## 3. using 
+                    ## 3. using phi_g
+                    # v = self._sample_replay_buffer(batch_size=runner._train_args.batch_size)
+                    # phi_g = self.target_traj_encoder(v['sub_goal']).mean
+                    # phi_s0 = self.target_traj_encoder(self.init_obs).mean
+                    # direction = self.vec_norm(phi_g - phi_s0)
+                    # std_dev = 0.5
+                    # T = 1
+                    # direction_noise = direction + torch.randn_like(direction) * std_dev
+                    # phi_new_goal = phi_g + T * direction_noise
+                    # phi_new_goal = phi_new_goal.detach().cpu().numpy()
+                    # extras = self._generate_option_extras(random_options, phi_sub_goal=phi_new_goal)
+                    
+                    ## 4. using psro
+                    pass
                     
                     
                     
+                    
+                    
+                    
+    
                 else:
                     extras = self._generate_option_extras(random_options)  
                 
@@ -278,10 +294,6 @@ class METRA(IOD):
                 goals_np = np.array(goals_list)
                 init_obs[:,:2] = goals_np
                 extras = self._generate_option_extras(random_options, init_obs)
-            
-            # elif self.method['explore'] == '':
-                
-            
             
             elif self.method['explore'] == "baseline": 
                 extras = self._generate_option_extras(random_options)      # 变成字典的形式；
@@ -470,6 +482,12 @@ class METRA(IOD):
             matrix_s_sp_norm = matrix_s_sample / (torch.norm(matrix_s_sample, p=2, dim=-1, keepdim=True) + 1e-8)
             matrix = (vec_phi_s_s_next.unsqueeze(1) * matrix_s_sp_norm).sum(dim=-1)
                         
+            # 加一个判断，如果g-与g特别接近，就用拉开；
+            dist_theta = 0.1
+            distance_pos_neg = torch.norm(vec_phi_sample.unsqueeze(0) - vec_phi_sample.unsqueeze(1), p=2, dim=-1)
+            mask = torch.where( distance_pos_neg < dist_theta , 0, 1)
+            matrix = matrix * mask
+                               
             mask_pos = torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
             inner_pos = torch.diag(matrix)
             inner_neg = (matrix * (1 - mask_pos)).sum(dim=1) / (phi_s.shape[0]-1)
@@ -480,6 +498,7 @@ class METRA(IOD):
                 'next_z_reward': rewards.mean(),
                 'inner_s_s_next_pos': inner_pos.mean(),
                 'inner_s_s_next_neg': inner_neg.mean(),
+                'distance_pos_neg': distance_pos_neg.mean(),
             })
         
         elif self.method["phi"] in ['soft_update']:
