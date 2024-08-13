@@ -124,9 +124,7 @@ class METRA(IOD):
         
         # for psro:
         self.init_obs = torch.tensor(init_obs).unsqueeze(0).expand(8, -1).to(self.device)
-        self.exp_z = torch.randn((8, self._skill_dynamics_obs_dim), requires_grad=True).to(self.device).detach().clone().requires_grad_(True)
-        self.exp_z_optimizer = optim.Adam([self.exp_z], lr=0.1)        
-        
+        self.exp_z = None        
         
     @property
     def policy(self):
@@ -210,21 +208,58 @@ class METRA(IOD):
             elif self.method['explore'] == 'psro':
                 # 暂时不用，先固定goal得到一定的效果；
                 if self.replay_buffer.n_transitions_stored > 100:
+                    # v = self._sample_replay_buffer(batch_size=runner._train_args.batch_size)
+                    # self.exp_z = v['sub_goal']
+                    # self.exp_z_optimizer.zero_grad()
+                    # option = self.vec_norm(self.target_traj_encoder(self.exp_z).mean - self.target_traj_encoder(self.init_obs).mean)
+                    # obs_option = torch.cat((self.init_obs, option), -1).float()
+                    # action = self.option_policy(obs_option)[1]['mean']
+                    # qf_obs_option = self._get_concat_obs(self.option_policy.process_observations(self.init_obs), option)
+                    # q_value = torch.min(self.qf1(qf_obs_option, action), self.qf2(qf_obs_option, action))
+                    # loss = q_value.mean()
+                    # loss.backward()
+                    # self.exp_z_optimizer.step()
+                    # opt_subgoal = self.exp_z.detach().cpu().numpy()
+                    # print("opt_subgoal", opt_subgoal[:,:2])
+                    # v['sub_goal'] = opt_subgoal
+                    # extras = self._generate_option_extras(random_options, v['sub_goal'])
+                    
+                    
+                    ## 1. only use direction
+                    # v = self._sample_replay_buffer(batch_size=runner._train_args.batch_size)
+                    # phi_g = self.target_traj_encoder(v['sub_goal']).mean
+                    # phi_s0 = self.target_traj_encoder(self.init_obs).mean
+                    # # phi_new_goal = phi_g + T * self.vec_norm(phi_g - phi_s0) 
+                    # options = self.vec_norm(phi_g - phi_s0).detach().cpu().numpy()
+                    # extras = self._generate_option_extras(options)
+                    
+                    ## 2. using goal
+                    # if self.exp_z == None:
                     v = self._sample_replay_buffer(batch_size=runner._train_args.batch_size)
-                    self.exp_z = v['sub_goal']
+                    self.exp_z = nn.Parameter(v['sub_goal'].data.clone())
+                    self.exp_z_optimizer = optim.Adam([self.exp_z], lr=0.1)        
+                        
                     self.exp_z_optimizer.zero_grad()
-                    option = self.vec_norm(self.target_traj_encoder(self.exp_z).mean - self.target_traj_encoder(self.init_obs).mean)
-                    obs_option = torch.cat((self.init_obs, option), -1).float()
-                    action = self.option_policy(obs_option)[1]['mean']
-                    qf_obs_option = self._get_concat_obs(self.option_policy.process_observations(self.init_obs), option)
-                    q_value = torch.min(self.qf1(qf_obs_option, action), self.qf2(qf_obs_option, action))
-                    loss = q_value.mean()
+                    phi_g = self.target_traj_encoder(self.exp_z).mean
+                    phi_s0 = self.target_traj_encoder(self.init_obs).mean
+                    loss = - ( torch.norm(phi_g - phi_s0, p=2, dim=-1, keepdim=True) ).mean()
                     loss.backward()
                     self.exp_z_optimizer.step()
                     opt_subgoal = self.exp_z.detach().cpu().numpy()
                     print("opt_subgoal", opt_subgoal[:,:2])
-                    v['sub_goal'] = opt_subgoal
-                    extras = self._generate_option_extras(random_options, v['sub_goal'])
+                    extras = self._generate_option_extras(random_options, opt_subgoal)
+                    if wandb.run is not None:
+                        wandb.log(  
+                                    {
+                                        "sample/phi_g_loss": loss,
+                                    },
+                                    step=runner.step_itr
+                                )
+                    
+                    ## 3. using 
+                    
+                    
+                    
                 else:
                     extras = self._generate_option_extras(random_options)  
                 
@@ -544,6 +579,7 @@ class METRA(IOD):
             tensors.update({
                 'policy_rewards': policy_rewards.mean(),
                 'norm_option_s_s_next': torch.norm(v['option_s_s_next'], p=2, dim=-1).mean(),
+                'diff_option_g_option_sample': torch.norm((v['option_goal'] - v['options']), p=2, dim=-1).mean(),
             })
         
         else: # basline

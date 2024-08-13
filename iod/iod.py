@@ -422,11 +422,15 @@ class IOD(RLAlgorithm):
                 param_dict[k] = {k: v.detach() for k, v in param_dict[k].items()}
         return param_dict
 
-    def _generate_option_extras(self, options, sub_goal=None):
+    def _generate_option_extras(self, options, sub_goal=None, phi_sub_goal=None):
         extras = [{"option": option, "exploration_type": 0} for option in options]
         if sub_goal is not None:
             for i in range(len(sub_goal)):
                 extras[i]["sub_goal"] = sub_goal[i]
+        
+        if phi_sub_goal is not None:
+            for i in range(len(sub_goal)):
+                extras[i]["phi_sub_goal"] = phi_sub_goal[i]
                 
         return extras
 
