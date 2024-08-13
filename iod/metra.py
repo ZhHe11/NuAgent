@@ -60,6 +60,8 @@ class METRA(IOD):
             policy_type=None,
             explore_type=None,
             
+            goal_sample_network=None,
+            
             **kwargs,
     ):
         super().__init__(**kwargs)
@@ -124,7 +126,12 @@ class METRA(IOD):
         
         # for psro:
         self.init_obs = torch.tensor(init_obs).unsqueeze(0).expand(8, -1).to(self.device)
-        self.exp_z = None        
+        self.exp_z = None   
+        self.goal_sample_network = goal_sample_network.to(self.device)
+        self.goal_sample_optim = None
+        self.last_goal = None
+        self.epoch_final = None
+        
         
     @property
     def policy(self):
@@ -149,8 +156,11 @@ class METRA(IOD):
     
     def _flatten_data(self, data):
         epoch_data = {}
+        epoch_final = {}
         for key, value in data.items():
             epoch_data[key] = torch.tensor(np.concatenate(value, axis=0), dtype=torch.float32, device=self.device)
+            epoch_final[key] = torch.tensor(value, dtype=torch.float32, device=self.device)[:,-1]
+        self.epoch_final = epoch_final
         return epoch_data
 
     def _update_replay_buffer(self, data):
@@ -207,7 +217,7 @@ class METRA(IOD):
 
             elif self.method['explore'] == 'psro':
                 # 暂时不用，先固定goal得到一定的效果；
-                if self.replay_buffer.n_transitions_stored > 100:
+                if self.epoch_final is not None:
                     # v = self._sample_replay_buffer(batch_size=runner._train_args.batch_size)
                     # self.exp_z = v['sub_goal']
                     # self.exp_z_optimizer.zero_grad()
@@ -268,13 +278,28 @@ class METRA(IOD):
                     # extras = self._generate_option_extras(random_options, phi_sub_goal=phi_new_goal)
                     
                     ## 4. using psro
-                    pass
+                    # pass
+                    # update network
+                    final_state = self.epoch_final['obs']
+                    if self.last_goal is None:
+                        self.goal_sample_optim = optim.Adam(self.goal_sample_network.parameters(), lr=1e-3) 
+                    else: 
+                        goal_log_probs = self.last_goal_dist.log_prob(self.last_goal)
+                        R = - torch.norm(self.target_traj_encoder(self.last_goal).mean - self.target_traj_encoder(final_state).mean, dim=-1).detach()
+                        loss = (goal_log_probs * torch.exp(1+R)).mean()
+                        self.goal_sample_optim.zero_grad()
+                        loss.backward()
+                        self.goal_sample_optim.step()
                     
+    
+                    dist = self.goal_sample_network(final_state)
+                    goal = dist.rsample()
+                    self.last_goal_dist = dist
+                    self.last_goal = goal
+                    np_goal = goal.detach().cpu().numpy()
+                    extras = self._generate_option_extras(random_options, np_goal)  
                     
-                    
-                    
-                    
-                    
+                
     
                 else:
                     extras = self._generate_option_extras(random_options)  
@@ -325,7 +350,7 @@ class METRA(IOD):
                 v = self._get_mini_tensors(epoch_data)
             else:
                 v = self._sample_replay_buffer()
-
+                
             self._optimize_te(tensors, v)
             with torch.no_grad():
                 self._update_rewards(tensors, v)
@@ -465,12 +490,12 @@ class METRA(IOD):
         phi_s = v['cur_z']
         phi_s_next = v['next_z']
         option_s_s_next = v['option_s_s_next']
-        option_goal = v['option_goal']
         
         if self.method["phi"] in ['contrastive']:
+            option_goal = v['option_goal']
             # option_goal_detach = v['option_goal'].detach()
             samples = self.traj_encoder(v['pos_sample']).mean
-            discount = 0.9
+            discount = 0.99
             w = discount ** (v['pos_sample_distance'])
             
             ## goal-conditioned contrastive leraning
@@ -482,7 +507,7 @@ class METRA(IOD):
             matrix_s_sp_norm = matrix_s_sample / (torch.norm(matrix_s_sample, p=2, dim=-1, keepdim=True) + 1e-8)
             matrix = (vec_phi_s_s_next.unsqueeze(1) * matrix_s_sp_norm).sum(dim=-1)
                         
-            # 加一个判断，如果g-与g特别接近，就用拉开；
+            # 加一个判断，如果g-与g特别接近，就用mask掉；
             dist_theta = 0.1
             distance_pos_neg = torch.norm(vec_phi_sample.unsqueeze(0) - vec_phi_sample.unsqueeze(1), p=2, dim=-1)
             mask = torch.where( distance_pos_neg < dist_theta , 0, 1)

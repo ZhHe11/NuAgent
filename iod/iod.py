@@ -331,9 +331,9 @@ class IOD(RLAlgorithm):
 
         return paths
 
-    def process_samples(self, paths):       # 【修改】我需要再这里做修改，修改buffer的训练元组；
+    def process_samples(self, paths):   
         data = defaultdict(list)
-        for i in range(len(paths)):                  # 【效率】一条一条处理，不知道能不能向量化？变成tensor按照矩阵处理？
+        for i in range(len(paths)):     
             path = paths[i]
             data['obs'].append(path['observations'])
             data['next_obs'].append(path['next_observations'])
@@ -353,23 +353,15 @@ class IOD(RLAlgorithm):
             
             traj_len = len(path['observations'])
             index = np.arange(0, traj_len)
+            
+            # data['final_state'].append(np.tile(path['observations'][-1], (traj_len, 1)))
+            
             ## use sub_goal from path; if not exist, use the last one as subgoal;
             if 'sub_goal' in path['agent_infos']:
-                traj_len = len(path['observations'])
                 data['sub_goal'].append(path["agent_infos"]["sub_goal"])
-                data['goal_distance'].append(traj_len-1-index)
             else:
-                traj_len = len(path['observations'])
-                path_goal_dist = np.zeros(path['observations'].shape[0])
-                path_subgoal = np.zeros(path['observations'].shape)
-                for t in range(traj_len):
-                    t_pos = np.random.choice(traj_len-t, 1, replace=False)
-                    path_goal_dist[t] = t_pos
-                    path_subgoal[t] = path['observations'][t + t_pos]
-                data['goal_distance'].append(path_goal_dist)
-                data['sub_goal'].append(path_subgoal)
-    
-    
+                data['sub_goal'].append(np.tile(path['observations'][-1], (traj_len, 1)))
+            
             ## for contrastive positive sample：
             if self.sample_type in ['contrastive']:
                 traj_len = len(path['observations'])
@@ -382,9 +374,8 @@ class IOD(RLAlgorithm):
                 data['pos_sample_distance'].append(path_goal_dist)
                 data['pos_sample'].append(path_subgoal)
     
-    
             ## for HER resample sub_goal:
-            if self.sample_type in ['her_reward', 'contrastive']:
+            if self.sample_type in ['her_reward']:
                 subgoal_indices = np.random.choice(traj_len, 1, replace=False)
                 for j in range(len(subgoal_indices)):
                     subgoal_index = subgoal_indices[j]
@@ -409,7 +400,9 @@ class IOD(RLAlgorithm):
                         data['pos_sample_distance'].append(data['pos_sample_distance'][0][:subgoal_index+1])
                         data['pos_sample'].append(data['pos_sample'][0][:subgoal_index+1])
                     data['sub_goal'].append(np.tile(path['observations'][:subgoal_index+1][-1], (subgoal_index+1, 1)))
-                 
+                    
+
+                
         return data
 
 

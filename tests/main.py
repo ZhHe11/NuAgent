@@ -202,7 +202,7 @@ def get_gaussian_module_construction(args,
         ))
     else:
         # for debug ask by JieWANG
-        module_cls = XY_GaussianMLPIndependentStdModuleEx
+        module_cls = GaussianMLPIndependentStdModuleEx
         # print("used XY_GaussianMLPIndependentStdModuleEx")
         # original one
         module_cls = GaussianMLPIndependentStdModuleEx
@@ -338,7 +338,23 @@ def run(ctxt=None):
         else:
             te_encoder = None
         traj_encoder = with_encoder(traj_encoder, encoder=te_encoder)
+        
 
+    # Network for goal policy
+    module_cls, module_kwargs = get_gaussian_module_construction(
+        args,
+        hidden_sizes=master_dims,
+        hidden_nonlinearity=nonlinearity or torch.relu,
+        w_init=torch.nn.init.xavier_uniform_,
+        input_dim=obs_dim,
+        output_dim=obs_dim,
+        min_std=1e-6,
+        max_std=1e6,
+    )
+    goal_sample_network = module_cls(**module_kwargs)
+
+    
+    # Network for dist_predictor
     module_cls, module_kwargs = get_gaussian_module_construction(
         args,
         hidden_sizes=master_dims,
@@ -394,6 +410,9 @@ def run(ctxt=None):
         ]),
         'dual_lam': torch.optim.Adam([
             {'params': dual_lam.parameters(), 'lr': _finalize_lr(args.dual_lr)},
+        ]),
+        'goal_sample_network': torch.optim.Adam([
+            {'params': goal_sample_network.parameters(), 'lr': _finalize_lr(args.lr_op)},
         ]),
     }
     if skill_dynamics is not None:
@@ -484,7 +503,7 @@ def run(ctxt=None):
         policy_type=args.policy_type,
         explore_type=args.explore_type,
         sample_type=args.sample_type,
-        
+        goal_sample_network=goal_sample_network,
     )
 
     skill_common_args = dict(
