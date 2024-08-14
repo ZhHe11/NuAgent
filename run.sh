@@ -31,7 +31,7 @@ export MUJOCO_GL="osmesa"
 #     --sample_type contrastive \
 
 # sample goal to explore;
-python tests/main.py --run_group Debug_baseline --exp_name cl_her-psro_simple \
+python tests/main.py --run_group Debug_baseline --exp_name cl_her-psro_phi_g-R_sum \
     --env ant_maze --max_path_length 300 \
     --seed 0 --traj_batch_size 8 --n_parallel 4 \
     --normalizer_type off \

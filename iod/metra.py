@@ -129,7 +129,8 @@ class METRA(IOD):
         self.exp_z = None   
         self.goal_sample_network = goal_sample_network.to(self.device)
         self.goal_sample_optim = None
-        self.last_goal = None
+        self.last_phi_g = None
+        self.last_phi_g_dist = None
         self.epoch_final = None
         
         
@@ -145,6 +146,18 @@ class METRA(IOD):
     def _get_concat_obs(self, obs, option):
         return get_torch_concat_obs(obs, option)
 
+    def _clip_phi_g(self, goal):
+        epsilon = 1e-6
+        lower = -100 * torch.ones(self.dim_option).to(self.device) + epsilon
+        upper = 100 * torch.ones(self.dim_option).to(self.device) + epsilon
+
+        clip_up = (goal > upper).float()
+        clip_down = (goal < lower).float()
+        with torch.no_grad():
+            clip = ((upper - goal) * clip_up + (lower - goal) * clip_down)
+
+        return goal + clip
+    
 
     '''
     For soft-update
@@ -159,7 +172,7 @@ class METRA(IOD):
         epoch_final = {}
         for key, value in data.items():
             epoch_data[key] = torch.tensor(np.concatenate(value, axis=0), dtype=torch.float32, device=self.device)
-            epoch_final[key] = torch.tensor(value, dtype=torch.float32, device=self.device)[:,-1]
+            epoch_final[key] = torch.tensor(value, dtype=torch.float32, device=self.device)
         self.epoch_final = epoch_final
         return epoch_data
 
@@ -280,25 +293,46 @@ class METRA(IOD):
                     ## 4. using psro
                     # pass
                     # update network
-                    final_state = self.epoch_final['obs']
-                    if self.last_goal is None:
-                        self.goal_sample_optim = optim.Adam(self.goal_sample_network.parameters(), lr=1e-3) 
+                    final_state = self.epoch_final['obs'][:,-1]
+                    if self.last_phi_g is None:
+                        self.goal_sample_optim = optim.Adam(self.goal_sample_network.parameters(), lr=1e-5) 
                     else: 
-                        goal_log_probs = self.last_goal_dist.log_prob(self.last_goal)
-                        R = - torch.norm(self.target_traj_encoder(self.last_goal).mean - self.target_traj_encoder(final_state).mean, dim=-1).detach()
-                        loss = (goal_log_probs * torch.exp(1+R)).mean()
-                        self.goal_sample_optim.zero_grad()
-                        loss.backward()
-                        self.goal_sample_optim.step()
-                    
-    
+                        phi_g_log_probs = self.last_phi_g_dist.log_prob(self.last_phi_g)
+                        # R = - torch.norm(self.target_traj_encoder(self.last_goal).mean - self.target_traj_encoder(final_state).mean, dim=-1).detach()
+                        T = 5
+                        R = torch.zeros(self.epoch_final['obs'].shape[0]).to(self.device)
+                        with torch.no_grad():
+                            for i in range(T):
+                                index = i + 1
+                                s = self.epoch_final['obs'][:,-index-1]
+                                s_next =  self.epoch_final['obs'][:,-index]
+                                g = self.epoch_final['obs'][:,-1]
+                                option = self.vec_norm(self.target_traj_encoder(g).mean - self.target_traj_encoder(s).mean)
+                                options_s_s_next = self.traj_encoder(s_next).mean - self.traj_encoder(s).mean
+                                goal_reward = (options_s_s_next * option).sum(dim=1)
+                                R += goal_reward
+
+                        if R.mean() > 1.5: 
+                            loss = (phi_g_log_probs * R).mean() + torch.maximum(torch.norm(self.last_phi_g - self.target_traj_encoder(self.last_final_state).mean, dim=-1), torch.ones_like(self.last_phi_g))
+                            self.goal_sample_optim.zero_grad()
+                            loss.backward()
+                            self.goal_sample_optim.step()
+                            if wandb.run is not None:
+                                wandb.log({"sample/loss": loss,},step=runner.step_itr)
+                                
+                        if wandb.run is not None:
+                            wandb.log({"sample/R": R.mean(),},step=runner.step_itr)
+        
                     dist = self.goal_sample_network(final_state)
-                    goal = dist.rsample()
-                    self.last_goal_dist = dist
-                    self.last_goal = goal
-                    np_goal = goal.detach().cpu().numpy()
-                    extras = self._generate_option_extras(random_options, np_goal)  
-                    
+                    phi_g = dist.rsample()
+                    phi_g = self._clip_phi_g(phi_g)
+                    self.last_final_state = final_state
+                    self.last_phi_g_dist = dist
+                    self.last_phi_g = phi_g
+                    np_phi_g = phi_g.detach().cpu().numpy()
+                    print(np_phi_g)
+                    extras = self._generate_option_extras(random_options, phi_sub_goal=np_phi_g)  
+
                 
     
                 else:

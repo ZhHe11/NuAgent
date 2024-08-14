@@ -341,13 +341,15 @@ def run(ctxt=None):
         
 
     # Network for goal policy
+    # zhanghe
     module_cls, module_kwargs = get_gaussian_module_construction(
         args,
         hidden_sizes=master_dims,
         hidden_nonlinearity=nonlinearity or torch.relu,
         w_init=torch.nn.init.xavier_uniform_,
         input_dim=obs_dim,
-        output_dim=obs_dim,
+        output_dim=args.dim_option,
+        init_std=1.0,
         min_std=1e-6,
         max_std=1e6,
     )
