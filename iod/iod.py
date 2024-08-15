@@ -19,6 +19,7 @@ import wandb
 from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze, plot_trajectories, plot_value
 import matplotlib.pyplot as plt
 import os
+from iod.ant_eval import *
 
 
 class IOD(RLAlgorithm):
@@ -287,11 +288,22 @@ class IOD(RLAlgorithm):
         plot training traj
         '''
         if (runner.step_itr + 2) % self.n_epochs_per_log == 0 and wandb.run is not None:
+            Pepr_viz = True
             fig, ax = plt.subplots()
             env = runner._env
             env.draw(ax)
             list_viz_traj = []
+            All_Repr_obs_list = []
+            All_Goal_obs_list = []
             for i in range(len(trajectories)):
+                # plot phi
+                if Pepr_viz:
+                    phi_s = trajectories[i]['agent_infos']['phi_s']
+                    phi_g = trajectories[i]['agent_infos']['phi_sub_goal']
+                    All_Repr_obs_list.append(phi_s)
+                    All_Goal_obs_list.append(phi_g)
+                
+                
                 # plot the subgoal
                 if 'sub_goal' in trajectories[i]['agent_infos'].keys():
                     sub_goal = trajectories[i]['agent_infos']['sub_goal'][0]
@@ -309,7 +321,16 @@ class IOD(RLAlgorithm):
             filepath = os.path.join(path, "train_Maze_traj.png")
             print(filepath)
             plt.savefig(filepath) 
+        
+            
+            if Pepr_viz:
+                PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=self.max_path_length, tag='train')                
+                print('Repr_Space_traj saved')
+            
             wandb.log(({"train_Maze_traj": wandb.Image(filepath)}), step=runner.step_itr)
+            
+            
+            
             
         return trajectories
 

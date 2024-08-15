@@ -6,7 +6,7 @@ from sklearn.decomposition import PCA
 import matplotlib.cm as cm
 
 
-def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_PCA=False):
+def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_PCA=False, tag=''):
     Repr_obs_array = np.array(All_Repr_obs_list[0])
     All_Goal_obs_array = np.array(All_Goal_obs_list[0])
     for i in range(1,len(All_Repr_obs_list)):
@@ -29,12 +29,12 @@ def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_P
         end_index = (i+1) * path_len
         plt.scatter(Repr_obs_2d[start_index:end_index, 0], Repr_obs_2d[start_index:end_index, 1], color=color, s=5, label="traj."+str(i))
         plt.scatter(All_Goal_obs_2d[start_index, 0], All_Goal_obs_2d[start_index, 1], marker='*', s=100, c=color, label="option."+str(i))
-    file_path = os.path.join(path, "repr_traj.png")
+    file_path = os.path.join(path, tag + "repr_traj.png")
     plt.xlabel('z[0]')
     plt.ylabel('z[1]')
     plt.title('traj. in representation space')
     plt.legend()
     plt.savefig(file_path)
-    wandb.log(({"Repr_Space_traj": wandb.Image(file_path)}))
+    wandb.log(({ tag + "Repr_Space_traj" : wandb.Image(file_path)}))
 
 

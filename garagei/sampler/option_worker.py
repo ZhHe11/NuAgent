@@ -126,18 +126,10 @@ class OptionWorker(DefaultWorker):
                     
                     if 'phi_sub_goal' in self._cur_extras[self._cur_extra_idx].keys():
                         phi_sub_goal = self._cur_extras[self._cur_extra_idx]['phi_sub_goal']
-                        cur_extra = self.agent.gen_z_phi_g(torch.tensor(phi_sub_goal), torch.tensor(self._prev_obs), device="cpu").numpy()
+                        cur_extra, target_cur_z, goal_z = self.agent.gen_z_phi_g(torch.tensor(phi_sub_goal), torch.tensor(self._prev_obs), device="cpu", ret_emb=True)
+                        self._agent_infos['phi_s'].append(target_cur_z)
                         
                     
-                    # 设置采样概率
-                    # sampling_probability = 0.3
-
-                    # 决定是否进行随机采样
-                    # if np.random.rand() < sampling_probability:
-                    #     # 进行随机采样，这里假设采样自正态分布，您可以根据需要更改分布类型和参数
-                    #     cur_extra = np.random.normal(loc=cur_extra, scale=1)  # loc为均值，scale为标准差
-                    #     cur_extra = cur_extra / (np.linalg.norm(cur_extra) + 1e-8)
-
                 agent_input = get_np_concat_obs(
                     self._prev_obs, cur_extra,
                 )

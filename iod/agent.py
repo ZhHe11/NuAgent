@@ -28,12 +28,14 @@ class AgentWrapper(object):
             return z
         
     @torch.no_grad()
-    def gen_z_phi_g(self, phi_g, obs, device='cpu'):
+    def gen_z_phi_g(self, phi_g, obs, device='cpu', ret_emb: bool = False):
         traj_encoder = self.target_traj_encoder.to(device)
         goal_z = phi_g
         target_cur_z = traj_encoder(obs).mean
     
         z = self.vec_norm(goal_z - target_cur_z)
+        if ret_emb:
+            return z.numpy(), target_cur_z.numpy(), goal_z.numpy()
         return z
         
         
