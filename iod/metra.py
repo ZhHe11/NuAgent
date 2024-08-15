@@ -148,8 +148,8 @@ class METRA(IOD):
 
     def _clip_phi_g(self, goal):
         epsilon = 1e-6
-        lower = -200 * torch.ones(self.dim_option).to(self.device) + epsilon
-        upper = 200 * torch.ones(self.dim_option).to(self.device) + epsilon
+        lower = -300 * torch.ones(self.dim_option).to(self.device) + epsilon
+        upper = 300 * torch.ones(self.dim_option).to(self.device) + epsilon
 
         clip_up = (goal > upper).float()
         clip_down = (goal < lower).float()
@@ -294,10 +294,13 @@ class METRA(IOD):
                     # pass
                     # update network
                     final_state = self.epoch_final['obs'][:,-1]
+                    phi_g = self.last_phi_g
+                    with torch.no_grad():
+                        phi_s_f = self.target_traj_encoder(final_state).mean
                     if self.last_phi_g is None:
-                        self.goal_sample_optim = optim.Adam(self.goal_sample_network.parameters(), lr=1e-4)
+                        self.goal_sample_optim = optim.Adam(self.goal_sample_network.parameters(), lr=1e-5)
                         # 更新sample用的g
-                        dist = self.goal_sample_network(final_state)
+                        dist = self.goal_sample_network(phi_s_f)
                         phi_g = dist.rsample()
                         phi_g = self._clip_phi_g(phi_g)
                         self.last_final_state = final_state
@@ -306,21 +309,11 @@ class METRA(IOD):
                     else: 
                         T = 5
                         R = torch.zeros(self.epoch_final['obs'].shape[0]).to(self.device)
-                        g = self.epoch_final['obs'][:,-1]
-                        with torch.no_grad():
-                            for i in range(T):
-                                index = i + 1
-                                s = self.epoch_final['obs'][:,-index-1]
-                                s_next =  self.epoch_final['obs'][:,-index]
-                                phi_s = self.target_traj_encoder(s).mean
-                                # option = self.vec_norm(self.target_traj_encoder(g).mean - self.target_traj_encoder(s).mean)
-                                option = self.vec_norm(self.last_phi_g - self.target_traj_encoder(s).mean)
-                                options_s_s_next = self.vec_norm(self.traj_encoder(s_next).mean - self.traj_encoder(s).mean)
-                                goal_reward = (options_s_s_next * option).sum(dim=1)
-                                # goal_reward = 1 - torch.norm(self.last_phi_g - phi_s, dim=-1) / 50
-                                R += goal_reward
-                        R = R / T
-                        Network_Update = True
+                        R =  1 / (1 + torch.norm(phi_g - phi_s_f, dim=-1))
+                        
+                        Network_Update = False
+                        if R.mean() >= 0.5 :
+                            Network_Update = True
                         if Network_Update:  
                             phi_g_log_probs = self.last_phi_g_dist.log_prob(self.last_phi_g)
                             loss = (phi_g_log_probs * R).mean()
@@ -328,10 +321,10 @@ class METRA(IOD):
                             loss.backward()
                             self.goal_sample_optim.step()
                             if wandb.run is not None:
-                                wandb.log({"sample/loss": loss,},step=runner.step_itr)
+                                wandb.log({"sample/loss": loss,})
                                 
                             # 更新sample用的g
-                            dist = self.goal_sample_network(final_state)
+                            dist = self.goal_sample_network(phi_s_f)
                             phi_g = dist.rsample()
                             phi_g = self._clip_phi_g(phi_g)
                             self.last_final_state = final_state
@@ -339,7 +332,7 @@ class METRA(IOD):
                             self.last_phi_g = phi_g
                         
                         if wandb.run is not None:
-                            wandb.log({"sample/R": R.mean(),},step=runner.step_itr)
+                            wandb.log({"sample/R": R.mean()})
                     
                     np_phi_g = self.last_phi_g.detach().cpu().numpy()
                     print(np_phi_g)
@@ -857,7 +850,6 @@ class METRA(IOD):
                             "test/All_GtReturn": All_GtReturn_array.mean(),
                             "Maze_traj": wandb.Image(filepath),
                         },
-                        step=runner.step_itr
                     )
         
             if Pepr_viz and self.dim_option==2:

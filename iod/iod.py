@@ -166,7 +166,7 @@ class IOD(RLAlgorithm):
                     train_log[k] = np.array2string(tensors[k].detach().cpu().numpy(), suppress_small=True)
             
             if wandb.run is not None:
-                wandb.log(tensors, step=runner.step_itr)
+                wandb.log(tensors)
 
         # if logging_enabled:
         #     prefix_tabular = global_context.get_metric_prefix()
@@ -327,9 +327,7 @@ class IOD(RLAlgorithm):
                 PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=self.max_path_length, tag='train')                
                 print('Repr_Space_traj saved')
             
-            wandb.log(({"train_Maze_traj": wandb.Image(filepath)}), step=runner.step_itr)
-            
-            
+            wandb.log(({"train_Maze_traj": wandb.Image(filepath)}))
             
             
         return trajectories
