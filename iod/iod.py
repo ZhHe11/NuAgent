@@ -355,12 +355,15 @@ class IOD(RLAlgorithm):
             index = np.arange(0, traj_len)
             
             # data['final_state'].append(np.tile(path['observations'][-1], (traj_len, 1)))
-            
+
             ## use sub_goal from path; if not exist, use the last one as subgoal;
             if 'sub_goal' in path['agent_infos']:
                 data['sub_goal'].append(path["agent_infos"]["sub_goal"])
             else:
                 data['sub_goal'].append(np.tile(path['observations'][-1], (traj_len, 1)))
+
+            if 'phi_sub_goal' in path['agent_infos']:
+                data['phi_sub_goal'].append(path["agent_infos"]["phi_sub_goal"])
             
             ## for contrastive positive sample：
             if self.sample_type in ['contrastive']:
