@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=7
+export CUDA_VISIBLE_DEVICES=4
 export MUJOCO_GL="osmesa"
 
 # soft_update
@@ -45,7 +45,7 @@ export MUJOCO_GL="osmesa"
 #     --sample_type contrastive \
 
 # determined sample baseline;
-python tests/main.py --run_group Debug_baseline --exp_name psro-R_phi_g_distance-wait \
+python tests/main.py --run_group Debug_baseline --exp_name SGN-std \
     --env ant_maze --max_path_length 300 \
     --seed 0 --traj_batch_size 8 --n_parallel 4 \
     --normalizer_type off \

@@ -166,4 +166,6 @@ d4rl
 *.pth
 *.pt
 *.sh
+tmp*
+
 

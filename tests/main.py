@@ -349,9 +349,9 @@ def run(ctxt=None):
         w_init=torch.nn.init.xavier_uniform_,
         input_dim=args.dim_option,
         output_dim=args.dim_option,
-        init_std=1.0,
+        init_std=10.0,
         min_std=1e-6,
-        max_std=1e6,
+        max_std=300,
     )
     goal_sample_network = module_cls(**module_kwargs)
 

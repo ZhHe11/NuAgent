@@ -167,6 +167,11 @@ class IOD(RLAlgorithm):
             
             if wandb.run is not None:
                 wandb.log(tensors)
+                
+        if wandb.run is not None:        
+            wandb.log({
+                        "train/step": runner.step_itr,
+                        })   
 
         # if logging_enabled:
         #     prefix_tabular = global_context.get_metric_prefix()
@@ -385,10 +390,10 @@ class IOD(RLAlgorithm):
                 data['phi_sub_goal'].append(path["agent_infos"]["phi_sub_goal"])
             
             ## for contrastive positive sample：
+            path_goal_dist = np.zeros(path['observations'].shape[0])
+            path_subgoal = np.zeros(path['observations'].shape)
             if self.sample_type in ['contrastive']:
                 traj_len = len(path['observations'])
-                path_goal_dist = np.zeros(path['observations'].shape[0])
-                path_subgoal = np.zeros(path['observations'].shape)
                 for t in range(traj_len):
                     t_pos = np.random.choice(traj_len-t, 1, replace=False)
                     path_goal_dist[t] = t_pos
@@ -397,11 +402,11 @@ class IOD(RLAlgorithm):
                 data['pos_sample'].append(path_subgoal)
     
             ## for HER resample sub_goal:
-            if self.sample_type in ['her_reward']:
-                subgoal_indices = np.random.choice(traj_len, 1, replace=False)
+            if self.sample_type in ['her_reward', 'contrastive']:
+                num_her = 1
+                subgoal_indices = np.random.choice(traj_len, num_her, replace=False)
                 for j in range(len(subgoal_indices)):
                     subgoal_index = subgoal_indices[j]
-                    data['goal_distance'].append(subgoal_index-index[:subgoal_index+1])
                     data['obs'].append(path['observations'][:subgoal_index+1])
                     data['next_obs'].append(path['next_observations'][:subgoal_index+1])
                     data['actions'].append(path['actions'][:subgoal_index+1])
@@ -419,11 +424,12 @@ class IOD(RLAlgorithm):
                         data['options'].append(path['agent_infos']['option'][:subgoal_index+1])
                         data['next_options'].append(np.concatenate([path['agent_infos']['option'][:subgoal_index+1][1:], path['agent_infos']['option'][:subgoal_index+1][-1:]], axis=0))
                     if self.sample_type in ['contrastive']:
-                        data['pos_sample_distance'].append(data['pos_sample_distance'][0][:subgoal_index+1])
-                        data['pos_sample'].append(data['pos_sample'][0][:subgoal_index+1])
+                        data['pos_sample_distance'].append(path_goal_dist[:subgoal_index+1])
+                        data['pos_sample'].append(path_subgoal[:subgoal_index+1])
+                    if 'phi_sub_goal' in path['agent_infos']:
+                        data['phi_sub_goal'].append(path["agent_infos"]["phi_sub_goal"][:subgoal_index+1])
+                        
                     data['sub_goal'].append(np.tile(path['observations'][:subgoal_index+1][-1], (subgoal_index+1, 1)))
-                    
-
                 
         return data
 
