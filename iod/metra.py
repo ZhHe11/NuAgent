@@ -214,9 +214,10 @@ class METRA(IOD):
     For soft-update
     '''
     def update_target_traj(self):
+        theta = 5e-2
+        # theta = 1
         for t_param, param in zip(self.target_traj_encoder.parameters(), self.traj_encoder.parameters()):
-            t_param.data.copy_(t_param.data * (1.0 - 5e-2) +
-                param.data * 5e-2)
+            t_param.data.copy_(t_param.data * (1.0 - theta) + param.data * theta)
     
     def _flatten_data(self, data):
         epoch_data = {}
@@ -427,9 +428,127 @@ class METRA(IOD):
                     np_phi_g = phi_s_next.detach().cpu().numpy()
                     extras = self._generate_option_extras(random_options, phi_sub_goal=np_phi_g)  
             
+            elif self.method['explore'] == 'random-direction':
+                if self.epoch_final is None:
+                    self.phi_knew = torch.zeros((600, 600))
+                if self.epoch_final is not None:
+                    epoch_final_obs = self.epoch_final['obs']
+                    for i in range(len(epoch_final_obs)):
+                        phi_s = self.target_traj_encoder(epoch_final_obs[i]).mean
+                        phi_s_position = phi_s.int().cpu() + 300
+                        self.phi_knew[phi_s_position[:,0], phi_s_position[:,1]] = 1
+                        
+                    y_list, x_list = torch.where(self.phi_knew == 1)
+                    plt.figure()
+                    plt.scatter(x=x_list,y=y_list)
+                    plt.savefig('img.png')
+                    plt.close()
+                
+                phi_g_next = 300 * random_options
+                extras = self._generate_option_extras(random_options, phi_sub_goal=phi_g_next)  
+                
+            elif self.method['explore'] == 'theta':
+                if self.epoch_final is not None:
+                    sample_batch = self.epoch_final['obs'].shape[0]
+                    final_state = self.epoch_final['obs'][:,-1]
+                    with torch.no_grad():
+                        phi_s_0 = self.target_traj_encoder(self.init_obs).mean
+                        phi_s_f = self.target_traj_encoder(final_state).mean
+                    
+                    exp_theta = self.vec_norm(phi_s_f - phi_s_0)
             
-               
+                    if self.goal_sample_optim is None:
+                        self.goal_sample_optim = optim.SGD(self.goal_sample_network.parameters(), lr=1e-3)
+                        self.last_phi_g = phi_s_f
+                    s_f_L = torch.norm(phi_s_f - phi_s_0, dim=-1) 
+                    theta_L = self.goal_sample_network(exp_theta)
+                    theta_L_mean = theta_L.mean
+                    theta_L_stddev = theta_L.stddev
+                    s_g_L_log_probs = theta_L.log_prob(self.last_phi_g)
+                    
+                    # 计算R
+                    train_max_count = 100
+                    Network_Update = torch.zeros((sample_batch)).to(self.device)
+                    Sample_Update = torch.zeros((sample_batch)).to(self.device)
+                    Network_R_std = torch.zeros((sample_batch)).to(self.device)
+                    if self.Network_None_Update_count == None:
+                        self.Network_None_Update_count = torch.zeros((sample_batch), dtype=int).to(self.device)
+                        self.Network_R = torch.zeros((sample_batch, train_max_count)).to(self.device)
+                    R = torch.zeros(sample_batch).to(self.device)
+                    phi_g_sf_distance_score =  1 / (1 + torch.norm(self.last_phi_g - phi_s_f, dim=-1).detach())
+                    # 对于每条数据独立判E定和更新；
+                    for i in range(sample_batch):
+                        R[i] = phi_g_sf_distance_score[i]
+                             
+                        self.Network_R[i][self.Network_None_Update_count[i]] = R[i]
+                        if self.Network_None_Update_count[i] > 0:
+                            Network_R_std[i] = torch.std(self.Network_R[i][:self.Network_None_Update_count[i]+1])
+                        else:
+                            Network_R_std[i] = R[i]
+                        self.Network_None_Update_count[i] = self.Network_None_Update_count[i] + 1
+                            
+                        # 判定是否需要更新目标；
+                        if R[i] >= 0.5: 
+                            # 说明学会了，要更新网络，向更远的方向；
+                            Network_Update[i] = 1       # 1 是学会了
+                            Sample_Update[i] = 1        # 要更新phi_g
+                            self.Network_None_Update_count[i] = 0
+                            self.Network_R[i] = torch.zeros_like(self.Network_R[i])
+                        elif (Network_R_std[i] < 0.05 and self.Network_None_Update_count[i] > 2) or self.Network_None_Update_count[i] >= 10:
+                            # 说明学不会，不更新网路，但更新phi_g;
+                            # 我试试反向更新；我想让网络的mean有变化；
+                            Network_Update[i] = 1      # 是没学会；
+                            Sample_Update[i] = 1        # 要更新phi_g
+                            self.Network_None_Update_count[i] = 0
+                            self.Network_R[i] = torch.zeros_like(self.Network_R[i])
+                            
+                    # 更新网络
+                    # 对于mean的更新：
+                    loss_mean = ((s_f_L- theta_L_mean)**2).mean()
+                    # 对于分布的更新；
+                    loss_std = - (s_g_L_log_probs * R).mean()
+                    loss = (Network_Update * (loss_std + loss_mean)).mean()
+                    self.goal_sample_optim.zero_grad()
+                    loss.backward()
+                    self.goal_sample_optim.step()
+                    
+                    # 推理，获取新的phi_g
+                    with torch.no_grad():
+                        theta_L = self.goal_sample_network(torch.randn_like(self.last_phi_g))
+                        theta_L_mean = theta_L.mean
+                        theta_L_stddev = theta_L.stddev
+                        
+                    # 更新新的phi_g
+                    next_phi_g = phi_s_0 + (theta_L_mean + torch.rand_like(theta_L_stddev) * theta_L_stddev) * exp_theta
+                    self.last_phi_g = Sample_Update.unsqueeze(-1) * next_phi_g + (1 - Sample_Update.unsqueeze(-1)) * self.last_phi_g
+
+                    np_phi_g = self.last_phi_g.detach().cpu().numpy()
+                    extras = self._generate_option_extras(random_options, phi_sub_goal=np_phi_g)  
+
+                    
+                    if wandb.run is not None:
+                        wandb.log({
+                                "theta/loss_mean": loss_mean.detach(),
+                                "theta/loss_std": loss_std.detach(),
+                                "theta/loss": loss.detach(),
+                                }) 
+                        Mean = theta_L_mean
+                        Stddev = theta_L_stddev
+                        for i in range(sample_batch):    
+                            wandb.log({
+                                        "theta/mean-" + str(i): float(Mean[i][0].cpu()),
+                                        "theta/std-" + str(i): float(Stddev[i][0].cpu()),
+                                        "theta/R-" + str(i): float(R[i].cpu()),
+                                        })
+                    if runner.step_itr % 100 == 0:
+                        file_name = 'SampleGoalNet.pt'
+                        torch.save({
+                            'SampleGoalNet': self.goal_sample_network,
+                        }, file_name)
+                else:
+                    extras = self._generate_option_extras(random_options)  
             
+
             elif self.method['explore'] == "freeze":
                 init_obs = self.init_obs.cpu().numpy()
                 goals_list = [

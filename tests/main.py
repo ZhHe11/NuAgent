@@ -205,7 +205,6 @@ def get_gaussian_module_construction(args,
         module_cls = GaussianMLPIndependentStdModuleEx
         # print("used XY_GaussianMLPIndependentStdModuleEx")
         # original one
-        module_cls = GaussianMLPIndependentStdModuleEx
         module_kwargs.update(dict(
             std_hidden_sizes=hidden_sizes,
             std_hidden_nonlinearity=hidden_nonlinearity,
@@ -348,10 +347,10 @@ def run(ctxt=None):
         hidden_nonlinearity=nonlinearity or torch.relu,
         w_init=torch.nn.init.xavier_uniform_,
         input_dim=args.dim_option,
-        output_dim=args.dim_option,
-        init_std=10.0,
-        min_std=1e-6,
-        max_std=300,
+        output_dim=1,
+        init_std=10.,
+        min_std=0.1,
+        max_std=20.,
     )
     goal_sample_network = module_cls(**module_kwargs)
 

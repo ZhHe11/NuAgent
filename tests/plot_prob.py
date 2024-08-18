@@ -69,32 +69,54 @@ module_cls, module_kwargs = get_gaussian_module_construction(
 )
 goal_sample_network = module_cls(**module_kwargs).to('cuda')
 
+def vec_norm(vec):
+    return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
 
-# 生成网格数据
-x, y = np.mgrid[-5:5:.01, -5:5:.01]
-pos = np.dstack((x, y))
-
-total_density = np.zeros(pos.shape[0:2])
-
-tensor_x = torch.tensor(x, dtype=torch.float32)
-tensor_y = torch.tensor(y, dtype=torch.float32)
-tensor_pos = torch.tensor(pos, dtype=torch.float32).to('cuda')
-s_0 = torch.zeros((1,2)).to('cuda')
-with torch.no_grad():
-    dist = goal_sample_network(s_0)
-
-# prob = torch.exp(dist.log_prob(tensor_pos))
-prob = dist.log_prob(tensor_pos)
+SampleGoalNet = torch.load("/data/zh/project12_Metra/METRA/SampleGoalNet.pt")['SampleGoalNet']
 
 
-prob = prob.cpu().numpy()
+directions = vec_norm(torch.randn((100, 2))).to('cuda')
+
+dist = SampleGoalNet(directions)
+
+mean = dist.mean.detach()
+
+edge = (directions * mean).cpu().numpy()
+
 plt.figure(figsize=(8, 8))
-plt.imshow(prob, extent=[-5, 5, -5, 5], origin='lower', cmap='viridis', interpolation='nearest')
-plt.colorbar(label='Probability Density')
-plt.title('Probability Density Heatmap')
+plt.scatter(x=edge[:,0], y=edge[:,1])
+# plt.colorbar(label='Probability Density')
+plt.title('Edge')
 plt.xlabel('X-axis')
 plt.ylabel('Y-axis')
 plt.savefig('test.png')
+
+
+# # 生成网格数据
+# x, y = np.mgrid[-5:5:.01, -5:5:.01]
+# pos = np.dstack((x, y))
+
+# total_density = np.zeros(pos.shape[0:2])
+
+# tensor_x = torch.tensor(x, dtype=torch.float32)
+# tensor_y = torch.tensor(y, dtype=torch.float32)
+# tensor_pos = torch.tensor(pos, dtype=torch.float32).to('cuda')
+# s_0 = torch.zeros((1,2)).to('cuda')
+# with torch.no_grad():
+#     dist = goal_sample_network(s_0)
+
+# # prob = torch.exp(dist.log_prob(tensor_pos))
+# prob = dist.log_prob(tensor_pos)
+
+
+# prob = prob.cpu().numpy()
+# plt.figure(figsize=(8, 8))
+# plt.imshow(prob, extent=[-5, 5, -5, 5], origin='lower', cmap='viridis', interpolation='nearest')
+# plt.colorbar(label='Probability Density')
+# plt.title('Probability Density Heatmap')
+# plt.xlabel('X-axis')
+# plt.ylabel('Y-axis')
+# plt.savefig('test.png')
 
 
 

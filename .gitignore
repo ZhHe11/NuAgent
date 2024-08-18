@@ -167,5 +167,6 @@ d4rl
 *.pt
 *.sh
 tmp*
+*.png
 
 
