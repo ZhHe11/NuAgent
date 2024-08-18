@@ -299,7 +299,6 @@ class METRA(IOD):
                     np_phi_g = np.zeros((sample_batch, self.dim_option))
                     with torch.no_grad():
                         phi_s_f = self.target_traj_encoder(final_state).mean
-                        # phi_s_next = 
                     # initial
                     if self.last_phi_g is None:
                         self.last_phi_g = torch.zeros((sample_batch, self.dim_option)).to(self.device)
@@ -347,14 +346,14 @@ class METRA(IOD):
                             # 判定是否需要更新目标；
                             if R[i] >= 1: 
                                 # 说明学会了，要更新网络，向更远的方向；
-                                Network_Update[i] = 1
+                                Network_Update[i] = -1
                                 Sample_Update[i] = 1
                                 self.Network_None_Update_count[i] = 0
                                 self.Network_R[i] = torch.zeros_like(self.Network_R[i])
                             elif (Network_R_std[i] < 0.05 and self.Network_None_Update_count[i] > 2) or self.Network_None_Update_count[i] >= 10:
                                 # 说明学不会，不更新网路，但更新phi_g;
                                 # 我试试反向更新；我想让网络的mean有变化；
-                                Network_Update[i] = -1
+                                Network_Update[i] = 1
                                 Sample_Update[i] = 1
                                 self.Network_None_Update_count[i] = 0
                                 self.Network_R[i] = torch.zeros_like(self.Network_R[i])
@@ -413,7 +412,24 @@ class METRA(IOD):
 
                 else:
                     extras = self._generate_option_extras(random_options)  
-                
+               
+            elif self.method['explore'] == 're-sample':
+                if self.epoch_final is None:
+                    extras = self._generate_option_extras(random_options)  
+                else:
+                    sample_batch = self.epoch_final['obs'].shape[0]
+                    final_state = self.epoch_final['obs'][:,-1]
+                    self.last_final_state = final_state
+                    with torch.no_grad():
+                        phi_s_f = self.target_traj_encoder(final_state).mean
+                        dist = self.target_traj_encoder(final_state)
+                        phi_s_next = self._clip_phi_g(dist.rsample())
+                    np_phi_g = phi_s_next.detach().cpu().numpy()
+                    extras = self._generate_option_extras(random_options, phi_sub_goal=np_phi_g)  
+            
+            
+               
+            
             elif self.method['explore'] == "freeze":
                 init_obs = self.init_obs.cpu().numpy()
                 goals_list = [
