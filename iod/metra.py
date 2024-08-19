@@ -214,8 +214,8 @@ class METRA(IOD):
     For soft-update
     '''
     def update_target_traj(self):
-        theta = 5e-2
-        # theta = 1
+        # theta = 5e-2
+        theta = 1
         for t_param, param in zip(self.target_traj_encoder.parameters(), self.traj_encoder.parameters()):
             t_param.data.copy_(t_param.data * (1.0 - theta) + param.data * theta)
     
@@ -514,18 +514,18 @@ class METRA(IOD):
                     
                     # 推理，获取新的phi_g
                     with torch.no_grad():
-                        theta_L = self.goal_sample_network(torch.randn_like(self.last_phi_g))
+                        randn_exp_theta = self.vec_norm(torch.randn_like(self.last_phi_g)).to(self.device)
+                        theta_L = self.goal_sample_network(randn_exp_theta)
                         theta_L_mean = theta_L.mean
                         theta_L_stddev = theta_L.stddev
                         
                     # 更新新的phi_g
-                    next_phi_g = phi_s_0 + (theta_L_mean + torch.rand_like(theta_L_stddev) * theta_L_stddev) * exp_theta
+                    next_phi_g = phi_s_0 + (theta_L_mean + torch.rand_like(theta_L_stddev) * theta_L_stddev) * randn_exp_theta
                     self.last_phi_g = Sample_Update.unsqueeze(-1) * next_phi_g + (1 - Sample_Update.unsqueeze(-1)) * self.last_phi_g
 
                     np_phi_g = self.last_phi_g.detach().cpu().numpy()
                     extras = self._generate_option_extras(random_options, phi_sub_goal=np_phi_g)  
 
-                    
                     if wandb.run is not None:
                         wandb.log({
                                 "theta/loss_mean": loss_mean.detach(),
