@@ -80,11 +80,16 @@ directions = vec_norm(torch.randn((100, 2))).to('cuda')
 dist = SampleGoalNet(directions)
 
 mean = dist.mean.detach()
+stddev = dist.stddev.detach()
 
-edge = (directions * mean).cpu().numpy()
+edge_mean = (directions * mean).cpu().numpy()
+
+edge_std = (directions * (mean+stddev)).cpu().numpy()
+
 
 plt.figure(figsize=(8, 8))
-plt.scatter(x=edge[:,0], y=edge[:,1])
+plt.scatter(x=edge_mean[:,0], y=edge_mean[:,1])
+plt.scatter(x=edge_std[:,0], y=edge_std[:,1])
 # plt.colorbar(label='Probability Density')
 plt.title('Edge')
 plt.xlabel('X-axis')

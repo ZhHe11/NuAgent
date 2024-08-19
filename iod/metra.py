@@ -464,7 +464,8 @@ class METRA(IOD):
                     theta_L = self.goal_sample_network(exp_theta)
                     theta_L_mean = theta_L.mean
                     theta_L_stddev = theta_L.stddev
-                    s_g_L_log_probs = theta_L.log_prob(self.last_phi_g)
+                    s_g_L = torch.norm(self.last_phi_g - phi_s_0, dim=-1) 
+                    s_g_L_log_probs = theta_L.log_prob(s_g_L)
                     
                     # 计算R
                     train_max_count = 100
@@ -497,24 +498,39 @@ class METRA(IOD):
                         elif (Network_R_std[i] < 0.05 and self.Network_None_Update_count[i] > 2) or self.Network_None_Update_count[i] >= 10:
                             # 说明学不会，不更新网路，但更新phi_g;
                             # 我试试反向更新；我想让网络的mean有变化；
-                            Network_Update[i] = 1      # 是没学会；
+                            Network_Update[i] = -1      # 是没学会；
                             Sample_Update[i] = 1        # 要更新phi_g
                             self.Network_None_Update_count[i] = 0
                             self.Network_R[i] = torch.zeros_like(self.Network_R[i])
                             
                     # 更新网络
                     # 对于mean的更新：
-                    loss_mean = ((s_f_L- theta_L_mean)**2).mean()
+                    loss_mean = (torch.abs(Network_Update) * (s_f_L- theta_L_mean.squeeze(-1))**2).mean()
                     # 对于分布的更新；
-                    loss_std = - (s_g_L_log_probs * R).mean()
-                    loss = (Network_Update * (loss_std + loss_mean)).mean()
+                    # loss_std = (Network_Update * 1 * theta_L_stddev.squeeze(-1)).mean()
+                    loss_std = (torch.abs(Network_Update) * s_g_L_log_probs * R).mean()
+                    loss = ((loss_std + loss_mean)).mean()
                     self.goal_sample_optim.zero_grad()
                     loss.backward()
                     self.goal_sample_optim.step()
                     
                     # 推理，获取新的phi_g
                     with torch.no_grad():
-                        randn_exp_theta = self.vec_norm(torch.randn_like(self.last_phi_g)).to(self.device)
+                        freeze_direction = [
+                            [1,0],
+                            [1,1],
+                            [0,1],
+                            [-1,1],
+                            [-1,0],
+                            [-1,-1],
+                            [0,-1],
+                            [1,-1], 
+                        ]
+                        freeze_direction = torch.tensor(freeze_direction, dtype=torch.float32).to(self.device)
+                        # randn_exp_theta = self.vec_norm(torch.randn_like(self.last_phi_g)).to(self.device)
+                        
+                        randn_exp_theta = self.vec_norm(freeze_direction)
+                        
                         theta_L = self.goal_sample_network(randn_exp_theta)
                         theta_L_mean = theta_L.mean
                         theta_L_stddev = theta_L.stddev
