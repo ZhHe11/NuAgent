@@ -349,8 +349,8 @@ def run(ctxt=None):
         input_dim=args.dim_option,
         output_dim=1,
         init_std=10.,
-        min_std=5,
-        max_std=50.,
+        min_std=10.,
+        max_std=100.,
     )
     goal_sample_network = module_cls(**module_kwargs)
 

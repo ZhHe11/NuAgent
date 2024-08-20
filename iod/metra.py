@@ -261,7 +261,7 @@ class METRA(IOD):
     '''
     For soft-update
     '''
-    def update_target_traj(self, theta = 2e-5):
+    def update_target_traj(self, theta=2e-5):
         for t_param, param in zip(self.target_traj_encoder.parameters(), self.traj_encoder.parameters()):
             t_param.data.copy_(t_param.data * (1.0 - theta) + param.data * theta)
     
@@ -274,10 +274,17 @@ class METRA(IOD):
             epoch_data[key] = torch.tensor(np.concatenate(value, axis=0), dtype=torch.float32, device=self.device)
             final_list = []
             for i in range(num_sample_batch):
-                final_list.append(value[(num_her+1) * i])
+                traj_shape = value[(num_her+1) * i].shape
+                tensor_shape = [self.max_path_length, traj_shape[-1]] 
+                whole_traj = np.zeros(tensor_shape)
+                if traj_shape[0] < self.max_path_length:
+                    whole_traj[:value[(num_her+1) * i].shape[0]+1] = value[(num_her+1) * i]
+                    whole_traj[value[(num_her+1) * i].shape[0]+1:] = value[(num_her+1) * i][-1]
+                else:
+                    whole_traj = value[(num_her+1) * i]
+                final_list.append(whole_traj)
             epoch_final[key] = torch.tensor(final_list, dtype=torch.float32, device=self.device)
             
-        
         self.epoch_final = epoch_final
         return epoch_data
 
@@ -510,7 +517,7 @@ class METRA(IOD):
                         
                     s_f_L = torch.norm(phi_s_f - phi_s_0, dim=-1) 
                     theta_L = self.goal_sample_network(exp_theta)
-                    theta_L_mean = self._clip_phi_g(theta_L.mean)
+                    theta_L_mean = self._clip_phi_g(theta_L.mean, lower_value=-300, upper_value=300)
                     theta_L_stddev = theta_L.stddev
                     s_g_L = torch.norm(self.last_phi_g - phi_s_0, dim=-1) 
                     s_g_L_log_probs = theta_L.log_prob(s_g_L)
@@ -520,8 +527,7 @@ class METRA(IOD):
                     # 对于mean的更新：
                     loss_mean = torch.abs(Network_Update) * self.AsymmetricLoss(s_f_L - theta_L_mean.squeeze(-1),alpha_neg=-0.1, alpha_pos=1)
                     # 对于分布的更新；
-                    loss_std = self.AsymmetricLoss(-Network_Update * 1 * theta_L_stddev.squeeze(-1),alpha_neg=1, alpha_pos=0.1)
-                    # loss_std = (torch.abs(Network_Update) * s_g_L_log_probs * R).mean()
+                    loss_std = self.AsymmetricLoss(-Network_Update * 1 * theta_L_stddev.squeeze(-1), alpha_neg=1, alpha_pos=0.01)
                     loss = (loss_mean + loss_std).mean()
                     self.goal_sample_optim.zero_grad()
                     loss.backward()
@@ -534,21 +540,21 @@ class METRA(IOD):
                         # freeze_direction = torch.tensor(freeze_direction, dtype=torch.float32).to(self.device)
                         # randn_exp_theta = self.vec_norm(freeze_direction)
                         # 2) random:
-                        # randn_exp_theta = self.vec_norm(torch.randn_like(self.last_phi_g)).to(self.device)
-                        # theta_L = self.goal_sample_network(randn_exp_theta)
-                        # theta_L_mean = self._clip_phi_g(theta_L.mean)
-                        # theta_L_stddev = theta_L.stddev
+                        randn_exp_theta = self.vec_norm(torch.randn_like(self.last_phi_g)).to(self.device)
+                        theta_L = self.goal_sample_network(randn_exp_theta)
+                        theta_L_mean = self._clip_phi_g(theta_L.mean)
+                        theta_L_stddev = theta_L.stddev
                         # 3) 启发式:
-                        num_sample = 10
-                        randn_exps = torch.randn((num_sample, 2)).to(self.device)
-                        randn_exps = self.vec_norm(randn_exps)
-                        theta_Ls = self.goal_sample_network(randn_exps)
-                        theta_Ls_mean = theta_Ls.mean
-                        theta_Ls_stddev = theta_Ls.stddev
-                        values, indices = torch.topk(theta_Ls_stddev.squeeze(-1), sample_batch)
-                        theta_L_mean = theta_Ls_mean[indices]
-                        theta_L_stddev = theta_Ls_stddev[indices]
-                        randn_exp_theta = randn_exps[indices]
+                        # num_sample = 10
+                        # randn_exps = torch.randn((num_sample, 2)).to(self.device)
+                        # randn_exps = self.vec_norm(randn_exps)
+                        # theta_Ls = self.goal_sample_network(randn_exps)
+                        # theta_Ls_mean = self._clip_phi_g(theta_Ls.mean, lower_value=-300, upper_value=300)
+                        # theta_Ls_stddev = theta_Ls.stddev
+                        # values, indices = torch.topk(theta_Ls_stddev.squeeze(-1), sample_batch)
+                        # theta_L_mean = theta_Ls_mean[indices]
+                        # theta_L_stddev = theta_Ls_stddev[indices]
+                        # randn_exp_theta = randn_exps[indices]
         
                     # 更新新的phi_g
                     next_phi_g = phi_s_0 + (theta_L_mean + torch.rand_like(theta_L_stddev) * theta_L_stddev) * randn_exp_theta
@@ -648,7 +654,7 @@ class METRA(IOD):
         if self.method['phi'] == 'baseline':
             self.update_target_traj(theta=1)
         else:
-            self.update_target_traj(theta=2e-5)
+            self.update_target_traj(theta=1)
 
         if self.dual_reg:
             self._update_loss_dual_lam(tensors, internal_vars)
@@ -817,13 +823,6 @@ class METRA(IOD):
                 'distance_pos_neg': distance_pos_neg.mean(),
             })
         
-        elif self.method["phi"] in ['soft_update']:
-            assert option_s_s_next.shape == option_goal.shape, (option_s_s_next.shape, option_goal.shape)
-            rewards = (option_s_s_next * option_goal).sum(dim=1)
-            tensors.update({
-                'next_z_reward': rewards.mean(),
-            })
-        
         if self.dual_dist == 's2_from_s':    
             s2_dist = self.dist_predictor(obs)
             loss_dp = -s2_dist.log_prob(next_obs - obs).mean()
@@ -907,7 +906,7 @@ class METRA(IOD):
             assert v['option_s_s_next'].shape == option.shape, (v['option_s_s_next'].shape, option.shape)
             # goal_reward = ((v['option_s_s_next']) * option).sum(dim=1) 
             # 引入标定:final_goal_z
-            goal_reward = ((v['option_s_s_next']) * option ).sum(dim=1) 
+            goal_reward = ((v['option_s_s_next']) * option).sum(dim=1) 
             
             # final reward
             policy_rewards = goal_reward * self._reward_scale_factor

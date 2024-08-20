@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=5
+export CUDA_VISIBLE_DEVICES=3
 export MUJOCO_GL="osmesa"
 
 # soft_update
@@ -60,21 +60,21 @@ export MUJOCO_GL="osmesa"
 #     --phi_type contrastive --policy_type her_reward --explore_type psro \
 #     --sample_type contrastive 
 
-# determined sample baseline;
-# python tests/main.py --run_group Debug_baseline --exp_name SGN-theta-heu-get_R-low_std_neg-low_phi_neg \
-#     --env ant_maze --max_path_length 300 \
-#     --seed 0 --traj_batch_size 8 --n_parallel 4 \
-#     --normalizer_type off \
-#     --sac_max_buffer_size 100000 \
-#     --algo metra --trans_optimization_epochs 50 \
-#     --n_epochs_per_log 50 --n_epochs_per_eval 100 \
-#     --n_epochs_per_save 1000 --n_epochs_per_pt_save 1000 \
-#     --discrete 0 --dim_option 2 --unit_length 1 \
-#     --sac_scale_reward 1 --trans_minibatch_size 1024 --is_wandb 1 \
-#     --phi_type contrastive --policy_type her_reward --explore_type theta \
-#     --sample_type contrastive \
+# # determined sample baseline;
+python tests/main.py --run_group Debug_baseline --exp_name SGN-theta_randm-low_phi_neg-stdpos1e-2-no_softupdate \
+    --env ant_maze --max_path_length 300 \
+    --seed 0 --traj_batch_size 8 --n_parallel 4 \
+    --normalizer_type off \
+    --sac_max_buffer_size 100000 \
+    --algo metra --trans_optimization_epochs 50 \
+    --n_epochs_per_log 50 --n_epochs_per_eval 100 \
+    --n_epochs_per_save 1000 --n_epochs_per_pt_save 1000 \
+    --discrete 0 --dim_option 2 --unit_length 1 \
+    --sac_scale_reward 1 --trans_minibatch_size 1024 --is_wandb 1 \
+    --phi_type contrastive --policy_type her_reward --explore_type theta \
+    --sample_type contrastive \
 
-
+ 
 
 
 # # her_resample
@@ -91,16 +91,16 @@ export MUJOCO_GL="osmesa"
 #     --sac_scale_reward 1 --trans_minibatch_size 1024 --is_wandb 1 \
 
 # # baseline
-python tests/main.py --run_group Debug_baseline --exp_name baseline \
-    --env ant_maze --max_path_length 300 \
-    --seed 0 --traj_batch_size 8 --n_parallel 4 \
-    --normalizer_type off \
-    --sac_max_buffer_size 100000 \
-    --algo metra --trans_optimization_epochs 50 \
-    --n_epochs_per_log 50 --n_epochs_per_eval 100 \
-    --n_epochs_per_save 1000 --n_epochs_per_pt_save 1000 \
-    --discrete 0 --dim_option 2 --unit_length 1 \
-    --sac_scale_reward 1 --trans_minibatch_size 1024 --is_wandb 1 \
-    --phi_type baseline --policy_type baseline --explore_type baseline \
-    --sample_type baseline \
+# python tests/main.py --run_group Debug_baseline --exp_name baseline \
+#     --env ant_maze --max_path_length 300 \
+#     --seed 0 --traj_batch_size 8 --n_parallel 4 \
+#     --normalizer_type off \
+#     --sac_max_buffer_size 100000 \
+#     --algo metra --trans_optimization_epochs 50 \
+#     --n_epochs_per_log 50 --n_epochs_per_eval 100 \
+#     --n_epochs_per_save 1000 --n_epochs_per_pt_save 1000 \
+#     --discrete 0 --dim_option 2 --unit_length 1 \
+#     --sac_scale_reward 1 --trans_minibatch_size 1024 --is_wandb 1 \
+#     --phi_type baseline --policy_type baseline --explore_type baseline \
+#     --sample_type baseline \
 
