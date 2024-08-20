@@ -72,7 +72,7 @@ goal_sample_network = module_cls(**module_kwargs).to('cuda')
 def vec_norm(vec):
     return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
 
-SGN_path = '/data/zh/project12_Metra/METRA/exp/Debug_baseline/SGN-theta-randomsd000_1724064902_ant_maze_metra/wandb/latest-run/files/SampleGoalNet.pt'
+SGN_path = '/data/zh/project12_Metra/METRA/exp/Debug_baseline/SGN-theta-heu-get_Rsd000_1724127041_ant_maze_metra/wandb/latest-run/files/SampleGoalNet.pt'
 SampleGoalNet = torch.load(SGN_path)['SampleGoalNet']
 
 

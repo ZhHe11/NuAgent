@@ -233,7 +233,7 @@ class IOD(RLAlgorithm):
                     p.eval()
                 self.traj_encoder.eval()
                 # test process
-                if self.n_epochs_per_eval != 0 and runner.step_itr % self.n_epochs_per_eval == 0 and runner.step_itr != 0:
+                if self.n_epochs_per_eval != 0 and runner.step_itr % self.n_epochs_per_eval == 0:
                     self._evaluate_policy(runner)
 
                 # change mode
@@ -292,7 +292,7 @@ class IOD(RLAlgorithm):
         '''
         plot training traj
         '''
-        if (runner.step_itr + 2) % self.n_epochs_per_log == 0 and wandb.run is not None:
+        if (runner.step_itr + 2) % self.n_epochs_per_log == 0 and wandb.run is not None and 'phi_s' in trajectories[0]['agent_infos'].keys():
             Pepr_viz = True
             fig, ax = plt.subplots()
             env = runner._env

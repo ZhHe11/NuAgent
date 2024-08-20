@@ -518,7 +518,7 @@ class METRA(IOD):
                     Network_Update, Sample_Update, R = self.get_R(phi_s_f=phi_s_f, phi_g=self.last_phi_g, sample_batch=sample_batch)
                     # 更新网络
                     # 对于mean的更新：
-                    loss_mean = torch.abs(Network_Update) * self.AsymmetricLoss(s_f_L - theta_L_mean.squeeze(-1))
+                    loss_mean = torch.abs(Network_Update) * self.AsymmetricLoss(s_f_L - theta_L_mean.squeeze(-1),alpha_neg=-0.1, alpha_pos=1)
                     # 对于分布的更新；
                     loss_std = self.AsymmetricLoss(-Network_Update * 1 * theta_L_stddev.squeeze(-1),alpha_neg=1, alpha_pos=0.1)
                     # loss_std = (torch.abs(Network_Update) * s_g_L_log_probs * R).mean()
@@ -539,7 +539,7 @@ class METRA(IOD):
                         # theta_L_mean = self._clip_phi_g(theta_L.mean)
                         # theta_L_stddev = theta_L.stddev
                         # 3) 启发式:
-                        num_sample = 12
+                        num_sample = 10
                         randn_exps = torch.randn((num_sample, 2)).to(self.device)
                         randn_exps = self.vec_norm(randn_exps)
                         theta_Ls = self.goal_sample_network(randn_exps)
@@ -645,8 +645,10 @@ class METRA(IOD):
             tensors['LossTe'],
             optimizer_keys=['traj_encoder'],
         )
-        
-        self.update_target_traj()
+        if self.method['phi'] == 'baseline':
+            self.update_target_traj(theta=1)
+        else:
+            self.update_target_traj(theta=2e-5)
 
         if self.dual_reg:
             self._update_loss_dual_lam(tensors, internal_vars)
@@ -805,7 +807,7 @@ class METRA(IOD):
             mask_pos = torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
             inner_pos = torch.diag(matrix)
             inner_neg = (matrix * (1 - mask_pos)).sum(dim=1) / (phi_s.shape[0]-1)
-            new_reward = w * torch.log(F.sigmoid(inner_pos)) + w * torch.log(1 - F.sigmoid((inner_neg)))
+            new_reward = w * torch.log(F.sigmoid(inner_pos)) + w * torch.log(1 - F.sigmoid((inner_neg - 0.25)))
             
             rewards = new_reward
             tensors.update({
@@ -979,8 +981,6 @@ class METRA(IOD):
 
 
 
-
-
     '''
     Evaluation
     '''
@@ -1005,7 +1005,7 @@ class METRA(IOD):
         All_Return_list = []
         All_GtReturn_list = []
         All_trajs_list = []
-        
+        FinallDistanceList = []
         Pepr_viz = True
         np_random = np.random.default_rng()    
         
@@ -1023,6 +1023,7 @@ class METRA(IOD):
         
         # 2. interact with the env
         progress = tqdm(range(num_eval), desc="Evaluation")
+
         for i in progress:
             # 2.1 calculate the goal;
             # goal = env.env.goal_sampler(np_random)
@@ -1068,15 +1069,18 @@ class METRA(IOD):
             All_Goal_obs_list.append(Repr_goal_list)
             All_GtReturn_list.append(gt_return_list)
             All_trajs_list.append(traj_list)
+            FinallDistanceList.append(-gt_dist)
             progress.set_postfix_str(
                 f"gt_ret={sum(gt_return_list):.3f},final_dist={gt_dist:.3f}")
+            
             
         All_GtReturn_array = np.array([np.array(i).sum() for i in All_GtReturn_list])
         print(
             "All_GtReturn", All_GtReturn_array.mean()
         )
-
-            
+        FinallDistance = np.array(FinallDistanceList).mean()
+        FinallDistSum = np.array(FinallDistanceList).sum()
+        
         plot_trajectories(env, All_trajs_list, fig, ax)
         ax.legend(loc='lower right')
         
@@ -1087,7 +1091,10 @@ class METRA(IOD):
             print(filepath)
             wandb.log(  
                         {
+                            "epoch": runner.step_itr,
                             "test/All_GtReturn": All_GtReturn_array.mean(),
+                            "test/FinallDistance": FinallDistance,
+                            "test/FinallDistSum": FinallDistSum,
                             "Maze_traj": wandb.Image(filepath),
                         },
                     )
@@ -1095,6 +1102,22 @@ class METRA(IOD):
             if Pepr_viz and self.dim_option==2:
                 PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length)
                 print('Repr_Space_traj saved')
+
+            directions = self.vec_norm(torch.randn((100, 2))).to('cuda')
+            dist = self.goal_sample_network(directions)
+            mean = dist.mean.detach()
+            stddev = dist.stddev.detach()
+            edge_mean = (directions * mean).cpu().numpy()
+            edge_std = (directions * (mean+stddev)).cpu().numpy()
+            plt.figure(figsize=(8, 8))
+            plt.scatter(x=edge_mean[:,0], y=edge_mean[:,1])
+            plt.scatter(x=edge_std[:,0], y=edge_std[:,1])
+            # plt.colorbar(label='Probability Density')
+            plt.title('Edge')
+            plt.xlabel('X-axis')
+            plt.ylabel('Y-axis')
+            img_path = os.path.join(path, "SGN.png")
+            plt.savefig(img_path)
 
         file_name = 'option_policy.pt'
         torch.save({
@@ -1108,4 +1131,7 @@ class METRA(IOD):
             'dim_option': self.dim_option,
             'traj_encoder': self.traj_encoder,
         }, file_name)
+        
+        
+        
         
