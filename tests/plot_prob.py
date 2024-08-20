@@ -72,7 +72,8 @@ goal_sample_network = module_cls(**module_kwargs).to('cuda')
 def vec_norm(vec):
     return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
 
-SampleGoalNet = torch.load("/data/zh/project12_Metra/METRA/SampleGoalNet.pt")['SampleGoalNet']
+SGN_path = '/data/zh/project12_Metra/METRA/exp/Debug_baseline/SGN-theta-randomsd000_1724064902_ant_maze_metra/wandb/latest-run/files/SampleGoalNet.pt'
+SampleGoalNet = torch.load(SGN_path)['SampleGoalNet']
 
 
 directions = vec_norm(torch.randn((100, 2))).to('cuda')
@@ -94,7 +95,8 @@ plt.scatter(x=edge_std[:,0], y=edge_std[:,1])
 plt.title('Edge')
 plt.xlabel('X-axis')
 plt.ylabel('Y-axis')
-plt.savefig('test.png')
+img_path = SGN_path[:-2] + '.png'
+plt.savefig(img_path)
 
 
 # # 生成网格数据

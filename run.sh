@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=5
+export CUDA_VISIBLE_DEVICES=7
 export MUJOCO_GL="osmesa"
 
 # soft_update
@@ -61,7 +61,7 @@ export MUJOCO_GL="osmesa"
 #     --sample_type contrastive 
 
 # determined sample baseline;
-python tests/main.py --run_group Debug_baseline --exp_name SGN-theta-freeze-min_max \
+python tests/main.py --run_group Debug_baseline --exp_name SGN-theta-heu-get_R\
     --env ant_maze --max_path_length 300 \
     --seed 0 --traj_batch_size 8 --n_parallel 4 \
     --normalizer_type off \

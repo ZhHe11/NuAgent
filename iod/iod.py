@@ -402,7 +402,7 @@ class IOD(RLAlgorithm):
                 data['pos_sample'].append(path_subgoal)
     
             ## for HER resample sub_goal:
-            if self.sample_type in ['her_reward', 'contrastive']:
+            if self.sample_type in ['her_reward']:
                 num_her = 1
                 subgoal_indices = np.random.choice(traj_len, num_her, replace=False)
                 for j in range(len(subgoal_indices)):
