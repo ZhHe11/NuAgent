@@ -145,6 +145,7 @@ def get_argparser():
     parser.add_argument('--policy_type', type=str, default=None)
     parser.add_argument('--explore_type', type=str, default=None)
     parser.add_argument('--sample_type', type=str, default=None)
+    parser.add_argument('--num_her', type=int, default=0)
     
     parser.add_argument('--is_wandb', type=int, default=0)
     
@@ -348,7 +349,7 @@ def run(ctxt=None):
         w_init=torch.nn.init.xavier_uniform_,
         input_dim=args.dim_option,
         output_dim=1,
-        init_std=10.,
+        init_std=20.,
         min_std=10.,
         max_std=100.,
     )
@@ -505,6 +506,7 @@ def run(ctxt=None):
         explore_type=args.explore_type,
         sample_type=args.sample_type,
         goal_sample_network=goal_sample_network,
+        num_her=args.num_her,
     )
 
     skill_common_args = dict(

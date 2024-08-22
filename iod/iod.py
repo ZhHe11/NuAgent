@@ -61,6 +61,7 @@ class IOD(RLAlgorithm):
             discrete=False,
             unit_length=False,
             sample_type=None,
+            num_her=0,
     ):
         self.env_name = env_name
         self.algo = algo
@@ -125,6 +126,7 @@ class IOD(RLAlgorithm):
 
         self.traj_encoder.eval()
         self.sample_type=sample_type
+        self.num_her=num_her
 
     @property
     def policy(self):
@@ -402,8 +404,8 @@ class IOD(RLAlgorithm):
                 data['pos_sample'].append(path_subgoal)
     
             ## for HER resample sub_goal:
-            if self.sample_type in ['her_reward']:
-                num_her = 1
+            if self.sample_type in ['her_reward', 'contrastive']:
+                num_her = self.num_her
                 subgoal_indices = np.random.choice(traj_len, num_her, replace=False)
                 for j in range(len(subgoal_indices)):
                     subgoal_index = subgoal_indices[j]

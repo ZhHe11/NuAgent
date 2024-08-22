@@ -29,6 +29,7 @@ from iod.update_policy import *
 import torch.optim as optim
 import torch.nn.functional as F
 
+from torch.distributions import Normal
 
 
 class METRA(IOD):
@@ -61,7 +62,7 @@ class METRA(IOD):
             explore_type=None,
             
             goal_sample_network=None,
-            
+
             **kwargs,
     ):
         super().__init__(**kwargs)
@@ -133,7 +134,6 @@ class METRA(IOD):
         self.last_phi_g_dist = None
         self.epoch_final = None
         self.Network_None_Update_count = None
-        
         
     @property
     def policy(self):
@@ -268,22 +268,19 @@ class METRA(IOD):
     def _flatten_data(self, data):
         epoch_data = {}
         epoch_final = {}
-        num_her = 0
+        num_her = self.num_her
         num_sample_batch = 8
         for key, value in data.items():
             epoch_data[key] = torch.tensor(np.concatenate(value, axis=0), dtype=torch.float32, device=self.device)
-            final_list = []
-            for i in range(num_sample_batch):
-                traj_shape = value[(num_her+1) * i].shape
-                tensor_shape = [self.max_path_length, traj_shape[-1]] 
-                whole_traj = np.zeros(tensor_shape)
-                if traj_shape[0] < self.max_path_length:
-                    whole_traj[:value[(num_her+1) * i].shape[0]+1] = value[(num_her+1) * i]
-                    whole_traj[value[(num_her+1) * i].shape[0]+1:] = value[(num_her+1) * i][-1]
-                else:
-                    whole_traj = value[(num_her+1) * i]
-                final_list.append(whole_traj)
-            epoch_final[key] = torch.tensor(final_list, dtype=torch.float32, device=self.device)
+            if key == 'obs':
+                traj_key_dim = value[0].shape[-1]
+                epoch_key_final = torch.zeros((num_sample_batch, self.max_path_length, traj_key_dim), dtype=torch.float32, device=self.device)
+                for i in range(num_sample_batch):
+                    traj_shape = value[(num_her+1) * i].shape
+                    epoch_key_final[i][:traj_shape[0]] = torch.tensor(value[(num_her+1) * i], dtype=torch.float32, device=self.device)
+                    if traj_shape[0] < self.max_path_length:
+                        epoch_key_final[i][traj_shape[0]:] = torch.tensor(value[(num_her+1) * i][-1], dtype=torch.float32, device=self.device)
+                epoch_final[key] = epoch_key_final
             
         self.epoch_final = epoch_final
         return epoch_data
@@ -526,8 +523,13 @@ class METRA(IOD):
                     # 更新网络
                     # 对于mean的更新：
                     loss_mean = torch.abs(Network_Update) * self.AsymmetricLoss(s_f_L - theta_L_mean.squeeze(-1),alpha_neg=-0.1, alpha_pos=1)
+                    # normal_dist = Normal(theta_L_mean.squeeze(-1), theta_L_stddev.squeeze(-1))
+                    # s_f_L_cdf = normal_dist.cdf(s_f_L)
+                    # loss_mean = 100 * torch.clip(s_f_L_cdf, max=0.4)
                     # 对于分布的更新；
                     loss_std = self.AsymmetricLoss(-Network_Update * 1 * theta_L_stddev.squeeze(-1), alpha_neg=1, alpha_pos=0.01)
+                    # K = 10
+                    # loss_std = torch.abs((theta_L_stddev.squeeze(-1) * (torch.norm(self.last_phi_g - phi_s_f, dim=-1) + 1e-5) - K ))
                     loss = (loss_mean + loss_std).mean()
                     self.goal_sample_optim.zero_grad()
                     loss.backward()
@@ -654,7 +656,7 @@ class METRA(IOD):
         if self.method['phi'] == 'baseline':
             self.update_target_traj(theta=1)
         else:
-            self.update_target_traj(theta=1)
+            self.update_target_traj(theta=2e-5)
 
         if self.dual_reg:
             self._update_loss_dual_lam(tensors, internal_vars)
@@ -717,8 +719,9 @@ class METRA(IOD):
         if self.method['phi'] in ['soft_update', 'her_reward', 'contrastive']:   
             sub_goal = v['sub_goal']
             option = v['options']
-            # goal_z = self.target_traj_encoder(sub_goal).mean.detach()
-            goal_z = v['phi_sub_goal']
+            # 最终方向和采样方向加权；
+            goal_z = 0.5 * (self.target_traj_encoder(sub_goal).mean.detach() + v['phi_sub_goal'])
+            # goal_z = v['phi_sub_goal']
             final_goal_z = v['phi_sub_goal']
             
             target_cur_z = self.target_traj_encoder(obs).mean.detach()
