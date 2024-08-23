@@ -1039,7 +1039,6 @@ class METRA(IOD):
             phi_obs_ = self.traj_encoder(obs).mean
             Repr_obs_list = []
             Repr_goal_list = []
-            option_return_list = []
             gt_return_list = []
             traj_list = {}
             traj_list["observation"] = []

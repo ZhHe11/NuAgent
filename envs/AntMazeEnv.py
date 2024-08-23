@@ -42,8 +42,8 @@ def valid_goal_sampler(self, np_random):
     cell = sample_choices[np_random.choice(len(sample_choices))]
     xy = self._rowcol_to_xy(cell, add_random_noise=True)
 
-    random_x = np.random.uniform(low=0, high=0.5) * 0.25 * self._maze_size_scaling
-    random_y = np.random.uniform(low=0, high=0.5) * 0.25 * self._maze_size_scaling
+    random_x = np.random.uniform(low=-1, high=1) * 0.25 * self._maze_size_scaling
+    random_y = np.random.uniform(low=-1, high=1) * 0.25 * self._maze_size_scaling
 
     xy = (max(xy[0] + random_x, 0), max(xy[1] + random_y, 0))
 
