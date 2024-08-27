@@ -63,11 +63,11 @@ def gen_z(sub_goal, obs, traj_encoder, device="cpu", ret_emb: bool = False):
 
 ## load model
 # baseline 
-# policy_path = "/data/zh/project12_Metra/METRA/exp/Debug_baseline/baselinesd20230823_1724380008_ant_maze_metra/option_policy5000.pt"
-# traj_encoder_path = "/data/zh/project12_Metra/METRA/exp/Debug_baseline/baselinesd20230823_1724380008_ant_maze_metra/traj_encoder5000.pt"
-# SGN-A
-policy_path = "/data/zh/project12_Metra/METRA/exp/Debug_baseline/SGN_A/option_policy50000.pt"
-traj_encoder_path = "/data/zh/project12_Metra/METRA/exp/Debug_baseline/SGN_A/traj_encoder50000.pt"
+policy_path = "/data/zh/project12_Metra/METRA/exp/Debug_baseline/baselinesd20230823_1724380008_ant_maze_metra/option_policy48000.pt"
+traj_encoder_path = "/data/zh/project12_Metra/METRA/exp/Debug_baseline/baselinesd20230823_1724380008_ant_maze_metra/traj_encoder48000.pt"
+# # SGN-A
+# policy_path = "/data/zh/project12_Metra/METRA/exp/Debug_baseline/SGN_A/option_policy50000.pt"
+# traj_encoder_path = "/data/zh/project12_Metra/METRA/exp/Debug_baseline/SGN_A/traj_encoder50000.pt"
 
 load_option_policy_base = torch.load(policy_path)
 load_traj_encoder_base = torch.load(traj_encoder_path)
@@ -79,7 +79,7 @@ env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
 env.reset()
 frames = []
 fig, ax = plt.subplots()
-np_random = np.random.default_rng() 
+np_random = np.random.default_rng(seed=0) 
 goal = env.env.goal_sampler(np_random)
 env.draw(ax)
 goal_list = []
@@ -88,10 +88,11 @@ init_obs = env.reset()
 # settings:
 Eval = 1
 RandomInit = 0
-num_goals = 100
+num_goals = 1
 max_path_length = 300
 device = 'cuda'
-model_name = 'SGN-A'
+# model_name = 'SGN-A'
+model_name = 'baseline'
 path = './test/' + model_name
 
 
@@ -105,65 +106,69 @@ FinallDistanceList = []
 ArriveList=[]
 
 with torch.no_grad():
-    for i in trange(num_goals):
-        # get goal
-        goal = env.env.goal_sampler(np_random)
-        goal_list.append(goal)
-        ax.scatter(goal[0], goal[1], s=25, marker='o', alpha=1, edgecolors='black')
-        if Eval == 0:
-            continue
-        tensor_goal = torch.tensor(goal).to('cuda')
-        # get obs
-        if RandomInit:
-            # to do:
-            pass
-        else:
-            obs = env.reset()
-        
-        obs = torch.tensor(obs).unsqueeze(0).to(device).float()
-        target_obs = env.get_target_obs(obs, tensor_goal)
-        phi_target_obs = agent_traj_encoder(target_obs).mean
-        phi_obs_ = agent_traj_encoder(obs).mean
-        Repr_obs_list = []
-        Repr_goal_list = []
-        gt_return_list = []
-        traj_list = {}
-        traj_list["observation"] = []
-        traj_list["info"] = []
-        for t in range(max_path_length):
-            option, phi_obs_, phi_target_obs = gen_z(target_obs, obs, traj_encoder=agent_traj_encoder, device=device, ret_emb=True)
-            obs_option = torch.cat((obs, option), -1).float()
-            # for viz
-            Repr_obs_list.append(phi_obs_.cpu().numpy()[0])
-            Repr_goal_list.append(phi_target_obs.cpu().numpy()[0])
-            # get actions from policy
-            action, agent_info = agent_policy.get_action(obs_option)
-            # interact with the env
-            obs, reward, dones, info = env.step(action)
-            gt_dist = np.linalg.norm(goal - obs[:2])
-            # for recording traj.2
-            traj_list["observation"].append(obs)
-            info['x'], info['y'] = env.env.get_xy()
-            traj_list["info"].append(info)
-            # calculate the repr phi
-            obs = torch.tensor(obs).unsqueeze(0).to(device).float()
-            gt_reward = - gt_dist / (30 * max_path_length)
-            gt_return_list.append(gt_reward)
+    for i in range(num_goals):
+        GoalList = env.env.goal_sampler(np_random)
+        for j in trange(len(GoalList)):
+            goal = GoalList[j]
+            # print(goal)
+            # get goal
+            goal_list.append(goal)
+            ax.scatter(goal[0], goal[1], s=25, marker='o', alpha=1, edgecolors='black')
+            if Eval == 0:
+                continue
+            tensor_goal = torch.tensor(goal).to('cuda')
+            # get obs
+            if RandomInit:
+                # to do:
+                pass
+            else:
+                obs = env.reset()
             
+            obs = torch.tensor(obs).unsqueeze(0).to(device).float()
+            target_obs = env.get_target_obs(obs, tensor_goal)
+            phi_target_obs = agent_traj_encoder(target_obs).mean
+            phi_obs_ = agent_traj_encoder(obs).mean
+            Repr_obs_list = []
+            Repr_goal_list = []
+            gt_return_list = []
+            traj_list = {}
+            traj_list["observation"] = []
+            traj_list["info"] = []
+            for t in range(max_path_length):
+                option, phi_obs_, phi_target_obs = gen_z(target_obs, obs, traj_encoder=agent_traj_encoder, device=device, ret_emb=True)
+                obs_option = torch.cat((obs, option), -1).float()
+                # for viz
+                Repr_obs_list.append(phi_obs_.cpu().numpy()[0])
+                Repr_goal_list.append(phi_target_obs.cpu().numpy()[0])
+                # get actions from policy
+                action, agent_info = agent_policy.get_action(obs_option)
+                # interact with the env
+                obs, reward, dones, info = env.step(action)
+                gt_dist = np.linalg.norm(goal - obs[:2])
+                # for recording traj.2
+                traj_list["observation"].append(obs)
+                info['x'], info['y'] = env.env.get_xy()
+                traj_list["info"].append(info)
+                # calculate the repr phi
+                obs = torch.tensor(obs).unsqueeze(0).to(device).float()
+                gt_reward = - gt_dist / (30 * max_path_length)
+                gt_return_list.append(gt_reward)
+                
 
-        All_Repr_obs_list.append(Repr_obs_list)
-        All_Goal_obs_list.append(Repr_goal_list)
-        All_GtReturn_list.append(gt_return_list)
-        All_trajs_list.append(traj_list)
-        FinallDistanceList.append(-gt_dist)
-        if -gt_dist > -1:
-            ArriveList.append(1)
-        else:
-            ArriveList.append(0)
+            All_Repr_obs_list.append(Repr_obs_list)
+            All_Goal_obs_list.append(Repr_goal_list)
+            All_GtReturn_list.append(gt_return_list)
+            All_trajs_list.append(traj_list)
+            FinallDistanceList.append(-gt_dist)
+            if -gt_dist > -1:
+                ArriveList.append(1)
+            else:
+                ArriveList.append(0)
 
 # plot: goals  
 filepath = path + '-cover_goals.png'
 plt.savefig(filepath)
+print("save:", filepath)
 
 
 if Eval != 0:

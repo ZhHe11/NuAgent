@@ -395,6 +395,7 @@ class IOD(RLAlgorithm):
             path_goal_dist = np.zeros(path['observations'].shape[0])
             path_subgoal = np.zeros(path['observations'].shape)
             if self.sample_type in ['contrastive']:
+                data['final_goal_distance'].append(traj_len - 1 - index)
                 traj_len = len(path['observations'])
                 for t in range(traj_len):
                     t_pos = np.random.choice(traj_len-t, 1, replace=False)

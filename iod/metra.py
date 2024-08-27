@@ -126,7 +126,7 @@ class METRA(IOD):
         self.MaxLenPhi = 0
         
         # for psro:
-        self.init_obs = torch.tensor(init_obs).unsqueeze(0).expand(8, -1).to(self.device)
+        self.init_obs = torch.tensor(init_obs).unsqueeze(0).expand(self.num_random_trajectories, -1).to(self.device)
         self.exp_z = None   
         self.goal_sample_network = goal_sample_network.to(self.device)
         self.goal_sample_optim = None
@@ -236,7 +236,7 @@ class METRA(IOD):
             self.Network_None_Update_count[i] = self.Network_None_Update_count[i] + 1
                 
             # 判定是否需要更新目标；
-            if R[i] >= 0.5: 
+            if R[i] >= (0.5/np.sqrt(self.dim_option)): 
                 # 说明学会了，要更新网络，向更远的方向；
                 Network_Update[i] = 1       # 1 是学会了
                 Sample_Update[i] = 1        # 要更新phi_g
@@ -269,7 +269,7 @@ class METRA(IOD):
         epoch_data = {}
         epoch_final = {}
         num_her = self.num_her
-        num_sample_batch = 8
+        num_sample_batch = self.num_random_trajectories
         for key, value in data.items():
             epoch_data[key] = torch.tensor(np.concatenate(value, axis=0), dtype=torch.float32, device=self.device)
             if key == 'obs':
@@ -509,7 +509,7 @@ class METRA(IOD):
                     exp_theta = self.vec_norm(phi_s_f - phi_s_0)
             
                     if self.goal_sample_optim is None:
-                        self.goal_sample_optim = optim.SGD(self.goal_sample_network.parameters(), lr=1e-2)
+                        self.goal_sample_optim = optim.SGD(self.goal_sample_network.parameters(), lr=self.dim_option * 1e-2)
                         self.last_phi_g = phi_s_f
                         
                     s_f_L = torch.norm(phi_s_f - phi_s_0, dim=-1) 
@@ -548,7 +548,7 @@ class METRA(IOD):
                         theta_L_stddev = theta_L.stddev
                         # 3) 启发式:
                         # num_sample = 10
-                        # randn_exps = torch.randn((num_sample, 2)).to(self.device)
+                        # randn_exps = torch.randn((num_sample, self.dim_option)).to(self.device)
                         # randn_exps = self.vec_norm(randn_exps)
                         # theta_Ls = self.goal_sample_network(randn_exps)
                         # theta_Ls_mean = self._clip_phi_g(theta_Ls.mean, lower_value=-300, upper_value=300)
@@ -560,8 +560,10 @@ class METRA(IOD):
         
                     # 更新新的phi_g
                     next_phi_g = phi_s_0 + (theta_L_mean + torch.rand_like(theta_L_stddev) * theta_L_stddev) * randn_exp_theta
-                    self.last_phi_g = Sample_Update.unsqueeze(-1) * next_phi_g + (1 - Sample_Update.unsqueeze(-1)) * self.last_phi_g
-
+                    # next_phi_g = phi_s_0 + (theta_L_mean) * randn_exp_theta
+                    # self.last_phi_g = Sample_Update.unsqueeze(-1) * next_phi_g + (1 - Sample_Update.unsqueeze(-1)) * self.last_phi_g
+                    self.last_phi_g = next_phi_g
+                    
                     np_phi_g = self.last_phi_g.detach().cpu().numpy()
                     extras = self._generate_option_extras(random_options, phi_sub_goal=np_phi_g)  
 
@@ -791,17 +793,18 @@ class METRA(IOD):
             # option_goal_detach = v['option_goal'].detach()
             samples = self.traj_encoder(v['pos_sample']).mean
             
-            # zhanghe:0819
+            # zhanghe:0826
             # 为了标定，使用:final_goal_z
             # final_goal_z = v['final_goal_z']
-            # final_g_weight = 0.1
-            # samples = (1-final_g_weight) * samples + final_g_weight * final_goal_z
+            # final_g_weight = 0.99 ** v['final_goal_distance']
+            # samples = (1-final_g_weight.unsqueeze(-1)) * samples + final_g_weight.unsqueeze(-1) * final_goal_z
             
             # discount weight
             discount = 0.99
             w = discount ** (v['pos_sample_distance'])
             vec_phi_s_s_next = phi_s_next - phi_s
             vec_phi_sample = samples
+            
             
             matrix_s_sample = vec_phi_sample.unsqueeze(0) - phi_s.unsqueeze(1)
             matrix_s_sp_norm = matrix_s_sample / (torch.norm(matrix_s_sample, p=2, dim=-1, keepdim=True) + 1e-8)
@@ -816,7 +819,7 @@ class METRA(IOD):
             mask_pos = torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
             inner_pos = torch.diag(matrix)
             inner_neg = (matrix * (1 - mask_pos)).sum(dim=1) / (phi_s.shape[0]-1)
-            new_reward = w * torch.log(F.sigmoid(inner_pos)) + w * torch.log(1 - F.sigmoid((inner_neg - 0.25)))
+            new_reward = w * torch.log(F.sigmoid(inner_pos)) + w * torch.log(1 - F.sigmoid((inner_neg - 3)))
             
             rewards = new_reward
             tensors.update({
@@ -1104,21 +1107,21 @@ class METRA(IOD):
                 PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length)
                 print('Repr_Space_traj saved')
 
-            directions = self.vec_norm(torch.randn((100, 2))).to('cuda')
-            dist = self.goal_sample_network(directions)
-            mean = dist.mean.detach()
-            stddev = dist.stddev.detach()
-            edge_mean = (directions * mean).cpu().numpy()
-            edge_std = (directions * (mean+stddev)).cpu().numpy()
-            plt.figure(figsize=(8, 8))
-            plt.scatter(x=edge_mean[:,0], y=edge_mean[:,1])
-            plt.scatter(x=edge_std[:,0], y=edge_std[:,1])
-            # plt.colorbar(label='Probability Density')
-            plt.title('Edge')
-            plt.xlabel('X-axis')
-            plt.ylabel('Y-axis')
-            img_path = os.path.join(path, "SGN.png")
-            plt.savefig(img_path)
+                directions = self.vec_norm(torch.randn((100, self.dim_option))).to('cuda')
+                dist = self.goal_sample_network(directions)
+                mean = dist.mean.detach()
+                stddev = dist.stddev.detach()
+                edge_mean = (directions * mean).cpu().numpy()
+                edge_std = (directions * (mean+stddev)).cpu().numpy()
+                plt.figure(figsize=(8, 8))
+                plt.scatter(x=edge_mean[:,0], y=edge_mean[:,1])
+                plt.scatter(x=edge_std[:,0], y=edge_std[:,1])
+                # plt.colorbar(label='Probability Density')
+                plt.title('Edge')
+                plt.xlabel('X-axis')
+                plt.ylabel('Y-axis')
+                img_path = os.path.join(path, "SGN.png")
+                plt.savefig(img_path)
 
         file_name = 'option_policy.pt'
         torch.save({
