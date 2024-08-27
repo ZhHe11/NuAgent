@@ -14,7 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gym
 from gym.envs.registration import register
+
+env_dict = gym.envs.registration.registry.env_specs.copy()
+for env in env_dict:
+    if 'kitchen' in env:
+        print("Remove {} from registry".format(env))
+        del gym.envs.registration.registry.env_specs[env]
 
 # Relax the robot
 register(

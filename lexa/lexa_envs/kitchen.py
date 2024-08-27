@@ -1,11 +1,15 @@
 import numpy as np
-import gym
+
 import random
 import itertools
 from itertools import combinations
 from lexa_envs.base_envs import BenchEnv
-from d4rl.kitchen.kitchen_envs import KitchenMicrowaveKettleLightTopLeftBurnerV0
 
+import sys
+import os
+
+from lexa.d4rl.kitchen.kitchen_envs import KitchenMicrowaveKettleLightTopLeftBurnerV0
+import gym
 
 class KitchenEnv(BenchEnv):
   def __init__(self, action_repeat=1, use_goal_idx=False, log_per_goal=False,  control_mode='end_effector', width=64):
@@ -14,7 +18,8 @@ class KitchenEnv(BenchEnv):
     self.use_goal_idx = use_goal_idx
     self.log_per_goal = log_per_goal
     with self.LOCK:
-      self._env =  KitchenMicrowaveKettleLightTopLeftBurnerV0(frame_skip=40, control_mode = control_mode, imwidth=width, imheight=width)
+      # self._env =  KitchenMicrowaveKettleLightTopLeftBurnerV0(frame_skip=40, control_mode = control_mode, imwidth=width, imheight=width)
+      self._env =  KitchenMicrowaveKettleLightTopLeftBurnerV0()
 
       self._env.sim_robot.renderer._camera_settings = dict(
         distance=1.86, lookat=[-0.3, .5, 2.], azimuth=90, elevation=-60)

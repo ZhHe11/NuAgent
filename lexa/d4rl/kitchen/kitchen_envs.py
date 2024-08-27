@@ -3,7 +3,7 @@ import numpy as np
 from gym import spaces
 from gym.spaces.box import Box
 
-from d4rl.kitchen.adept_envs.franka.kitchen_multitask_v0 import KitchenTaskRelaxV1
+from lexa.d4rl.kitchen.adept_envs.franka.kitchen_multitask_v0 import KitchenTaskRelaxV1
 
 OBS_ELEMENT_INDICES = {
     "bottom left burner": np.array([11, 12]),
@@ -69,6 +69,7 @@ class KitchenBase(KitchenTaskRelaxV1):
         self.obs_dict["obj_qp"] = obj_qp
         self.obs_dict["obj_qv"] = obj_qv
         self.obs_dict["goal"] = self.goal
+        self.image_obs = 1
         if self.image_obs:
             img = self.render(mode="rgb_array")
             img = img.transpose(2, 0, 1).flatten()
@@ -142,9 +143,6 @@ class KitchenBase(KitchenTaskRelaxV1):
     ):
         obs, reward, done, env_info = super(KitchenBase, self).step(
             a,
-            render_every_step=render_every_step,
-            render_mode=render_mode,
-            render_im_shape=render_im_shape,
         )
         self.episodic_cumulative_reward += reward
 

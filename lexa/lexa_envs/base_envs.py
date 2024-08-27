@@ -5,8 +5,8 @@ import re
 import gym
 import numpy as np
 import pickle
-from d4rl.kitchen.adept_envs.simulation.renderer import DMRenderer, MjPyRenderer
-from d4rl.kitchen.adept_envs.simulation.sim_robot import  RenderMode
+from lexa.d4rl.kitchen.adept_envs.simulation.renderer import DMRenderer, MjPyRenderer
+from lexa.d4rl.kitchen.adept_envs.simulation.sim_robot import  RenderMode
 
 
 def get_device_id():

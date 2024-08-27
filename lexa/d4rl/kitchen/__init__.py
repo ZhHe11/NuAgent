@@ -1,3 +1,4 @@
+import gym
 from gym.envs.registration import register
 
 from .kitchen_envs import (
@@ -5,7 +6,14 @@ from .kitchen_envs import (
     KitchenMicrowaveKettleLightTopLeftBurnerV0,
 )
 
-# Smaller dataset with only positive demonstrations.
+
+env_dict = gym.envs.registration.registry.env_specs.copy()
+for env in env_dict:
+    if 'kitchen' in env:
+        print("Remove {} from registry".format(env))
+        del gym.envs.registration.registry.env_specs[env]
+
+# # Smaller dataset with only positive demonstrations.
 register(
     id="kitchen-complete-v0",
     entry_point="d4rl.kitchen:KitchenMicrowaveKettleLightSliderV0",

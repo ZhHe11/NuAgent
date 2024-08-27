@@ -6,7 +6,7 @@ import gym
 import numpy as np
 
 import metaworld.envs.mujoco.sawyer_xyz.v1 as sawyer
-from d4rl.kitchen.adept_envs.simulation.renderer import DMRenderer
+from lexa.d4rl.kitchen.adept_envs.simulation.renderer import DMRenderer
 from lexa_envs.base_envs import BenchEnv
 
 class RoboBinEnv(BenchEnv):

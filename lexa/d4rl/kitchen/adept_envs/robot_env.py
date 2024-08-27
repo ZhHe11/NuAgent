@@ -23,10 +23,10 @@ from typing import Dict, Optional
 
 import numpy as np
 
-from d4rl.kitchen.adept_envs import mujoco_env
-from d4rl.kitchen.adept_envs.base_robot import BaseRobot
-from d4rl.kitchen.adept_envs.utils.configurable import import_class_from_path
-from d4rl.kitchen.adept_envs.utils.constants import MODELS_PATH
+from lexa.d4rl.kitchen.adept_envs import mujoco_env
+from lexa.d4rl.kitchen.adept_envs.base_robot import BaseRobot
+from lexa.d4rl.kitchen.adept_envs.utils.configurable import import_class_from_path
+from lexa.d4rl.kitchen.adept_envs.utils.constants import MODELS_PATH
 
 
 class RobotEnv(mujoco_env.MujocoEnv):
@@ -145,7 +145,7 @@ class RobotEnv(mujoco_env.MujocoEnv):
                 )
             )
 
-        cls = import_class_from_path(self.ROBOTS[robot_name])
+        cls = import_class_from_path('lexa.' + self.ROBOTS[robot_name])
 
         calibration_path = None
         if self.CALIBRATION_PATHS:
