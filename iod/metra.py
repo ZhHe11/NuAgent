@@ -407,11 +407,11 @@ class METRA(IOD):
                         phi_s_f = self.target_traj_encoder(final_state).mean
                         exp_theta = self.vec_norm(phi_s_f - phi_s_0)
                     if self.goal_sample_optim is None:
-                        self.goal_sample_optim = optim.SGD(self.goal_sample_network.parameters(), lr=self.dim_option * 1e-2)
+                        self.goal_sample_optim = optim.SGD(self.goal_sample_network.parameters(), lr=1e-3)
                         self.last_phi_g = phi_s_f
-                    phi_g_sf_distance_score = torch.exp(-torch.norm(self.last_phi_g - phi_s_f, dim=-1).detach()) - 0.01
+                    phi_g_sf_distance_score = torch.exp(-torch.norm(self.last_phi_g - phi_s_f, dim=-1).detach()) - 0.05
                     # 如果需要更新
-                    if self.sample_wait_count % 3 == 0:
+                    if self.sample_wait_count % 10 == 0:
                         self.sample_wait_count = 0
                         # 准备更新参数：
                         s_f_L = torch.norm(phi_s_f - phi_s_0, dim=-1) 
@@ -422,7 +422,7 @@ class METRA(IOD):
                         # 对于mean的更新：
                         loss_mean = self.AsymmetricLoss(s_f_L - theta_L_mean.squeeze(-1),alpha_neg=-0.1, alpha_pos=1)
                         # 对于std的更新：
-                        loss_std = self.AsymmetricLoss(-phi_g_sf_distance_score * theta_L_stddev.squeeze(-1), alpha_neg=1, alpha_pos=0.01)                        
+                        loss_std = self.AsymmetricLoss(-phi_g_sf_distance_score * theta_L_stddev.squeeze(-1), alpha_neg=1, alpha_pos=1)                        
                         # 更新网路：
                         loss = (loss_mean + loss_std).mean()
                         self.goal_sample_optim.zero_grad()
@@ -430,13 +430,18 @@ class METRA(IOD):
                         self.goal_sample_optim.step()
                         
                         # 推理，获取新的phi_g
+                        std_max = 100
                         with torch.no_grad():
-                            randn_exp_theta = self.vec_norm(torch.randn_like(self.last_phi_g)).to(self.device)
-                            theta_L = self.goal_sample_network(randn_exp_theta)
+                            theta_L = self.goal_sample_network(self.last_phi_g)
                             theta_L_mean = self._clip_phi_g(theta_L.mean)
                             theta_L_stddev = theta_L.stddev
+                            
+                            theta_L_direction = self.vec_norm(self.last_phi_g + torch.randn_like(self.last_phi_g) * (1 - theta_L_stddev / std_max + 0.1))
+                            
+                            theta_L_distance = theta_L_mean + (torch.rand_like(theta_L_stddev)) * theta_L_stddev
+            
                         # 更新新的phi_g
-                        next_phi_g = phi_s_0 + (theta_L_mean + (1+torch.randn_like(theta_L_stddev)) * theta_L_stddev) * randn_exp_theta
+                        next_phi_g = phi_s_0 + theta_L_direction * theta_L_distance
                         self.last_phi_g = next_phi_g
                         if wandb.run is not None:
                             wandb.log({
@@ -472,6 +477,31 @@ class METRA(IOD):
                 else:
                     extras = self._generate_option_extras(random_options)      # 变成字典的形式；
                 
+            elif self.method['explore'] == 'game':
+                if self.epoch_final is not None:
+                    # 初始化参数
+                    sample_batch = self.epoch_final['obs'].shape[0]
+                    final_state = self.epoch_final['obs'][:,-1]
+                    with torch.no_grad():
+                        phi_s_0 = self.target_traj_encoder(self.init_obs).mean
+                        phi_s_f = self.target_traj_encoder(final_state).mean
+                        exp_theta = self.vec_norm(phi_s_f - phi_s_0)
+                    if self.goal_sample_optim is None:
+                        self.goal_sample_optim = optim.SGD(self.goal_sample_network.parameters(), lr=1e-3)
+                        self.last_phi_g = phi_s_f
+                        
+                    # 输入变量：theta
+                    theta_direct = torch.randn_like(self.last_phi_g)
+                    
+                    
+                    
+                    
+                    
+                        
+                
+                
+                else: 
+                    extras = self._generate_option_extras(random_options)      # 变成字典的形式；
             elif self.method['explore'] == "baseline": 
                 extras = self._generate_option_extras(random_options)      # 变成字典的形式；
             

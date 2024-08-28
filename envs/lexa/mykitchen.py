@@ -1,6 +1,9 @@
 import akro
+import lexa.lexa_envs as lexa_envs
 
-from lexa_envs import KitchenEnv
+
+
+from lexa.lexa_envs import KitchenEnv
 import numpy as np
 
 
