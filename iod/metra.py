@@ -237,7 +237,7 @@ class METRA(IOD):
             self.Network_None_Update_count[i] = self.Network_None_Update_count[i] + 1
                 
             # 判定是否需要更新目标；
-            if R[i] >= (0.5/np.sqrt(self.dim_option)): 
+            if R[i] >= (0.1): 
                 # 说明学会了，要更新网络，向更远的方向；
                 Network_Update[i] = 1       # 1 是学会了
                 Sample_Update[i] = 1        # 要更新phi_g
@@ -358,18 +358,29 @@ class METRA(IOD):
                     
                     # 推理，获取新的phi_g
                     with torch.no_grad():
-                        # 2) random:
-                        randn_exp_theta = self.vec_norm(torch.randn_like(self.last_phi_g)).to(self.device)
-                        theta_L = self.goal_sample_network(randn_exp_theta)
-                        theta_L_mean = self._clip_phi_g(theta_L.mean)
-                        theta_L_stddev = theta_L.stddev
-        
+                        # # 2) random:
+                        # randn_exp_theta = self.vec_norm(torch.randn_like(self.last_phi_g)).to(self.device)
+                        # theta_L = self.goal_sample_network(randn_exp_theta)
+                        # theta_L_mean = self._clip_phi_g(theta_L.mean)
+                        # theta_L_stddev = theta_L.stddev
+                        # 3) 向mean大的方向走：
+                        randn_exps_theta = self.vec_norm(torch.randn(self.last_phi_g.shape[0]+5, self.last_phi_g.shape[1])).to(self.device)
+                        
+                        theta_Ls = self.goal_sample_network(randn_exps_theta)
+                        theta_Ls_mean = self._clip_phi_g(theta_Ls.mean)
+                        theta_Ls_stddev = theta_Ls.stddev
+                        
+                        values, indices = torch.topk(theta_Ls_mean.squeeze(-1), sample_batch)
+                        theta_L_mean = theta_Ls_mean[indices]
+                        theta_L_stddev = theta_Ls_stddev[indices]
+                        randn_exp_theta = randn_exps_theta[indices]
+                        
                     # 更新新的phi_g
-                    next_phi_g = phi_s_0 + (theta_L_mean + 300 + torch.rand_like(theta_L_stddev) * theta_L_stddev) * randn_exp_theta
+                    next_phi_g = phi_s_0 + (theta_L_mean + torch.rand_like(theta_L_stddev) * theta_L_stddev) * randn_exp_theta
                     # 直接更新；
-                    self.last_phi_g = next_phi_g
+                    # self.last_phi_g = next_phi_g
                     # 分步更新；
-                    # self.last_phi_g = Sample_Update.unsqueeze(-1) * next_phi_g + (1 - Sample_Update.unsqueeze(-1)) * self.last_phi_g
+                    self.last_phi_g = Sample_Update.unsqueeze(-1) * next_phi_g + (1 - Sample_Update.unsqueeze(-1)) * self.last_phi_g
 
                     np_phi_g = self.last_phi_g.detach().cpu().numpy()
                     extras = self._generate_option_extras(random_options, phi_sub_goal=np_phi_g)  
@@ -714,7 +725,7 @@ class METRA(IOD):
             mask_pos = torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
             inner_pos = torch.diag(matrix)
             inner_neg = (matrix * (1 - mask_pos)).sum(dim=1) / (phi_s.shape[0]-1)
-            new_reward = w * torch.log(F.sigmoid(inner_pos)) + w * torch.log(1 - F.sigmoid((inner_neg)))
+            new_reward = w * torch.log(F.sigmoid(inner_pos)) + 1 * torch.log(1 - F.sigmoid((inner_neg)))
             
             rewards = new_reward
             tensors.update({

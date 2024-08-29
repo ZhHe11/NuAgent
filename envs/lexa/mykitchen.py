@@ -105,7 +105,7 @@ class MyKitchenEnv(KitchenEnv):
     def calc_eval_metrics(self, trajectories, is_option_trajectories, coord_dims=None):
         eval_metrics = {}
 
-        goal_names = ['BottomBurner', 'LightSwitch', 'SlideCabinet', 'HingeCabinet', 'Microwave', 'Kettle']
+        goal_names = ['BottomBurner', 'LightSwitch', 'SlideCabinet', 'HingeCabinet', 'Microwave', 'Kettle', 'TopBurner']
 
         sum_successes = 0
         for i, goal_name in enumerate(goal_names):
