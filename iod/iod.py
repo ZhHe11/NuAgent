@@ -296,46 +296,43 @@ class IOD(RLAlgorithm):
         '''
         if (runner.step_itr + 2) % self.n_epochs_per_log == 0 and wandb.run is not None and 'phi_s' in trajectories[0]['agent_infos'].keys():
             Pepr_viz = True
-            fig, ax = plt.subplots()
-            env = runner._env
-            env.draw(ax)
-            list_viz_traj = []
-            All_Repr_obs_list = []
-            All_Goal_obs_list = []
-            for i in range(len(trajectories)):
-                # plot phi
-                if Pepr_viz:
-                    phi_s = trajectories[i]['agent_infos']['phi_s']
-                    phi_g = trajectories[i]['agent_infos']['phi_sub_goal']
-                    All_Repr_obs_list.append(phi_s)
-                    All_Goal_obs_list.append(phi_g)
-                
-                
-                # plot the subgoal
-                if 'sub_goal' in trajectories[i]['agent_infos'].keys():
-                    sub_goal = trajectories[i]['agent_infos']['sub_goal'][0]
-                    ax.scatter(sub_goal[0], sub_goal[1], s=50, marker='x', alpha=1, edgecolors='black', label='target.'+str(i))
-                # plot the traj
-                viz_traj = {}
-                viz_traj['observation'] = trajectories[i]['observations']
-                viz_traj['info'] = []
-                for j in range(len(trajectories[i]['observations'])):
-                    viz_traj['info'].append({'x':viz_traj['observation'][j][0], 'y':viz_traj['observation'][j][1]})
-                list_viz_traj.append(viz_traj)
-            plot_trajectories(env, list_viz_traj, fig, ax)
-            ax.legend(loc='lower right')
-            path = wandb.run.dir
-            filepath = os.path.join(path, "train_Maze_traj.png")
-            print(filepath)
-            plt.savefig(filepath) 
+            if self.env_name == 'antmaze':
+                fig, ax = plt.subplots()
+                env = runner._env
+                env.draw(ax)
+                list_viz_traj = []
+                All_Repr_obs_list = []
+                All_Goal_obs_list = []
+                for i in range(len(trajectories)):
+                    # plot phi
+                    if Pepr_viz:
+                        phi_s = trajectories[i]['agent_infos']['phi_s']
+                        phi_g = trajectories[i]['agent_infos']['phi_sub_goal']
+                        All_Repr_obs_list.append(phi_s)
+                        All_Goal_obs_list.append(phi_g)
+                    
+                    # plot the subgoal
+                    if 'sub_goal' in trajectories[i]['agent_infos'].keys():
+                        sub_goal = trajectories[i]['agent_infos']['sub_goal'][0]
+                        ax.scatter(sub_goal[0], sub_goal[1], s=50, marker='x', alpha=1, edgecolors='black', label='target.'+str(i))
+                    # plot the traj
+                    viz_traj = {}
+                    viz_traj['observation'] = trajectories[i]['observations']
+                    viz_traj['info'] = []
+                    for j in range(len(trajectories[i]['observations'])):
+                        viz_traj['info'].append({'x':viz_traj['observation'][j][0], 'y':viz_traj['observation'][j][1]})
+                    list_viz_traj.append(viz_traj)
+                plot_trajectories(env, list_viz_traj, fig, ax)
+                ax.legend(loc='lower right')
+                path = wandb.run.dir
+                filepath = os.path.join(path, "train_Maze_traj.png")
+                print(filepath)
+                plt.savefig(filepath) 
+                wandb.log(({"train_Maze_traj": wandb.Image(filepath)}))
         
-            
             if Pepr_viz:
                 PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=self.max_path_length, tag='train')                
                 print('Repr_Space_traj saved')
-            
-            wandb.log(({"train_Maze_traj": wandb.Image(filepath)}))
-            
             
         return trajectories
 

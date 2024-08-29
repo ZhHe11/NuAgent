@@ -894,7 +894,74 @@ class METRA(IOD):
     Evaluation
     '''
     @torch.no_grad()
-    def _evaluate_policy(self, runner):
+    def _evaluate_policy(self, runner, env_name):
+        if env_name == 'antmaze':  
+            self.eval_maze(runner)
+        
+        elif env_name == 'kitchen':
+            self.eval_kitchen(runner)
+            
+            
+    def eval_ktichen(self, runner):
+        import imageio
+        # 初始化
+        env = runner._env
+        
+        # 加载goal
+        metric_success_task_relevant = {}
+        metric_success_all_objects = {}
+        all_goal_obs = []
+        for i in range(6):
+            goal_obs = env.render_goal(i)
+            all_goal_obs.append(goal_obs)
+            metric_success_task_relevant[i] = 0
+            metric_success_all_objects[i] = 0
+        all_goal_obs_tensor = torch.tensor(all_goal_obs, dtype=torch.float)
+
+        for i in range(all_goal_obs_tensor.shape[0]):
+            obs = env.reset()
+            frames = []
+            obs_tensor = torch.tensor(obs, dtype=torch.float).unsqueeze(0).to('cuda')
+            goal_tensor = torch.tile(all_goal_obs_tensor[i].reshape(-1), (3,1)).reshape(-1).unsqueeze(0).to('cuda')
+            
+            for t in trange(self.max_path_length):
+                # policy
+                option = torch.ones(1, self.dim_option).to('cuda')
+                print('option:', option)
+                phi_s = self.target_traj_encoder(obs_tensor).mean
+                phi_g = self.target_traj_encoder(goal_tensor).mean
+                option = self.vec_norm(phi_g - phi_s)
+                obs_option = self.torch.cat((obs_tensor, option), -1).float()
+                action_tensor = self.option_policy(obs_option)[1]['mean']
+                action = action_tensor[0].detach().cpu().numpy()
+                
+                # iteration
+                obs, reward, _, info = env.step(action)
+                obs_tensor = torch.tensor(obs, dtype=torch.float).unsqueeze(0).to('cuda')
+                
+                # for viz
+                obs_img = info['image']
+                frames.append(obs_img)
+                # for metrics
+                k = 'metric_success_task_relevant/goal_'+str(i)
+                metric_success_all_objects[i] = max(metric_success_all_objects[i], info[k])
+                k = 'metric_success_all_objects/goal_'+str(i)   
+                metric_success_all_objects[i] = max(metric_success_all_objects[i], info[k])
+            
+            gif_name = '/data/zh/project12_Metra/METRA/tests/videos/GoalTest' + str(i) + '.gif'
+            imageio.mimsave(gif_name, frames, 'GIF', duration=1)
+            print('saved', gif_name)
+            
+        print('metric_success_task_relevant:', metric_success_task_relevant)
+        print('metric_success_all_objects:', metric_success_all_objects)
+        if wandb.run is not None:
+            wandb.log({
+                'metric_success_task_relevant': metric_success_task_relevant.values().mean(),
+                'metric_success_all_objects': metric_success_all_objects.values().mean(),
+                'epoch': runner.step_itr,
+            })
+    
+    def eval_maze(self, runner):
         '''
         this is for zero-shot task evaluation;
         right now in ant_maze env;
@@ -1039,7 +1106,6 @@ class METRA(IOD):
             'dim_option': self.dim_option,
             'traj_encoder': self.traj_encoder,
         }, file_name)
-        
-        
-        
+
+
         
