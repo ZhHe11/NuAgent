@@ -28,15 +28,13 @@ def vec_norm(vec):
     return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
     
 # 加载模型
-load_option_policy_base = torch.load("/data/zh/project12_Metra/METRA/exp/KItchen_her/0709/option_policy9500.pt")
-load_traj_encoder_base = torch.load("/data/zh/project12_Metra/METRA/exp/KItchen_her/0709/traj_encoder9500.pt")
+load_option_policy_base = torch.load("/data/zh/project12_Metra/METRA/exp/SGN/SGN_D_neg-len_encouragesd000_1724994434_kitchen_metra/wandb/latest-run/filesoption_policy.pt")
+load_traj_encoder_base = torch.load("//data/zh/project12_Metra/METRA/exp/SGN/SGN_D_neg-len_encouragesd000_1724994434_kitchen_metra/wandb/latest-run/filestaregt_traj_encoder.pt")
 policy = load_option_policy_base['policy']
-traj_encoder = load_traj_encoder_base['traj_encoder']
+traj_encoder = load_traj_encoder_base['target_traj_encoder']
 
 # settings：
-max_path_length = 5
-dim_option = 24
-
+max_path_length = 50
 
 # 初始化
 obs = env.reset()
@@ -49,7 +47,7 @@ device = 'cuda'
 metric_success_task_relevant = {}
 metric_success_all_objects = {}
 all_goal_obs = []
-for i in range(2):
+for i in range(6):
     goal_obs = env.render_goal(i)
     all_goal_obs.append(goal_obs)
     metric_success_task_relevant[i] = 0
@@ -61,10 +59,10 @@ for i in range(all_goal_obs_tensor.shape[0]):
     
     for t in trange(max_path_length):
         # policy
-        option = torch.ones(1,load_option_policy_base['dim_option']).to('cuda')
         phi_s = traj_encoder(obs_tensor).mean
         phi_g = traj_encoder(goal_tensor).mean
         option = vec_norm(phi_g - phi_s)
+        print('option', option)
         obs_option = torch.cat((obs_tensor, option), -1).float()
         action_tensor = policy(obs_option)[1]['mean']
         action = action_tensor[0].detach().cpu().numpy()
@@ -84,11 +82,11 @@ for i in range(all_goal_obs_tensor.shape[0]):
         
         print('success', env.compute_success(i))
     
-    gif_name = '/data/zh/project12_Metra/METRA/tests/videos/GoalTest' + str(i) + '.gif'
+    gif_name = '/data/zh/project12_Metra/METRA/tests/videos/local_test/' + str(i) + '.gif'
     imageio.mimsave(gif_name, frames, 'GIF', duration=1)
     print('saved', gif_name)
     
-print('metric_success_task_relevant:', metric_success_task_relevant.values().mean())
-print('metric_success_all_objects:', metric_success_all_objects.values().mean())
+print('metric_success_task_relevant:', sum(metric_success_task_relevant.values()) / len(metric_success_task_relevant))
+print('metric_success_all_objects:',  sum(metric_success_all_objects.values()) / len(metric_success_all_objects))
 
 

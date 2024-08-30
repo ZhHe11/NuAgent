@@ -167,51 +167,13 @@ class IOD(RLAlgorithm):
                 else:
                     train_log[k] = np.array2string(tensors[k].detach().cpu().numpy(), suppress_small=True)
             
-            if wandb.run is not None:
-                wandb.log(tensors)
+        if wandb.run is not None:
+            wandb.log(tensors)
                 
         if wandb.run is not None:        
             wandb.log({
                         "train/step": runner.step_itr,
                         })   
-
-        # if logging_enabled:
-        #     prefix_tabular = global_context.get_metric_prefix()
-        #     with dowel_wrapper.get_tabular().prefix(prefix_tabular + self.name + '/'), dowel_wrapper.get_tabular(
-        #             'plot').prefix(prefix_tabular + self.name + '/'):
-        #         def _record_scalar(key, val):
-        #             dowel_wrapper.get_tabular().record(key, val)
-
-        #         def _record_histogram(key, val):
-        #             dowel_wrapper.get_tabular('plot').record(key, Histogram(val))
-
-        #         for k in tensors.keys():
-        #             if tensors[k].numel() == 1:
-        #                 _record_scalar(f'{k}', tensors[k].item())
-        #             else:
-        #                 _record_scalar(f'{k}', np.array2string(tensors[k].detach().cpu().numpy(), suppress_small=True))
-                
-                # with torch.no_grad():
-                #     total_norm = compute_total_norm(self.all_parameters())
-                #     _record_scalar('TotalGradNormAll', total_norm.item())
-                #     for key, module in self.param_modules.items():
-                #         total_norm = compute_total_norm(module.parameters())
-                #         _record_scalar(f'TotalGradNorm{key.replace("_", " ").title().replace(" ", "")}', total_norm.item())
-                # for k, v in extra_scalar_metrics.items():
-                    # _record_scalar(k, v)
-                # _record_scalar('TimeComputingMetrics', time_computing_metrics[0])
-                # _record_scalar('TimeTraining', time_training[0])
-
-                # path_lengths = [
-                #     len(path['actions'])
-                #     for path in paths
-                # ]
-                # _record_scalar('PathLengthMean', np.mean(path_lengths))
-                # _record_scalar('PathLengthMax', np.max(path_lengths))
-                # _record_scalar('PathLengthMin', np.min(path_lengths))
-
-                # _record_histogram('ExternalDiscountedReturns', np.asarray(discounted_returns))
-                # _record_histogram('ExternalUndiscountedReturns', np.asarray(undiscounted_returns))
 
         return np.mean(undiscounted_returns)
     
@@ -236,8 +198,7 @@ class IOD(RLAlgorithm):
                 self.traj_encoder.eval()
                 # test process
                 if self.n_epochs_per_eval != 0 and runner.step_itr % self.n_epochs_per_eval == 0 and wandb.run is not None:
-                    self._evaluate_policy(runner)
-
+                    self._evaluate_policy(runner, self.env_name)
                 # change mode
                 for p in self.policy.values():
                     p.train()
@@ -255,7 +216,9 @@ class IOD(RLAlgorithm):
                             'TimeSampling': time_sampling[0],
                         },
                     )
-
+                # save model
+                if runner.step_itr % 20 == 0:
+                    self._save_pt()
                 runner.step_itr += 1
 
         return last_return
@@ -329,8 +292,19 @@ class IOD(RLAlgorithm):
                 print(filepath)
                 plt.savefig(filepath) 
                 wandb.log(({"train_Maze_traj": wandb.Image(filepath)}))
-        
+            else:
+                All_Repr_obs_list = []
+                All_Goal_obs_list = []
+                for i in range(len(trajectories)):
+                    # plot phi
+                    if Pepr_viz:
+                        phi_s = trajectories[i]['agent_infos']['phi_s']
+                        phi_g = trajectories[i]['agent_infos']['phi_sub_goal']
+                        All_Repr_obs_list.append(phi_s)
+                        All_Goal_obs_list.append(phi_g)
+                        
             if Pepr_viz:
+                path = wandb.run.dir
                 PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=self.max_path_length, tag='train')                
                 print('Repr_Space_traj saved')
             

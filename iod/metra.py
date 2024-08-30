@@ -211,6 +211,8 @@ class METRA(IOD):
         regret = torch.abs(r + discount * q_next - q)
         return regret
     
+    
+    
     @torch.no_grad()
     def get_R(self, phi_s_f, phi_g, sample_batch):
         train_max_count = 20
@@ -359,21 +361,21 @@ class METRA(IOD):
                     # 推理，获取新的phi_g
                     with torch.no_grad():
                         # # 2) random:
-                        # randn_exp_theta = self.vec_norm(torch.randn_like(self.last_phi_g)).to(self.device)
-                        # theta_L = self.goal_sample_network(randn_exp_theta)
-                        # theta_L_mean = self._clip_phi_g(theta_L.mean)
-                        # theta_L_stddev = theta_L.stddev
+                        randn_exp_theta = self.vec_norm(torch.randn_like(self.last_phi_g)).to(self.device)
+                        theta_L = self.goal_sample_network(randn_exp_theta)
+                        theta_L_mean = self._clip_phi_g(theta_L.mean)
+                        theta_L_stddev = theta_L.stddev
                         # 3) 向mean大的方向走：
-                        randn_exps_theta = self.vec_norm(torch.randn(self.last_phi_g.shape[0]+5, self.last_phi_g.shape[1])).to(self.device)
+                        # randn_exps_theta = self.vec_norm(torch.randn(self.last_phi_g.shape[0]+5, self.last_phi_g.shape[1])).to(self.device)
                         
-                        theta_Ls = self.goal_sample_network(randn_exps_theta)
-                        theta_Ls_mean = self._clip_phi_g(theta_Ls.mean)
-                        theta_Ls_stddev = theta_Ls.stddev
+                        # theta_Ls = self.goal_sample_network(randn_exps_theta)
+                        # theta_Ls_mean = self._clip_phi_g(theta_Ls.mean)
+                        # theta_Ls_stddev = theta_Ls.stddev
                         
-                        values, indices = torch.topk(theta_Ls_mean.squeeze(-1), sample_batch)
-                        theta_L_mean = theta_Ls_mean[indices]
-                        theta_L_stddev = theta_Ls_stddev[indices]
-                        randn_exp_theta = randn_exps_theta[indices]
+                        # values, indices = torch.topk(theta_Ls_mean.squeeze(-1), sample_batch)
+                        # theta_L_mean = theta_Ls_mean[indices]
+                        # theta_L_stddev = theta_Ls_stddev[indices]
+                        # randn_exp_theta = randn_exps_theta[indices]
                         
                     # 更新新的phi_g
                     next_phi_g = phi_s_0 + (theta_L_mean + torch.rand_like(theta_L_stddev) * theta_L_stddev) * randn_exp_theta
@@ -706,7 +708,7 @@ class METRA(IOD):
             # samples = (1-final_g_weight.unsqueeze(-1)) * samples + final_g_weight.unsqueeze(-1) * final_goal_z
             
             # discount weight
-            discount = 0.99
+            discount = 0.5
             w = discount ** (v['pos_sample_distance'])
             vec_phi_s_s_next = phi_s_next - phi_s
             vec_phi_sample = samples
@@ -725,7 +727,7 @@ class METRA(IOD):
             mask_pos = torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
             inner_pos = torch.diag(matrix)
             inner_neg = (matrix * (1 - mask_pos)).sum(dim=1) / (phi_s.shape[0]-1)
-            new_reward = w * torch.log(F.sigmoid(inner_pos)) + 1 * torch.log(1 - F.sigmoid((inner_neg)))
+            new_reward = w * torch.log(F.sigmoid(inner_pos)) + w * torch.log(1 - F.sigmoid((inner_neg)))
             
             rewards = new_reward
             tensors.update({
@@ -768,10 +770,13 @@ class METRA(IOD):
                 raise NotImplementedError
 
             cst_penalty = cst_dist - torch.square(phi_s_next - phi_s).mean(dim=1)        # 这是后面的约束项，约束skill表征的大小；
-            cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)             # 限制最大值；trick，如果惩罚项太大，会导致优化困难；
+            cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)             # 限制最大值；trick，如果惩罚项太大，会导致优化困难；不要太小；
             
             if self.method["phi"] in ['contrastive']:
-                te_obj = rewards + dual_lam.detach() * cst_penalty    
+                # len = torch.square(phi_s_next - phi_s).mean(dim=1) 
+                # len_encourage = torch.clamp(len, max=0.5)    
+                
+                te_obj = rewards + dual_lam.detach() * cst_penalty
             else:
                 te_obj = rewards + dual_lam.detach() * cst_penalty                      # 这是最终的loss： reward + 惩罚项；
 
@@ -902,7 +907,7 @@ class METRA(IOD):
             self.eval_kitchen(runner)
             
             
-    def eval_ktichen(self, runner):
+    def eval_kitchen(self, runner):
         import imageio
         # 初始化
         env = runner._env
@@ -923,15 +928,14 @@ class METRA(IOD):
             frames = []
             obs_tensor = torch.tensor(obs, dtype=torch.float).unsqueeze(0).to('cuda')
             goal_tensor = torch.tile(all_goal_obs_tensor[i].reshape(-1), (3,1)).reshape(-1).unsqueeze(0).to('cuda')
+            phi_g = self.target_traj_encoder(goal_tensor).mean
             
             for t in trange(self.max_path_length):
                 # policy
-                option = torch.ones(1, self.dim_option).to('cuda')
-                print('option:', option)
                 phi_s = self.target_traj_encoder(obs_tensor).mean
-                phi_g = self.target_traj_encoder(goal_tensor).mean
                 option = self.vec_norm(phi_g - phi_s)
-                obs_option = self.torch.cat((obs_tensor, option), -1).float()
+                print('option:', option)
+                obs_option = torch.cat((obs_tensor, option), -1).float()
                 action_tensor = self.option_policy(obs_option)[1]['mean']
                 action = action_tensor[0].detach().cpu().numpy()
                 
@@ -948,7 +952,8 @@ class METRA(IOD):
                 k = 'metric_success_all_objects/goal_'+str(i)   
                 metric_success_all_objects[i] = max(metric_success_all_objects[i], info[k])
             
-            gif_name = '/data/zh/project12_Metra/METRA/tests/videos/GoalTest' + str(i) + '.gif'
+            filepath = wandb.run.dir
+            gif_name = filepath + str(i) + '.gif'
             imageio.mimsave(gif_name, frames, 'GIF', duration=1)
             print('saved', gif_name)
             
@@ -956,8 +961,8 @@ class METRA(IOD):
         print('metric_success_all_objects:', metric_success_all_objects)
         if wandb.run is not None:
             wandb.log({
-                'metric_success_task_relevant': metric_success_task_relevant.values().mean(),
-                'metric_success_all_objects': metric_success_all_objects.values().mean(),
+                'metric_success_task_relevant': sum(metric_success_task_relevant.values()) / len(metric_success_task_relevant),
+                'metric_success_all_objects': sum(metric_success_all_objects.values()) / len(metric_success_all_objects),
                 'epoch': runner.step_itr,
             })
     
@@ -1094,18 +1099,30 @@ class METRA(IOD):
                 img_path = os.path.join(path, "SGN.png")
                 plt.savefig(img_path)
 
-        file_name = 'option_policy.pt'
+
+    def _save_pt(self):
+        if wandb.run is not None:
+            path = wandb.run.dir
+        else:
+            path = '.'
+        file_name = path + 'option_policy.pt'
         torch.save({
             'discrete': self.discrete,
             'dim_option': self.dim_option,
             'policy': self.option_policy,
         }, file_name)
-        file_name = 'traj_encoder.pt'
+        file_name = path + 'taregt_traj_encoder.pt'
         torch.save({
             'discrete': self.discrete,
             'dim_option': self.dim_option,
-            'traj_encoder': self.traj_encoder,
+            'target_traj_encoder': self.target_traj_encoder,
+        }, file_name)
+        file_name = path + 'sample_goal_network.pt'
+        torch.save({
+            'discrete': self.discrete,
+            'dim_option': self.dim_option,
+            'goal_sample_network': self.goal_sample_network,
         }, file_name)
 
-
+        
         
