@@ -62,6 +62,7 @@ class METRA(IOD):
             explore_type=None,
             
             goal_sample_network=None,
+            space_predictor=None,
 
             **kwargs,
     ):
@@ -129,12 +130,16 @@ class METRA(IOD):
         self.init_obs = torch.tensor(init_obs).unsqueeze(0).expand(self.num_random_trajectories, -1).to(self.device)
         self.exp_z = None   
         self.goal_sample_network = goal_sample_network.to(self.device)
+        self.space_predictor = space_predictor.to(self.device)
         self.goal_sample_optim = None
         self.last_phi_g = None
         self.last_phi_g_dist = None
         self.epoch_final = None
         self.Network_None_Update_count = None
         self.sample_wait_count = 0
+        self.exp_theta_dist = None
+        self.UpdateSGN = 0
+        self.cold_start = 1
         
     @property
     def policy(self):
@@ -185,32 +190,49 @@ class METRA(IOD):
         return R
     
     @torch.no_grad()
-    def get_regret(self, s, a, s_next, a_next, g=None, phi_g=None):
-        discount = 0.99
-        s = s
-        phi_s = self.target_traj_encoder(s).mean
-        phi_s_next = self.target_traj_encoder(s_next).mean
+    def get_regret(self, s, a, s_next, a_next, g=None, phi_g=None, is_norm=True):
+        '''
+        s = [batch, seq, dim]
+        a = [batch, seq, dim]
+        batch_regret = [batch]
+        '''
+        batch_regret = []
+        for i in range(s.shape[0]):
+            discount = 0.99
+            epoch_traj_s = s[i]
+            epoch_traj_a = a[i]
+            epoch_traj_s_next = s_next[i]
+            epoch_traj_a_next = a_next[i]
+            
+            phi_s = self.target_traj_encoder(epoch_traj_s).mean
+            phi_s_next = self.target_traj_encoder(epoch_traj_s_next).mean
+            
+            option = phi_g[i] - phi_s
+            next_option = phi_g[i] - phi_s_next
+            
+            processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(epoch_traj_s), option.float())
+            next_processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(epoch_traj_s_next), next_option.float())
+            
+            q = torch.min(
+                self.qf1(processed_cat_obs, epoch_traj_a).flatten(),
+                self.qf2(processed_cat_obs, epoch_traj_a).flatten(),
+            )
+            q_next = torch.min(
+                self.qf1(next_processed_cat_obs, epoch_traj_a_next).flatten(),
+                self.qf2(next_processed_cat_obs, epoch_traj_a_next).flatten(),
+            )
+            
+            r = (self.vec_norm(phi_s_next - phi_s) * self.vec_norm(phi_g[i] - phi_s)).sum(dim=-1)
         
-        option = phi_g - phi_s
-        next_option = phi_g - phi_s_next
+            regret = torch.abs(r + discount * q_next - q).sum()
+            batch_regret.append(regret)
         
-        processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(s).unsqueeze(0), option.float().unsqueeze(0))
-        next_processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(s_next).unsqueeze(0), next_option.float().unsqueeze(0))
+        batch_regret = torch.tensor(batch_regret).to(self.device)
+        batch_regret_mean = batch_regret.mean()
+        if is_norm:
+            batch_regret = batch_regret / (batch_regret.max() + 1e-8)
         
-        q = torch.min(
-            self.qf1(processed_cat_obs, a.unsqueeze(0)).flatten(),
-            self.qf2(processed_cat_obs, a.unsqueeze(0)).flatten(),
-        )
-        q_next = torch.min(
-            self.qf1(next_processed_cat_obs, a_next.unsqueeze(0)).flatten(),
-            self.qf2(next_processed_cat_obs, a_next.unsqueeze(0)).flatten(),
-        )
-        
-        r = (self.vec_norm(phi_s_next - phi_s) * self.vec_norm(phi_g - phi_s)).sum(dim=-1)
-    
-        regret = torch.abs(r + discount * q_next - q)
-        return regret
-    
+        return batch_regret, batch_regret_mean
     
     
     @torch.no_grad()
@@ -275,7 +297,7 @@ class METRA(IOD):
         num_sample_batch = self.num_random_trajectories
         for key, value in data.items():
             epoch_data[key] = torch.tensor(np.concatenate(value, axis=0), dtype=torch.float32, device=self.device)
-            if key == 'obs':
+            if key in ['obs', 'actions'] :
                 traj_key_dim = value[0].shape[-1]
                 epoch_key_final = torch.zeros((num_sample_batch, self.max_path_length, traj_key_dim), dtype=torch.float32, device=self.device)
                 for i in range(num_sample_batch):
@@ -491,30 +513,89 @@ class METRA(IOD):
                     extras = self._generate_option_extras(random_options)      # 变成字典的形式；
                 
             elif self.method['explore'] == 'game':
-                if self.epoch_final is not None:
-                    # 初始化参数
+                if self.epoch_final is not None :
+                    self.sample_wait_count += 1
+                    if self.exp_theta_dist is None:
+                        self.UpdateSGN = 1
+                        self.sample_wait_count = 0
+                    if self.sample_wait_count > 100 and self.UpdateSGN == 1:
+                        self.UpdateSGN = 0
+                        self.sample_wait_count = 0
+                        self.cold_start = 0
+
                     sample_batch = self.epoch_final['obs'].shape[0]
                     final_state = self.epoch_final['obs'][:,-1]
                     with torch.no_grad():
                         phi_s_0 = self.target_traj_encoder(self.init_obs).mean
                         phi_s_f = self.target_traj_encoder(final_state).mean
-                        exp_theta = self.vec_norm(phi_s_f - phi_s_0)
-                    if self.goal_sample_optim is None:
-                        self.goal_sample_optim = optim.SGD(self.goal_sample_network.parameters(), lr=1e-3)
-                        self.last_phi_g = phi_s_f
+                            
+                    if self.UpdateSGN:
+                        # 固定policy，训练SGN
+                        ## 初始化参数
+                        if self.goal_sample_optim is None:
+                            self.goal_sample_optim = optim.SGD(self.goal_sample_network.parameters(), lr=1e-2)
+                            self.space_predictor_optim = optim.SGD(self.space_predictor.parameters(), lr=1e-2)
+                            self.last_phi_g = phi_s_f
+                            self.token = torch.randn(1, self.dim_option).to(self.device)
+                        goal_theta = self.vec_norm(self.last_phi_g - phi_s_0)
+                            
+                        batch_regret, batch_regret_mean = self.get_regret(s=self.epoch_final['obs'][:, :-1], a=self.epoch_final['actions'][:, :-1], s_next=self.epoch_final['obs'][:, 1:], a_next=self.epoch_final['actions'][:, 1:], g=None, phi_g=self.last_phi_g, is_norm=True) 
                         
-                    # 输入变量：theta
-                    theta_direct = torch.randn_like(self.last_phi_g)
-                    
-                    
-                    
-                    
-                    
+                        theta_dist = self.goal_sample_network(self.token)
                         
-                
-                
+                        # 当前traj的方向
+                        theta_logp = theta_dist.log_prob(goal_theta.detach())
+                        self.goal_sample_optim.zero_grad()
+                        # self.token_optim.zero_grad()
+                        loss = (-theta_logp * batch_regret).mean()
+                        loss.backward()
+                        self.goal_sample_optim.step()
+                        # self.token_optim.step()
+                        
+                        # 生成新的theta
+                        self.exp_theta_dist = self.goal_sample_network(torch.tile(self.token, (sample_batch,1)))
+                        
+                        if wandb.run is not None:
+                            wandb.log({
+                                    "theta/loss": loss.detach(),
+                            })
+                    else:
+                        batch_regret, batch_regret_mean = self.get_regret(s=self.epoch_final['obs'][:, :-1], a=self.epoch_final['actions'][:, :-1], s_next=self.epoch_final['obs'][:, 1:], a_next=self.epoch_final['actions'][:, 1:], g=None, phi_g=self.last_phi_g, is_norm=False) 
+                        if batch_regret_mean < 0.1:
+                            self.UpdateSGN = 1
+                            self.sample_wait_count = 0
+
+                    # train space_predictor
+                    self.space_predictor_optim.zero_grad()
+                    theta_space = self.vec_norm(phi_s_f - phi_s_0)
+                    L = self.space_predictor(theta_space).mean
+                    loss_l = self.AsymmetricLoss(L - torch.norm(phi_s_f - phi_s_0, dim=-1), alpha_neg=-1, alpha_pos=0.1).mean()
+                    loss_l.backward()
+                    self.space_predictor_optim.step()
+                    
+                    # get phi_g
+                    if self.cold_start:
+                        theta_phi_g = self.vec_norm(torch.randn_like(self.last_phi_g)).to(self.device)
+                    else:
+                        theta_phi_g = self.vec_norm(self.exp_theta_dist.rsample().detach())
+                    L_phi_g = self.space_predictor(theta_phi_g).mean
+                    self.last_phi_g = phi_s_0 + theta_phi_g * (L_phi_g + 50 * torch.rand_like(L_phi_g).to(self.device))
+                    np_phi_g = self.last_phi_g.detach().cpu().numpy()
+                    extras = self._generate_option_extras(random_options, phi_sub_goal=np_phi_g)  
+                    
+                    if wandb.run is not None:
+                        print("theta_dist_mean", self.exp_theta_dist.mean[0].detach())
+                        print("theta_dist_std", self.exp_theta_dist.stddev[0].detach())
+                        print('self.cold_start', self.cold_start, 'self.UpdateSGN', self.UpdateSGN, 'self.count', self.sample_wait_count)
+                        wandb.log({
+                                "theta/loss_L": loss_l.detach(),
+                                "theta/L": L_phi_g.mean(),
+                                "theta/batch_regret_mean": batch_regret_mean,
+                                }) 
+            
                 else: 
                     extras = self._generate_option_extras(random_options)      # 变成字典的形式；
+                    
             elif self.method['explore'] == "baseline": 
                 extras = self._generate_option_extras(random_options)      # 变成字典的形式；
             
@@ -538,14 +619,16 @@ class METRA(IOD):
     def _train_components(self, epoch_data):
         if self.replay_buffer is not None and self.replay_buffer.n_transitions_stored < self.min_buffer_size:
             return {}
-
+        if self.UpdateSGN and self.cold_start == 0:
+            return {}
+        
         for _ in range(self._trans_optimization_epochs):
             tensors = {}
             if self.replay_buffer is None:              
                 v = self._get_mini_tensors(epoch_data)
             else:
                 v = self._sample_replay_buffer()
-                
+            
             self._optimize_te(tensors, v)
             with torch.no_grad():
                 self._update_rewards(tensors, v)
@@ -708,7 +791,7 @@ class METRA(IOD):
             # samples = (1-final_g_weight.unsqueeze(-1)) * samples + final_g_weight.unsqueeze(-1) * final_goal_z
             
             # discount weight
-            discount = 0.5
+            discount = 0.99
             w = discount ** (v['pos_sample_distance'])
             vec_phi_s_s_next = phi_s_next - phi_s
             vec_phi_sample = samples
@@ -727,7 +810,7 @@ class METRA(IOD):
             mask_pos = torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
             inner_pos = torch.diag(matrix)
             inner_neg = (matrix * (1 - mask_pos)).sum(dim=1) / (phi_s.shape[0]-1)
-            new_reward = w * torch.log(F.sigmoid(inner_pos)) + w * torch.log(1 - F.sigmoid((inner_neg)))
+            new_reward = w * torch.log(F.sigmoid(inner_pos)) + w * torch.log(1 - F.sigmoid(inner_neg))
             
             rewards = new_reward
             tensors.update({
@@ -773,8 +856,8 @@ class METRA(IOD):
             cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)             # 限制最大值；trick，如果惩罚项太大，会导致优化困难；不要太小；
             
             if self.method["phi"] in ['contrastive']:
-                # len = torch.square(phi_s_next - phi_s).mean(dim=1) 
-                # len_encourage = torch.clamp(len, max=0.5)    
+                len = torch.square(phi_s_next - phi_s).mean(dim=1) 
+                len_encourage = torch.clamp(len, max=0.25)    
                 
                 te_obj = rewards + dual_lam.detach() * cst_penalty
             else:
@@ -900,7 +983,7 @@ class METRA(IOD):
     '''
     @torch.no_grad()
     def _evaluate_policy(self, runner, env_name):
-        if env_name == 'antmaze':  
+        if env_name == 'ant_maze':  
             self.eval_maze(runner)
         
         elif env_name == 'kitchen':

@@ -348,12 +348,25 @@ def run(ctxt=None):
         hidden_nonlinearity=nonlinearity or torch.relu,
         w_init=torch.nn.init.xavier_uniform_,
         input_dim=args.dim_option,
-        output_dim=1,
-        init_std=20.,
-        min_std=10.,
-        max_std=50.,
+        output_dim=args.dim_option,
+        init_std=1.,
+        min_std=1e-6,
+        max_std=2.,
     )
     goal_sample_network = module_cls(**module_kwargs)
+    
+    module_cls, module_kwargs = get_gaussian_module_construction(
+        args,
+        hidden_sizes=master_dims,
+        hidden_nonlinearity=nonlinearity or torch.relu,
+        w_init=torch.nn.init.xavier_uniform_,
+        input_dim=args.dim_option,
+        output_dim=1,
+        init_std=1.,
+        min_std=1e-6,
+        max_std=2.,
+    )
+    space_predictor = module_cls(**module_kwargs)
 
     
     # Network for dist_predictor
@@ -506,6 +519,7 @@ def run(ctxt=None):
         explore_type=args.explore_type,
         sample_type=args.sample_type,
         goal_sample_network=goal_sample_network,
+        space_predictor=space_predictor,
         num_her=args.num_her,
     )
 

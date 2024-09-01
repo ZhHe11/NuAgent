@@ -259,7 +259,7 @@ class IOD(RLAlgorithm):
         '''
         if (runner.step_itr + 2) % self.n_epochs_per_log == 0 and wandb.run is not None and 'phi_s' in trajectories[0]['agent_infos'].keys():
             Pepr_viz = True
-            if self.env_name == 'antmaze':
+            if self.env_name == 'ant_maze':
                 fig, ax = plt.subplots()
                 env = runner._env
                 env.draw(ax)
@@ -376,7 +376,7 @@ class IOD(RLAlgorithm):
                 data['pos_sample'].append(path_subgoal)
     
             ## for HER resample sub_goal:
-            if self.sample_type in ['her_reward', 'contrastive']:
+            if self.sample_type in ['her_reward']:
                 num_her = self.num_her
                 subgoal_indices = np.random.choice(traj_len, num_her, replace=False)
                 for j in range(len(subgoal_indices)):
