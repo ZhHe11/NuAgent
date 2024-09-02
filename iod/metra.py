@@ -207,8 +207,8 @@ class METRA(IOD):
             phi_s = self.target_traj_encoder(epoch_traj_s).mean
             phi_s_next = self.target_traj_encoder(epoch_traj_s_next).mean
             
-            option = phi_g[i] - phi_s
-            next_option = phi_g[i] - phi_s_next
+            option = self.vec_norm(phi_g[i] - phi_s)
+            next_option = self.vec_norm(phi_g[i] - phi_s_next)
             
             processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(epoch_traj_s), option.float())
             next_processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(epoch_traj_s_next), next_option.float())
@@ -228,9 +228,9 @@ class METRA(IOD):
             batch_regret.append(regret)
         
         batch_regret = torch.tensor(batch_regret).to(self.device)
-        batch_regret_mean = batch_regret.mean()
+        batch_regret_mean = batch_regret.mean() / self.max_path_length
         if is_norm:
-            batch_regret = batch_regret / (batch_regret.max() + 1e-8)
+            batch_regret = (batch_regret - batch_regret.mean()) / (batch_regret.std() + 1e-8)
         
         return batch_regret, batch_regret_mean
     
@@ -323,14 +323,22 @@ class METRA(IOD):
                 self.replay_buffer.add_path(path)
 
     def _sample_replay_buffer(self, batch_size=None): 
+        # import time
+        # start = time.time()
         if batch_size == None:
             batch_size = self._trans_minibatch_size
         samples = self.replay_buffer.sample_transitions(batch_size)
+        # time1 = time.time()
+        # print('[3]sample_transitions ', time1 - start)
         data = {}
         for key, value in samples.items():
+            if key in ['rewards', 'returns', 'ori_obs', 'next_ori_obs', 'pre_tanh_values', 'log_probs']:
+                continue
             if value.shape[1] == 1 and 'option' not in key:
                 value = np.squeeze(value, axis=1)
             data[key] = torch.from_numpy(value).float().to(self.device)
+            # time2 = time.time()
+            # print('[3]data[key]', time2 - time1, key)
         return data
     
     
@@ -528,29 +536,36 @@ class METRA(IOD):
                     with torch.no_grad():
                         phi_s_0 = self.target_traj_encoder(self.init_obs).mean
                         phi_s_f = self.target_traj_encoder(final_state).mean
-                            
+                    # train space_predictor
+                    if self.goal_sample_optim is None:
+                            self.goal_sample_optim = optim.SGD(self.goal_sample_network.parameters(), lr=1e-3)
+                            self.space_predictor_optim = optim.SGD(self.space_predictor.parameters(), lr=1e-3)
+                            self.last_phi_g = phi_s_f
+                            self.token = torch.randn(1, self.dim_option).to(self.device)
+                            self.true_goal = self.vec_norm(self.last_phi_g - phi_s_0)
+                    self.space_predictor_optim.zero_grad()
+                    theta_space = self.vec_norm(phi_s_f - phi_s_0)
+                    L = self.space_predictor(theta_space).mean
+                    loss_l = self.AsymmetricLoss(L - torch.norm(phi_s_f - phi_s_0, dim=-1), alpha_neg=-1, alpha_pos=0.1)
+                    loss_l_mean = loss_l.mean()
+                    loss_l_mean.backward()
+                    self.space_predictor_optim.step()
+                    
                     if self.UpdateSGN:
                         # 固定policy，训练SGN
                         ## 初始化参数
-                        if self.goal_sample_optim is None:
-                            self.goal_sample_optim = optim.SGD(self.goal_sample_network.parameters(), lr=1e-2)
-                            self.space_predictor_optim = optim.SGD(self.space_predictor.parameters(), lr=1e-2)
-                            self.last_phi_g = phi_s_f
-                            self.token = torch.randn(1, self.dim_option).to(self.device)
                         goal_theta = self.vec_norm(self.last_phi_g - phi_s_0)
-                            
                         batch_regret, batch_regret_mean = self.get_regret(s=self.epoch_final['obs'][:, :-1], a=self.epoch_final['actions'][:, :-1], s_next=self.epoch_final['obs'][:, 1:], a_next=self.epoch_final['actions'][:, 1:], g=None, phi_g=self.last_phi_g, is_norm=True) 
-                        
                         theta_dist = self.goal_sample_network(self.token)
                         
                         # 当前traj的方向
-                        theta_logp = theta_dist.log_prob(goal_theta.detach())
+                        theta_logp = theta_dist.log_prob(self.true_goal)
                         self.goal_sample_optim.zero_grad()
-                        # self.token_optim.zero_grad()
-                        loss = (-theta_logp * batch_regret).mean()
+                        # loss = (-theta_logp * batch_regret).mean()
+                        loss_l_norm = (loss_l - loss_l.mean()) / (loss_l.std() + 1e-8)
+                        loss = (-theta_logp * loss_l_norm).mean()
                         loss.backward()
                         self.goal_sample_optim.step()
-                        # self.token_optim.step()
                         
                         # 生成新的theta
                         self.exp_theta_dist = self.goal_sample_network(torch.tile(self.token, (sample_batch,1)))
@@ -561,25 +576,21 @@ class METRA(IOD):
                             })
                     else:
                         batch_regret, batch_regret_mean = self.get_regret(s=self.epoch_final['obs'][:, :-1], a=self.epoch_final['actions'][:, :-1], s_next=self.epoch_final['obs'][:, 1:], a_next=self.epoch_final['actions'][:, 1:], g=None, phi_g=self.last_phi_g, is_norm=False) 
-                        if batch_regret_mean < 0.1:
+                        # if batch_regret_mean < 1 or self.sample_wait_count > 1000:
+                        if loss_l < 1 and self.sample_wait_count > 10:
                             self.UpdateSGN = 1
                             self.sample_wait_count = 0
 
-                    # train space_predictor
-                    self.space_predictor_optim.zero_grad()
-                    theta_space = self.vec_norm(phi_s_f - phi_s_0)
-                    L = self.space_predictor(theta_space).mean
-                    loss_l = self.AsymmetricLoss(L - torch.norm(phi_s_f - phi_s_0, dim=-1), alpha_neg=-1, alpha_pos=0.1).mean()
-                    loss_l.backward()
-                    self.space_predictor_optim.step()
-                    
                     # get phi_g
-                    if self.cold_start:
-                        theta_phi_g = self.vec_norm(torch.randn_like(self.last_phi_g)).to(self.device)
+                    if self.cold_start or self.UpdateSGN:
+                        # theta_phi_g = self.vec_norm(torch.randn_like(self.last_phi_g)).to(self.device)
+                        self.true_goal = self.exp_theta_dist.rsample().detach()
+                        theta_phi_g = self.vec_norm(self.true_goal)
                     else:
-                        theta_phi_g = self.vec_norm(self.exp_theta_dist.rsample().detach())
+                        self.true_goal = self.exp_theta_dist.rsample().detach()
+                        theta_phi_g = self.vec_norm(self.true_goal)
                     L_phi_g = self.space_predictor(theta_phi_g).mean
-                    self.last_phi_g = phi_s_0 + theta_phi_g * (L_phi_g + 50 * torch.rand_like(L_phi_g).to(self.device))
+                    self.last_phi_g = phi_s_0 + theta_phi_g * (L_phi_g + 100 * torch.rand_like(L_phi_g).to(self.device))
                     np_phi_g = self.last_phi_g.detach().cpu().numpy()
                     extras = self._generate_option_extras(random_options, phi_sub_goal=np_phi_g)  
                     
@@ -608,9 +619,14 @@ class METRA(IOD):
     Train Process;
     '''
     def _train_once_inner(self, path_data):
+        # import time
+        # start = time.time()
         self._update_replay_buffer(path_data)           # 这里需要修改，因为我要把subgoal加入进去；
+        # time1 = time.time()
+        # print('[1]update replay buffer time', time1 - start)
         epoch_data = self._flatten_data(path_data)      # 本质上是，把array和list转化为tensor
         tensors = self._train_components(epoch_data)    # 训练模型，tensor是info;
+        # print('[1]_flatten_data and _train_components', time.time() - time1)
         return tensors
     
     '''
@@ -622,17 +638,31 @@ class METRA(IOD):
         if self.UpdateSGN and self.cold_start == 0:
             return {}
         
-        for _ in range(self._trans_optimization_epochs):
+        for i in range(self._trans_optimization_epochs):
+            # print("Epoch: ", i)
+            # import time
+            # start_time = time.time()
             tensors = {}
             if self.replay_buffer is None:              
                 v = self._get_mini_tensors(epoch_data)
             else:
                 v = self._sample_replay_buffer()
             
+            # only using online traj.    
+            # v = self._get_mini_tensors(epoch_data)
+                
+            # time1= time.time()
+            # print('[2]buffer time', time1 - start_time)
             self._optimize_te(tensors, v)
+            # time2 = time.time()
+            # print('[2]optimize phi time', time2 - time1)
             with torch.no_grad():
                 self._update_rewards(tensors, v)
+            # time3 = time.time()
+            # print('[2]update reward', time3 - time2)
             self._optimize_op(tensors, v)
+            # time4 = time.time()
+            # print('[2]optimize op time', time4 - time3)
             
         return tensors
 
@@ -780,15 +810,7 @@ class METRA(IOD):
         option_s_s_next = v['option_s_s_next']
         
         if self.method["phi"] in ['contrastive']:
-            option_goal = v['option_goal']
-            # option_goal_detach = v['option_goal'].detach()
             samples = self.traj_encoder(v['pos_sample']).mean
-            
-            # zhanghe:0826
-            # 为了标定，使用:final_goal_z
-            # final_goal_z = v['final_goal_z']
-            # final_g_weight = 0.99 ** v['final_goal_distance']
-            # samples = (1-final_g_weight.unsqueeze(-1)) * samples + final_g_weight.unsqueeze(-1) * final_goal_z
             
             # discount weight
             discount = 0.99

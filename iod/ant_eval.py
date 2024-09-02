@@ -12,6 +12,9 @@ def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_P
     for i in range(1,len(All_Repr_obs_list)):
         Repr_obs_array = np.concatenate((Repr_obs_array, np.array(All_Repr_obs_list[i])), axis=0)
         All_Goal_obs_array = np.concatenate((All_Goal_obs_array, np.array(All_Goal_obs_list[i])), axis=0)
+    if len(Repr_obs_array) != len(All_Goal_obs_array):
+        print("Error: len(Repr_obs_array) != len(All_Goal_obs_array)")
+        return
     # 创建 PCA 对象，指定降到2维
     if is_PCA:
         pca = PCA(n_components=2)

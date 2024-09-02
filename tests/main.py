@@ -40,7 +40,7 @@ from garagei.experiment.option_local_runner import OptionLocalRunner
 from garagei.envs.consistent_normalized_env import consistent_normalize
 from garagei.sampler.option_multiprocessing_sampler import OptionMultiprocessingSampler
 from garagei.torch.modules.with_encoder import WithEncoder, Encoder
-from garagei.torch.modules.gaussian_mlp_module_ex import GaussianMLPTwoHeadedModuleEx, GaussianMLPIndependentStdModuleEx, GaussianMLPModuleEx, XY_GaussianMLPIndependentStdModuleEx
+from garagei.torch.modules.gaussian_mlp_module_ex import GaussianMLPTwoHeadedModuleEx, GaussianMLPIndependentStdModuleEx, GaussianMLPModuleEx, XY_GaussianMLPIndependentStdModuleEx, vector_GaussianMLPIndependentStdModuleEx
 from garagei.torch.modules.parameter_module import ParameterModule
 from garagei.torch.policies.policy_ex import PolicyEx
 from garagei.torch.q_functions.continuous_mlp_q_function_ex import ContinuousMLPQFunctionEx
@@ -193,6 +193,7 @@ def get_gaussian_module_construction(args,
                                      init_std=1.0,  # 1.0
                                      min_std=1e-6,  # 1e-6
                                      max_std=None,
+                                     type=None,
                                      **kwargs):
     module_kwargs = dict()
     if const_std:
@@ -201,11 +202,19 @@ def get_gaussian_module_construction(args,
             learn_std=False,
             init_std=init_std,
         ))
+    elif type == 'vector':
+        module_cls = vector_GaussianMLPIndependentStdModuleEx
+        module_kwargs.update(dict(
+            std_hidden_sizes=hidden_sizes,
+            std_hidden_nonlinearity=hidden_nonlinearity,
+            std_hidden_w_init=w_init,
+            std_output_w_init=w_init,
+            init_std=init_std,
+            min_std=min_std,
+            max_std=max_std,
+        ))
     else:
-        # for debug ask by JieWANG
         module_cls = GaussianMLPIndependentStdModuleEx
-        # print("used XY_GaussianMLPIndependentStdModuleEx")
-        # original one
         module_kwargs.update(dict(
             std_hidden_sizes=hidden_sizes,
             std_hidden_nonlinearity=hidden_nonlinearity,
@@ -349,12 +358,12 @@ def run(ctxt=None):
         w_init=torch.nn.init.xavier_uniform_,
         input_dim=args.dim_option,
         output_dim=args.dim_option,
-        init_std=1.,
-        min_std=1e-6,
-        max_std=2.,
+        init_std=0.1,
+        type='vector',
+        const_std=True
     )
     goal_sample_network = module_cls(**module_kwargs)
-    
+     # Network for dist_predictor
     module_cls, module_kwargs = get_gaussian_module_construction(
         args,
         hidden_sizes=master_dims,
@@ -369,7 +378,7 @@ def run(ctxt=None):
     space_predictor = module_cls(**module_kwargs)
 
     
-    # Network for dist_predictor
+   
     module_cls, module_kwargs = get_gaussian_module_construction(
         args,
         hidden_sizes=master_dims,

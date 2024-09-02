@@ -215,3 +215,12 @@ class XY_GaussianMLPIndependentStdModuleEx(GaussianMLPIndependentStdModuleEx):
         # 调用父类的forward方法处理截取后的数据
         return super().forward(x) 
 
+class vector_GaussianMLPIndependentStdModuleEx(GaussianMLPIndependentStdModuleEx):
+    def forward(self, x):
+        
+        out = super().forward(x) 
+                
+        return out
+    
+    
+    
