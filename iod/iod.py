@@ -14,6 +14,7 @@ from garagei.torch.optimizers.optimizer_group_wrapper import OptimizerGroupWrapp
 from garagei.torch.utils import compute_total_norm
 from iod.utils import MeasureAndAccTime
 import wandb
+import random
 
 
 from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze, plot_trajectories, plot_value
@@ -351,8 +352,6 @@ class IOD(RLAlgorithm):
             
             traj_len = len(path['observations'])
             index = np.arange(0, traj_len)
-            
-            # data['final_state'].append(np.tile(path['observations'][-1], (traj_len, 1)))
 
             ## use sub_goal from path; if not exist, use the last one as subgoal;
             if 'sub_goal' in path['agent_infos']:
@@ -370,7 +369,10 @@ class IOD(RLAlgorithm):
                 data['final_goal_distance'].append(traj_len - 1 - index)
                 traj_len = len(path['observations'])
                 for t in range(traj_len):
-                    t_pos = np.random.choice(traj_len-t, 1, replace=False)
+                    if t == traj_len - 1:
+                        t_pos = 0
+                    else:
+                        t_pos = random.choices([_ for _ in range(1,traj_len-t)], weights=[0.5**index for index in range(1,traj_len-t)], k=1)[0]
                     path_goal_dist[t] = t_pos
                     path_subgoal[t] = path['observations'][t + t_pos]
                 data['pos_sample_distance'].append(path_goal_dist)

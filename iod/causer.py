@@ -326,7 +326,7 @@ class CAUSER(IOD):
         if batch_size == None:
             batch_size = self._trans_minibatch_size
         samples = self.replay_buffer.sample_transitions(batch_size)
-        print('[3]sample_transitions ', time.time() - start)
+        # print('[3]sample_transitions ', time.time() - start)
         data = {}
         import time
         time1 = time.time()
@@ -339,7 +339,7 @@ class CAUSER(IOD):
             data[key] = torch.tensor(value, dtype=torch.float32, device=self.device)
             # time2 = time.time()
             # print('[3]data[key]', time2 - time1, key)
-        print('[3]from_numpy ', time.time() - time1)
+        # print('[3]from_numpy ', time.time() - time1)
         return data
     
     
@@ -606,9 +606,11 @@ class CAUSER(IOD):
                     if self.dim_option == 2:
                         directions = [[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1],[0,-1],[1,-1]]
                         directions_tensor = torch.tensor(directions, dtype=torch.float).to(self.device)
+                        
                     else:
-                        directions_tensor = torch.eye(self.dim_option).to(self.device)    
-                    times_sample = int(sample_batch / self.dim_option)
+                        directions_tensor = torch.eye(self.dim_option).to(self.device) 
+                    dim_support = directions_tensor.shape[0]
+                    times_sample = int(sample_batch / dim_support)
                     
                     final_state = self.epoch_final['obs'][:,-1]
                     with torch.no_grad():
@@ -629,7 +631,8 @@ class CAUSER(IOD):
                     ## 各个方向的准确率
                     if self.UpdateSGN == 1:
                         # 随机采样，扩展成traj_batch的纬度
-                        directions_sample = directions_tensor.unsqueeze(0).expand(times_sample, -1, -1).reshape(-1, 2)
+                        directions_sample = directions_tensor.unsqueeze(0).tile((times_sample, 1, 1))
+                        directions_sample = directions_sample.reshape(-1, directions_tensor.size(-1))
                         ## 计算各个方向的准确率/return
                         distance_score = torch.exp(-torch.norm(phi_s_f - self.last_phi_g, dim=-1))
                         self.acc_buffer = self.acc_buffer + distance_score
@@ -648,9 +651,9 @@ class CAUSER(IOD):
                     else:
                         # 选择更小的acc进行采样
                         # probabilities = self.acc / self.acc.sum(dim=-1, keepdim=True)
-                        probabilities = torch.zeros(self.dim_option).to(self.device)
+                        probabilities = torch.zeros(dim_support).to(self.device)
                         for j in range(times_sample):
-                            probabilities += self.acc[j*self.dim_option : (j+1)*self.dim_option]
+                            probabilities += self.acc[j*dim_support : (j+1)*dim_support]
                         probabilities = probabilities / (probabilities.sum() + 1e-8)
                         sampled_indices = torch.multinomial(probabilities, self.num_random_trajectories, replacement=True).to('cpu').numpy()
                         directions_sample = directions_tensor[sampled_indices]
@@ -685,10 +688,10 @@ class CAUSER(IOD):
         start = time.time()
         self._update_replay_buffer(path_data)           # 这里需要修改，因为我要把subgoal加入进去；
         time1 = time.time()
-        print('[1]update replay buffer time', time1 - start)    # 0.9s
+        # print('[1]update replay buffer time', time1 - start)    # 0.9s
         epoch_data = self._flatten_data(path_data)      # 本质上是，把array和list转化为tensor
         tensors = self._train_components(epoch_data)    # 训练模型，tensor是info;
-        print('[1]_flatten_data and _train_components', time.time() - time1)
+        # print('[1]_flatten_data and _train_components', time.time() - time1)
         return tensors
     
     '''
@@ -711,10 +714,10 @@ class CAUSER(IOD):
                     v = self._get_mini_tensors(epoch_data)
                 else:
                     v = self._sample_replay_buffer()
-                print('[2]_sample_replay_buffer', time.time() - time1)     # 0.4s
+                # print('[2]_sample_replay_buffer', time.time() - time1)     # 0.4s
                 time2 = time.time()
                 self._optimize_te(tensors, v)
-                print('[2]_optimize_te', time.time() - time2)              # 0.1s
+                # print('[2]_optimize_te', time.time() - time2)              # 0.1s
             time2 = time.time()
             for j in range(self._trans_phi_optimization_epochs):
                 time1 = time.time()
@@ -722,12 +725,12 @@ class CAUSER(IOD):
                     v = self._get_mini_tensors(epoch_data)
                 else:
                     v = self._sample_replay_buffer()
-                print('[3]_sample_replay_buffer', time.time() - time1)     # 0.4s
+                # print('[3]_sample_replay_buffer', time.time() - time1)     # 0.4s
                 with torch.no_grad():
                     self._update_rewards(tensors, v)
                 time2 = time.time()  
                 self._optimize_op(tensors, v)
-                print('[3]_optimize_op', time.time() - time2)              # 0.1s
+                # print('[3]_optimize_op', time.time() - time2)              # 0.1s
             
         return tensors
 
@@ -876,14 +879,10 @@ class CAUSER(IOD):
         
         if self.method["phi"] in ['contrastive']:
             samples = self.traj_encoder(v['pos_sample']).mean
-            
-            # discount weight
-            discount = 0.99
-            w = discount ** (v['pos_sample_distance'])
-            vec_phi_s_s_next = phi_s_next - phi_s
+
+            vec_phi_s_s_next = self.vec_norm(phi_s_next - phi_s)
             vec_phi_sample = samples
-            
-            
+              
             matrix_s_sample = vec_phi_sample.unsqueeze(0) - phi_s.unsqueeze(1)
             matrix_s_sp_norm = matrix_s_sample / (torch.norm(matrix_s_sample, p=2, dim=-1, keepdim=True) + 1e-8)
             matrix = (vec_phi_s_s_next.unsqueeze(1) * matrix_s_sp_norm).sum(dim=-1)
@@ -897,7 +896,7 @@ class CAUSER(IOD):
             mask_pos = torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
             inner_pos = torch.diag(matrix)
             inner_neg = (matrix * (1 - mask_pos)).sum(dim=1) / (phi_s.shape[0]-1)
-            new_reward = w * torch.log(F.sigmoid(inner_pos)) + w * torch.log(1 - F.sigmoid(inner_neg))
+            new_reward = torch.log(F.sigmoid(inner_pos)) + torch.log(1 - F.sigmoid(inner_neg))
             
             rewards = new_reward
             tensors.update({
@@ -944,9 +943,8 @@ class CAUSER(IOD):
             
             if self.method["phi"] in ['contrastive']:
                 len = torch.square(phi_s_next - phi_s).mean(dim=1) 
-                len_encourage = torch.clamp(len, max=0.25)    
-                
-                te_obj = rewards + dual_lam.detach() * cst_penalty
+                len_encourage = torch.clamp(len, max=0.1)    
+                te_obj = rewards + dual_lam.detach() * cst_penalty + len_encourage
             else:
                 te_obj = rewards + dual_lam.detach() * cst_penalty                      # 这是最终的loss： reward + 惩罚项；
 
@@ -1126,8 +1124,8 @@ class CAUSER(IOD):
             imageio.mimsave(gif_name, frames, 'GIF', duration=1)
             print('saved', gif_name)
             
-        print('metric_success_task_relevant:', metric_success_task_relevant)
-        print('metric_success_all_objects:', metric_success_all_objects)
+        # print('metric_success_task_relevant:', metric_success_task_relevant)
+        # print('metric_success_all_objects:', metric_success_all_objects)
         if wandb.run is not None:
             wandb.log({
                 'metric_success_task_relevant': sum(metric_success_task_relevant.values()) / len(metric_success_task_relevant),
