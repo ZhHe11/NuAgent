@@ -30,6 +30,8 @@ def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_P
         color = colors[i]
         start_index = i * path_len
         end_index = (i+1) * path_len
+        if end_index >= Repr_obs_2d.shape[0]:
+            continue
         plt.scatter(Repr_obs_2d[start_index:end_index, 0], Repr_obs_2d[start_index:end_index, 1], color=color, s=5, label="traj."+str(i))
         plt.scatter(All_Goal_obs_2d[start_index, 0], All_Goal_obs_2d[start_index, 1], marker='*', s=100, c=color, label="option."+str(i))
     file_path = os.path.join(path, tag + "repr_traj.png")

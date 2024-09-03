@@ -149,6 +149,8 @@ def get_argparser():
     
     parser.add_argument('--is_wandb', type=int, default=0)
     
+    parser.add_argument('--_trans_phi_optimization_epochs', type=int, default=1)
+    
     return parser
 
 
@@ -358,7 +360,7 @@ def run(ctxt=None):
         w_init=torch.nn.init.xavier_uniform_,
         input_dim=args.dim_option,
         output_dim=args.dim_option,
-        init_std=0.1,
+        init_std=0.5,
         type='vector',
         const_std=True
     )
@@ -530,6 +532,7 @@ def run(ctxt=None):
         goal_sample_network=goal_sample_network,
         space_predictor=space_predictor,
         num_her=args.num_her,
+        _trans_phi_optimization_epochs=args._trans_phi_optimization_epochs,
     )
 
     skill_common_args = dict(

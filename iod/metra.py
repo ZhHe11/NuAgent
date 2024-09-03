@@ -63,6 +63,7 @@ class METRA(IOD):
             
             goal_sample_network=None,
             space_predictor=None,
+            _trans_phi_optimization_epochs=1,
 
             **kwargs,
     ):
@@ -140,6 +141,10 @@ class METRA(IOD):
         self.exp_theta_dist = None
         self.UpdateSGN = 0
         self.cold_start = 1
+        self.acc_buffer = torch.zeros(self.num_random_trajectories).to(self.device)
+        self.acc = torch.ones(self.num_random_trajectories).to(self.device)
+        self.space_predictor_optim = None
+        self._trans_phi_optimization_epochs = _trans_phi_optimization_epochs
         
     @property
     def policy(self):
@@ -538,8 +543,8 @@ class METRA(IOD):
                         phi_s_f = self.target_traj_encoder(final_state).mean
                     # train space_predictor
                     if self.goal_sample_optim is None:
-                            self.goal_sample_optim = optim.SGD(self.goal_sample_network.parameters(), lr=1e-3)
-                            self.space_predictor_optim = optim.SGD(self.space_predictor.parameters(), lr=1e-3)
+                            self.goal_sample_optim = optim.SGD(self.goal_sample_network.parameters(), lr=1e-2)
+                            self.space_predictor_optim = optim.SGD(self.space_predictor.parameters(), lr=1e-2)
                             self.last_phi_g = phi_s_f
                             self.token = torch.randn(1, self.dim_option).to(self.device)
                             self.true_goal = self.vec_norm(self.last_phi_g - phi_s_0)
@@ -562,8 +567,8 @@ class METRA(IOD):
                         theta_logp = theta_dist.log_prob(self.true_goal)
                         self.goal_sample_optim.zero_grad()
                         # loss = (-theta_logp * batch_regret).mean()
-                        loss_l_norm = (loss_l - loss_l.mean()) / (loss_l.std() + 1e-8)
-                        loss = (-theta_logp * loss_l_norm).mean()
+                        # loss_l_norm = (loss_l - loss_l.mean()) / (loss_l.std() + 1e-8)
+                        loss = (-theta_logp * batch_regret).mean()
                         loss.backward()
                         self.goal_sample_optim.step()
                         
@@ -577,7 +582,7 @@ class METRA(IOD):
                     else:
                         batch_regret, batch_regret_mean = self.get_regret(s=self.epoch_final['obs'][:, :-1], a=self.epoch_final['actions'][:, :-1], s_next=self.epoch_final['obs'][:, 1:], a_next=self.epoch_final['actions'][:, 1:], g=None, phi_g=self.last_phi_g, is_norm=False) 
                         # if batch_regret_mean < 1 or self.sample_wait_count > 1000:
-                        if loss_l < 1 and self.sample_wait_count > 10:
+                        if loss_l_mean < 1 and self.sample_wait_count > 100:
                             self.UpdateSGN = 1
                             self.sample_wait_count = 0
 
@@ -599,14 +604,86 @@ class METRA(IOD):
                         print("theta_dist_std", self.exp_theta_dist.stddev[0].detach())
                         print('self.cold_start', self.cold_start, 'self.UpdateSGN', self.UpdateSGN, 'self.count', self.sample_wait_count)
                         wandb.log({
-                                "theta/loss_L": loss_l.detach(),
+                                "theta/loss_L": loss_l_mean.detach(),
                                 "theta/L": L_phi_g.mean(),
                                 "theta/batch_regret_mean": batch_regret_mean,
                                 }) 
             
                 else: 
                     extras = self._generate_option_extras(random_options)      # 变成字典的形式；
+            
+            elif self.method['explore'] == 'regret':
+                if self.epoch_final is not None:
+                    self.sample_wait_count += 1
+                    if self.sample_wait_count > 100:
+                        self.UpdateSGN = 1
+                        self.sample_wait_count = 0
+                        
+                    directions = [
+                        [1,0],
+                        [1,1],
+                        [0,1],
+                        [-1,1],
+                        [-1,0],
+                        [-1,-1],
+                        [0,-1],
+                        [1,-1]
+                        ]
+                    directions_tensor = torch.tensor(directions, dtype=torch.float).to(self.device)
+                    sample_batch = self.epoch_final['obs'].shape[0]
+                    final_state = self.epoch_final['obs'][:,-1]
+                    with torch.no_grad():
+                        phi_s_0 = self.target_traj_encoder(self.init_obs).mean
+                        phi_s_f = self.target_traj_encoder(final_state).mean
+                    if self.space_predictor_optim is None:
+                        self.space_predictor_optim = optim.SGD(self.space_predictor.parameters(), lr=1e-2)
+                        self.last_phi_g = self.target_traj_encoder(self.epoch_final['obs'][:,-1]).mean
+                    # train space_predictor 
+                    self.space_predictor_optim.zero_grad()
+                    theta_space = self.vec_norm(phi_s_f - phi_s_0)
+                    L = self.space_predictor(theta_space).mean
+                    loss_l = self.AsymmetricLoss(L - torch.norm(phi_s_f - phi_s_0, dim=-1), alpha_neg=-1, alpha_pos=0.1)
+                    loss_l_mean = loss_l.mean()
+                    loss_l_mean.backward()
+                    self.space_predictor_optim.step()
+                    # get phi_g
+                    ## 各个方向的准确率
+                    if self.UpdateSGN == 1:
+                        ## 计算各个方向的准确率/return
+                        distance_score = torch.exp(-torch.norm(phi_s_f - self.last_phi_g, dim=-1))
+                        self.acc_buffer = self.acc_buffer + distance_score
+                        ## 给各个方向加噪
+                        directions_tensor = self.vec_norm(directions_tensor + 0.1 * torch.randn_like(directions_tensor))
+                        L_phi_g = self.space_predictor(directions_tensor).mean
+                        ## 给各个方向的距离加噪
+                        phi_g = phi_s_0 + directions_tensor * (L_phi_g + 10 * torch.randn_like(L_phi_g).to(self.device))
+                        self.last_phi_g = phi_g
+                        np_phi_g = self.last_phi_g.detach().cpu().numpy()
+                        extras = self._generate_option_extras(random_options, phi_sub_goal=np_phi_g) 
+                        if self.sample_wait_count >= 50:
+                            self.acc = self.acc_buffer / self.sample_wait_count
+                            self.UpdateSGN = 0
+                            self.sample_wait_count = 0 
+                    else:
+                        # 选择更小的acc进行采样
+                        probabilities = self.acc / self.acc.sum(dim=-1, keepdim=True)
+                        sampled_indices = torch.multinomial(probabilities, self.num_random_trajectories, replacement=True).to('cpu').numpy()
+                        sampled_directions = directions_tensor[sampled_indices]
+                        ## 给各个方向加噪
+                        sampled_directions = self.vec_norm(sampled_directions + 0.1 * torch.randn_like(sampled_directions))
+                        L_phi_g = self.space_predictor(sampled_directions).mean
+                        ## 给各个方向的距离加噪
+                        phi_g = phi_s_0 + sampled_directions * (L_phi_g + 10 * torch.rand_like(L_phi_g).to(self.device))
+                        self.last_phi_g = phi_g
+                        np_phi_g = self.last_phi_g.detach().cpu().numpy()
+                        extras = self._generate_option_extras(random_options, phi_sub_goal=np_phi_g)  
                     
+                    print('acc', self.acc, 'acc_buffer', self.acc_buffer)
+                    print('self.phi_g', self.last_phi_g)
+                    
+                else:
+                    extras = self._generate_option_extras(random_options)
+                
             elif self.method['explore'] == "baseline": 
                 extras = self._generate_option_extras(random_options)      # 变成字典的形式；
             
@@ -639,30 +716,25 @@ class METRA(IOD):
             return {}
         
         for i in range(self._trans_optimization_epochs):
-            # print("Epoch: ", i)
-            # import time
-            # start_time = time.time()
-            tensors = {}
-            if self.replay_buffer is None:              
-                v = self._get_mini_tensors(epoch_data)
-            else:
-                v = self._sample_replay_buffer()
-            
-            # only using online traj.    
-            # v = self._get_mini_tensors(epoch_data)
+            for j in range(self._trans_phi_optimization_epochs):
+                tensors = {}
+                if self.replay_buffer is None:              
+                    v = self._get_mini_tensors(epoch_data)
+                else:
+                    v = self._sample_replay_buffer()
                 
-            # time1= time.time()
-            # print('[2]buffer time', time1 - start_time)
-            self._optimize_te(tensors, v)
-            # time2 = time.time()
-            # print('[2]optimize phi time', time2 - time1)
-            with torch.no_grad():
-                self._update_rewards(tensors, v)
-            # time3 = time.time()
-            # print('[2]update reward', time3 - time2)
-            self._optimize_op(tensors, v)
-            # time4 = time.time()
-            # print('[2]optimize op time', time4 - time3)
+                self._optimize_te(tensors, v)
+            
+            for j in range(self._trans_phi_optimization_epochs):
+                if self.replay_buffer is None:              
+                    v = self._get_mini_tensors(epoch_data)
+                else:
+                    v = self._sample_replay_buffer()
+                with torch.no_grad():
+                    self._update_rewards(tensors, v)
+
+                self._optimize_op(tensors, v)
+
             
         return tensors
 
