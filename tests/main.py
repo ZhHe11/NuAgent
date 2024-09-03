@@ -47,6 +47,7 @@ from garagei.torch.q_functions.continuous_mlp_q_function_ex import ContinuousMLP
 from garagei.torch.optimizers.optimizer_group_wrapper import OptimizerGroupWrapper
 from garagei.torch.utils import xavier_normal_ex
 from iod.metra import METRA
+from iod.causer import CAUSER
 from iod.dads import DADS
 from iod.utils import get_normalizer_preset
 
@@ -86,7 +87,7 @@ def get_argparser():
 
     parser.add_argument('--n_epochs', type=int, default=1000000)
     parser.add_argument('--traj_batch_size', type=int, default=8)
-    parser.add_argument('--trans_minibatch_size', type=int, default=256)
+    parser.add_argument('--trans_minibatch_size', type=int, default=1024)
     parser.add_argument('--trans_optimization_epochs', type=int, default=200)
 
     parser.add_argument('--n_epochs_per_eval', type=int, default=125)
@@ -108,7 +109,7 @@ def get_argparser():
 
     parser.add_argument('--alpha', type=float, default=0.01)
 
-    parser.add_argument('--algo', type=str, default='metra', choices=['metra', 'dads'])
+    parser.add_argument('--algo', type=str, default='metra', choices=['metra', 'dads', 'causer'])
 
     parser.add_argument('--sac_tau', type=float, default=5e-3)
     parser.add_argument('--sac_lr_q', type=float, default=None)
@@ -150,6 +151,7 @@ def get_argparser():
     parser.add_argument('--is_wandb', type=int, default=0)
     
     parser.add_argument('--_trans_phi_optimization_epochs', type=int, default=1)
+    parser.add_argument('--_trans_online_sample_epochs', type=int, default=1)
     
     return parser
 
@@ -456,7 +458,7 @@ def run(ctxt=None):
 
     replay_buffer = PathBufferEx(capacity_in_transitions=int(args.sac_max_buffer_size), pixel_shape=pixel_shape)
 
-    if args.algo in ['metra', 'dads']:
+    if args.algo in ['metra', 'dads', 'causer']:
         qf1 = ContinuousMLPQFunctionEx(
             obs_dim=policy_q_input_dim,
             action_dim=action_dim,
@@ -513,7 +515,7 @@ def run(ctxt=None):
         eval_record_video=args.eval_record_video,
         video_skip_frames=args.video_skip_frames,
         eval_plot_axis=args.eval_plot_axis,
-        name='METRA',
+        name=args.algo,
         device=device,
         sample_cpu=args.sample_cpu,
         num_train_per_epoch=1,
@@ -533,6 +535,7 @@ def run(ctxt=None):
         space_predictor=space_predictor,
         num_her=args.num_her,
         _trans_phi_optimization_epochs=args._trans_phi_optimization_epochs,
+        _trans_online_sample_epochs=args._trans_online_sample_epochs,
     )
 
     skill_common_args = dict(
@@ -562,6 +565,13 @@ def run(ctxt=None):
             **algo_kwargs,
             **skill_common_args,
         )
+        
+    elif args.algo == 'causer':    
+        algo = CAUSER(
+            **algo_kwargs,
+            **skill_common_args,
+        )   
+    
     elif args.algo == 'dads':
         algo = DADS(
             **algo_kwargs,

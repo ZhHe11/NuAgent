@@ -62,6 +62,7 @@ class IOD(RLAlgorithm):
             unit_length=False,
             sample_type=None,
             num_her=0,
+            _trans_online_sample_epochs=1,
     ):
         self.env_name = env_name
         self.algo = algo
@@ -127,6 +128,7 @@ class IOD(RLAlgorithm):
         self.traj_encoder.eval()
         self.sample_type=sample_type
         self.num_her=num_her
+        self._trans_online_sample_epochs = _trans_online_sample_epochs
 
     @property
     def policy(self):
@@ -140,8 +142,7 @@ class IOD(RLAlgorithm):
     def train_once(self, itr, paths, runner, extra_scalar_metrics={}):
         logging_enabled = ((runner.step_itr + 1) % self.n_epochs_per_log == 0)
 
-        data = self.process_samples(paths)      # 已经输入了sample得到的数据；这里是构造了数据结构，一个进入buffer的训练元组；
-
+        data = self.process_samples(paths)      # 已经输入了sample得到的数据；这里是构造了数据结构，一个进入buffer
         time_computing_metrics = [0.0]
         time_training = [0.0]
 
