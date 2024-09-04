@@ -886,16 +886,19 @@ class CAUSER(IOD):
             matrix_s_sample = vec_phi_sample.unsqueeze(0) - phi_s.unsqueeze(1)
             matrix_s_sp_norm = matrix_s_sample / (torch.norm(matrix_s_sample, p=2, dim=-1, keepdim=True) + 1e-8)
             matrix = (vec_phi_s_s_next.unsqueeze(1) * matrix_s_sp_norm).sum(dim=-1)
-                        
+            # pos loss
+            mask_pos = torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
+            inner_pos = torch.diag(matrix)
+            # neg loss
             # 加一个判断，如果g-与g特别接近，就用mask掉；
             dist_theta = 1e-3
             distance_pos_neg = torch.norm(vec_phi_sample.unsqueeze(0) - vec_phi_sample.unsqueeze(1), p=2, dim=-1)
             mask = torch.where( distance_pos_neg < dist_theta , 0, 1)
-            matrix = matrix * mask
-                               
-            mask_pos = torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
-            inner_pos = torch.diag(matrix)
+            matrix = matrix * mask            
             inner_neg = (matrix * (1 - mask_pos)).sum(dim=1) / (phi_s.shape[0]-1)
+            # total loss
+            print('inner_pos:', inner_pos.min(), inner_pos.max())
+            print('inner_neg:', inner_neg.min(), inner_neg.max())
             new_reward = torch.log(F.sigmoid(inner_pos)) + torch.log(1 - F.sigmoid(inner_neg))
             
             rewards = new_reward
@@ -944,7 +947,7 @@ class CAUSER(IOD):
             if self.method["phi"] in ['contrastive']:
                 len = torch.square(phi_s_next - phi_s).mean(dim=1) 
                 len_encourage = torch.clamp(len, max=0.1)    
-                te_obj = rewards + dual_lam.detach() * cst_penalty + len_encourage
+                te_obj = rewards + dual_lam.detach() * cst_penalty
             else:
                 te_obj = rewards + dual_lam.detach() * cst_penalty                      # 这是最终的loss： reward + 惩罚项；
 

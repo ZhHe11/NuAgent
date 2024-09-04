@@ -372,7 +372,7 @@ class IOD(RLAlgorithm):
                     if t == traj_len - 1:
                         t_pos = 0
                     else:
-                        t_pos = random.choices([_ for _ in range(1,traj_len-t)], weights=[0.5**index for index in range(1,traj_len-t)], k=1)[0]
+                        t_pos = random.choices([_ for _ in range(1,traj_len-t)], weights=[0.9**index for index in range(1,traj_len-t)], k=1)[0]
                     path_goal_dist[t] = t_pos
                     path_subgoal[t] = path['observations'][t + t_pos]
                 data['pos_sample_distance'].append(path_goal_dist)
