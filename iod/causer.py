@@ -394,7 +394,7 @@ class CAUSER(IOD):
                         randn_exp_theta = self.vec_norm(torch.randn_like(self.last_phi_g)).to(self.device)
                         theta_L = self.goal_sample_network(randn_exp_theta)
                         theta_L_mean = self._clip_phi_g(theta_L.mean)
-                        theta_L_stddev = theta_L.stddev
+                        theta_L_stddev = theta_L.stddev 
                         
                     # 更新新的phi_g
                     next_phi_g = phi_s_0 + (theta_L_mean + torch.rand_like(theta_L_stddev) * theta_L_stddev) * randn_exp_theta
