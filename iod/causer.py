@@ -672,6 +672,14 @@ class CAUSER(IOD):
                 else:
                     extras = self._generate_option_extras(random_options)
                 
+            elif self.method['explore'] == 'random':   
+                phi_s_0 = self.target_traj_encoder(self.init_obs).mean 
+                direction = torch.randn(runner._train_args.batch_size, self.dim_option).to(self.device)
+                self.last_phi_g = phi_s_0 + 50 * self.vec_norm(direction)
+                np_phi_g = self.last_phi_g.detach().cpu().numpy()
+                extras = self._generate_option_extras(random_options, phi_sub_goal=np_phi_g) 
+                
+            
             elif self.method['explore'] == "baseline": 
                 extras = self._generate_option_extras(random_options)      # 变成字典的形式；
             
@@ -812,8 +820,9 @@ class CAUSER(IOD):
             option = v['options']
             # 最终方向和采样方向加权；
             # goal_z = 0.5 * (self.target_traj_encoder(sub_goal).mean.detach() + v['phi_sub_goal'])
-            goal_z = v['phi_sub_goal']
-            final_goal_z = v['phi_sub_goal']
+            goal_z = self.target_traj_encoder(sub_goal).mean.detach()
+            # goal_z = v['phi_sub_goal']
+            # final_goal_z = v['phi_sub_goal']
             
             target_cur_z = self.target_traj_encoder(obs).mean.detach()
             target_next_z = self.target_traj_encoder(next_obs).mean.detach()
@@ -832,7 +841,7 @@ class CAUSER(IOD):
                 'option_goal': option_goal,             # 是phi_sub_g - phi_s / norm()
                 'option_s_s_next': option_s_s_next,     # 是phi_s_next - phi_s
                 'next_option_goal': next_option_goal,   # 为了输入next_option
-                'final_goal_z': final_goal_z,
+                # 'final_goal_z': final_goal_z,
                 # 'option_final_goal': option_final_goal,           # 采样traj.的目标goal。为了标定；
             })
             ###########################################
@@ -878,35 +887,48 @@ class CAUSER(IOD):
         option_s_s_next = v['option_s_s_next']
         
         if self.method["phi"] in ['contrastive']:
-            samples = self.traj_encoder(v['pos_sample']).mean
-
-            vec_phi_s_s_next = self.vec_norm(phi_s_next - phi_s)
-            vec_phi_sample = samples
-              
-            matrix_s_sample = vec_phi_sample.unsqueeze(0) - phi_s.unsqueeze(1)
-            matrix_s_sp_norm = matrix_s_sample / (torch.norm(matrix_s_sample, p=2, dim=-1, keepdim=True) + 1e-8)
+            option_goal = v['option_goal']
+            w = 0.99 ** v['final_goal_distance']
+            # s s_next
+            vec_phi_s_s_next = phi_s_next - phi_s
+            # s s_pos
+            vec_phi_pos = self.target_traj_encoder(v['pos_sample']).mean + v['options']
+            target_phi_s = self.target_traj_encoder(obs).mean
+            matrix_s_sp = vec_phi_pos.unsqueeze(0) - target_phi_s.unsqueeze(1)
+            # (s s_next) * (s s_pos / ||s s_pos||_2)
+            matrix_s_sp_norm = matrix_s_sp / (torch.norm(matrix_s_sp, p=2, dim=-1, keepdim=True) + 1e-8)
             matrix = (vec_phi_s_s_next.unsqueeze(1) * matrix_s_sp_norm).sum(dim=-1)
             # pos loss
-            mask_pos = torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
-            inner_pos = torch.diag(matrix)
+            # mask_pos = torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
+            # inner_pos = torch.diag(matrix)
             # neg loss
             # 加一个判断，如果g-与g特别接近，就用mask掉；
-            dist_theta = 1e-3
-            distance_pos_neg = torch.norm(vec_phi_sample.unsqueeze(0) - vec_phi_sample.unsqueeze(1), p=2, dim=-1)
-            mask = torch.where( distance_pos_neg < dist_theta , 0, 1)
-            matrix = matrix * mask            
-            inner_neg = (matrix * (1 - mask_pos)).sum(dim=1) / (phi_s.shape[0]-1)
-            # total loss
-            print('inner_pos:', inner_pos.min(), inner_pos.max())
-            print('inner_neg:', inner_neg.min(), inner_neg.max())
-            new_reward = torch.log(F.sigmoid(inner_pos)) + torch.log(1 - F.sigmoid(inner_neg))
+            # dist_theta = 1e-3
+            # distance_pos_neg = torch.norm(matrix_s_sp - (vec_phi_pos - target_phi_s), p=2, dim=-1)
+            # mask = torch.where( distance_pos_neg < dist_theta , 0, 1)
+            # matrix = matrix * (mask + torch.eye(matrix.shape[0]).to(self.device))         
+            # inner_neg = (matrix * (1 - mask_pos)).sum(dim=1) / (phi_s.shape[0]-1)
+            # # total loss
+            # print('inner_pos:', inner_pos.min(), inner_pos.max())
+            # print('inner_neg:', inner_neg.min(), inner_neg.max())
+            # new_reward = torch.log(1e-6 + F.sigmoid(inner_pos)) + torch.log(1 + 1e-6 - F.sigmoid(inner_neg))
             
-            rewards = new_reward
+            # t = torch.tensor(0.5).to(self.device)
+            t = 1
+            matrix = matrix / t
+            label = torch.arange(matrix.shape[0]).to(self.device)
+            
+            new_reward1 = - F.cross_entropy(matrix, label)
+            new_reward2 = - F.cross_entropy(matrix.T, label)
+        
+            rewards = (new_reward1 + new_reward2 ) / 2
             tensors.update({
                 'next_z_reward': rewards.mean(),
-                'inner_s_s_next_pos': inner_pos.mean(),
-                'inner_s_s_next_neg': inner_neg.mean(),
-                'distance_pos_neg': distance_pos_neg.mean(),
+                'new_reward1': new_reward1.mean(),
+                'new_reward2': new_reward2.mean(),
+                # 'inner_s_s_next_pos': inner_pos.mean(),
+                # 'inner_s_s_next_neg': inner_neg.mean(),
+                # 'distance_pos_neg': distance_pos_neg.mean(),
             })
         
         if self.dual_dist == 's2_from_s':    

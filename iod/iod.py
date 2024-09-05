@@ -260,7 +260,7 @@ class IOD(RLAlgorithm):
         plot training traj
         '''
         if (runner.step_itr + 2) % self.n_epochs_per_log == 0 and wandb.run is not None and 'phi_s' in trajectories[0]['agent_infos'].keys():
-            Pepr_viz = True
+            Pepr_viz = False
             if self.env_name == 'ant_maze':
                 fig, ax = plt.subplots()
                 env = runner._env
@@ -294,21 +294,21 @@ class IOD(RLAlgorithm):
                 print(filepath)
                 plt.savefig(filepath) 
                 wandb.log(({"train_Maze_traj": wandb.Image(filepath)}))
-            else:
-                All_Repr_obs_list = []
-                All_Goal_obs_list = []
-                for i in range(len(trajectories)):
-                    # plot phi
-                    if Pepr_viz:
-                        phi_s = trajectories[i]['agent_infos']['phi_s']
-                        phi_g = trajectories[i]['agent_infos']['phi_sub_goal']
-                        All_Repr_obs_list.append(phi_s)
-                        All_Goal_obs_list.append(phi_g)
+            # else:
+            #     All_Repr_obs_list = []
+            #     All_Goal_obs_list = []
+            #     for i in range(len(trajectories)):
+            #         # plot phi
+            #         if Pepr_viz:
+            #             phi_s = trajectories[i]['agent_infos']['phi_s']
+            #             # phi_g = trajectories[i]['agent_infos']['phi_sub_goal']
+            #             All_Repr_obs_list.append(phi_s)
+            #             # All_Goal_obs_list.append(phi_g)
                         
-            if Pepr_viz:
-                path = wandb.run.dir
-                PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=self.max_path_length, tag='train')                
-                print('Repr_Space_traj saved')
+            # if Pepr_viz:
+            #     path = wandb.run.dir
+            #     PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=self.max_path_length, tag='train')                
+            #     print('Repr_Space_traj saved')
             
         return trajectories
 
