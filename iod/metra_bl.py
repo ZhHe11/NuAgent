@@ -135,34 +135,34 @@ class METRA(IOD):
         if self.discrete:
             extras = self._generate_option_extras(np.eye(self.dim_option)[np.random.randint(0, self.dim_option, runner._train_args.batch_size)])
             
-            # explore type
-            explore_type = 'baseline'
-            if explore_type == 'table' and self.epoch_data is not None:
-                import random
-                import torch.nn.functional as F
+            # # explore type
+            # explore_type = 'baseline'
+            # if explore_type == 'table' and self.epoch_data is not None:
+            #     import random
+            #     import torch.nn.functional as F
 
-                std = 0.1
-                alpha = 0.1
-                if self.last_w is None:
-                    self.Support_tensor = torch.eye(self.dim_option).to(self.device)
-                    Weight_important = torch.ones(self.dim_option).to(self.device) / self.dim_option
-                    self.last_TS = torch.zeros(self.dim_option).to(self.device)
+            #     std = 0.1
+            #     alpha = 0.1
+            #     if self.last_w is None:
+            #         self.Support_tensor = torch.eye(self.dim_option).to(self.device)
+            #         Weight_important = torch.ones(self.dim_option).to(self.device) / self.dim_option
+            #         self.last_TS = torch.zeros(self.dim_option).to(self.device)
                 
-                v = self.epoch_data
-                TS, TS_mean = self.get_TS(s=v['obs'], s_next=v['next_obs'], Support=self.Support_tensor, is_norm=False)
-                Weight_important = torch.clip(F.softmax(TS - self.last_TS, dim=-1), min= 1/(2*self.dim_option))
-                Weight_important = Weight_important / Weight_important.sum()
+            #     v = self.epoch_data
+            #     TS, TS_mean = self.get_TS(s=v['obs'], s_next=v['next_obs'], Support=self.Support_tensor, is_norm=False)
+            #     Weight_important = torch.clip(F.softmax(TS - self.last_TS, dim=-1), min= 1/(2*self.dim_option))
+            #     Weight_important = Weight_important / Weight_important.sum()
                 
-                w = Weight_important.cpu().numpy()
-                Sample_z = random.choices(self.Support_tensor.cpu().numpy(), weights=w, k=self.num_random_trajectories)
-                Sample_z_array = np.array(Sample_z)
-                Sample_z_array = Sample_z_array + std * np.random.randn(Sample_z_array.shape[0], Sample_z_array.shape[1])
+            #     w = Weight_important.cpu().numpy()
+            #     Sample_z = random.choices(self.Support_tensor.cpu().numpy(), weights=w, k=self.num_random_trajectories)
+            #     Sample_z_array = np.array(Sample_z)
+            #     Sample_z_array = Sample_z_array + std * np.random.randn(Sample_z_array.shape[0], Sample_z_array.shape[1])
 
-                Sample_z_array = Sample_z_array / np.linalg.norm(Sample_z_array, axis=-1, keepdims=True)
-                extras = self._generate_option_extras(Sample_z_array)
-                print('Weight_important:', w)
+            #     Sample_z_array = Sample_z_array / np.linalg.norm(Sample_z_array, axis=-1, keepdims=True)
+            #     extras = self._generate_option_extras(Sample_z_array)
+            #     print('Weight_important:', w)
             
-                self.last_TS = self.last_TS + alpha * (TS - self.last_TS)
+            #     self.last_TS = self.last_TS + alpha * (TS - self.last_TS)
             
         else:
             random_options = np.random.randn(runner._train_args.batch_size, self.dim_option)

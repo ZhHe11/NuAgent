@@ -163,82 +163,6 @@ class CAUSER(IOD):
     
     def _get_concat_obs(self, obs, option):
         return get_torch_concat_obs(obs, option)
-
-    def _clip_phi_g(self, goal, lower_value=-300, upper_value=300):
-        epsilon = 1e-6
-        dim = goal.shape[-1]
-        lower = lower_value * torch.ones(dim).to(self.device) + epsilon
-        upper = upper_value * torch.ones(dim).to(self.device) + epsilon
-
-        clip_up = (goal > upper).float()
-        clip_down = (goal < lower).float()
-        with torch.no_grad():
-            clip = ((upper - goal) * clip_up + (lower - goal) * clip_down)
-
-        return goal + clip
-
-    @torch.no_grad()
-    def get_return(self, traj, g=None, phi_g=None):
-        if phi_g == None:
-            phi_g = self.target_traj_encoder(g)
-        R = 0
-        discount = 0.99
-        s = traj[:-1]
-        s_next = traj[1:]
-        phi_s = self.target_traj_encoder(s).mean
-        phi_s_next = self.target_traj_encoder(s_next).mean
-        distance = torch.norm(phi_g - phi_s_next[-1], dim=-1)
-        distance_score =  torch.exp(1-distance)
-        R += distance_score
-        
-        return R
-    
-    @torch.no_grad()
-    def get_regret(self, s, a, s_next, a_next, g=None, phi_g=None, is_norm=True):
-        '''
-        s = [batch, seq, dim]
-        a = [batch, seq, dim]
-        batch_regret = [batch]
-        '''
-        batch_regret = []
-        for i in range(s.shape[0]):
-            discount = 0.99
-            epoch_traj_s = s[i]
-            epoch_traj_a = a[i]
-            epoch_traj_s_next = s_next[i]
-            epoch_traj_a_next = a_next[i]
-            
-            phi_s = self.target_traj_encoder(epoch_traj_s).mean
-            phi_s_next = self.target_traj_encoder(epoch_traj_s_next).mean
-            
-            option = self.vec_norm(phi_g[i] - phi_s)
-            next_option = self.vec_norm(phi_g[i] - phi_s_next)
-            
-            processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(epoch_traj_s), option.float())
-            next_processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(epoch_traj_s_next), next_option.float())
-            
-            q = torch.min(
-                self.qf1(processed_cat_obs, epoch_traj_a).flatten(),
-                self.qf2(processed_cat_obs, epoch_traj_a).flatten(),
-            )
-            q_next = torch.min(
-                self.qf1(next_processed_cat_obs, epoch_traj_a_next).flatten(),
-                self.qf2(next_processed_cat_obs, epoch_traj_a_next).flatten(),
-            )
-            
-            r = (self.vec_norm(phi_s_next - phi_s) * self.vec_norm(phi_g[i] - phi_s)).sum(dim=-1)
-        
-            regret = torch.abs(r + discount * q_next - q).sum()
-            batch_regret.append(regret)
-        
-        batch_regret = torch.tensor(batch_regret).to(self.device)
-        batch_regret_mean = batch_regret.mean() / self.max_path_length
-        if is_norm:
-            batch_regret = (batch_regret - batch_regret.mean()) / (batch_regret.std() + 1e-8)
-        
-        return batch_regret, batch_regret_mean
-    
-    
     
     @torch.no_grad()
     def get_TS(self, s, s_next, Support, is_norm=True):
@@ -262,9 +186,6 @@ class CAUSER(IOD):
                     
         return TS, TS_mean
 
-    
-    
-    
     @torch.no_grad()
     def get_R(self, phi_s_f, phi_g, sample_batch):
         train_max_count = 20
@@ -306,12 +227,6 @@ class CAUSER(IOD):
                 self.Network_R[i] = torch.zeros_like(self.Network_R[i])
                 
         return Network_Update, Sample_Update, R
-
-    def AsymmetricLoss(self, value, alpha_pos=1, alpha_neg=-0.1):
-        mask = torch.where(value>0, 1, 0)
-        loss = alpha_pos * mask * value + alpha_neg * (1-mask) * value
-        return loss 
-
 
     '''
     For soft-update
@@ -744,9 +659,9 @@ class CAUSER(IOD):
     Train Process;
     '''
     def _train_once_inner(self, path_data):
-        self._update_replay_buffer(path_data)           # 这里需要修改，因为我要把subgoal加入进去；
-        epoch_data = self._flatten_data(path_data)      # 本质上是，把array和list转化为tensor
-        tensors = self._train_components(epoch_data)    # 训练模型，tensor是info;
+        self._update_replay_buffer(path_data)   
+        epoch_data = self._flatten_data(path_data) 
+        tensors = self._train_components(epoch_data) 
         return tensors
     
     '''
@@ -754,8 +669,6 @@ class CAUSER(IOD):
     '''
     def _train_components(self, epoch_data):
         if self.replay_buffer is not None and self.replay_buffer.n_transitions_stored < self.min_buffer_size:
-            return {}
-        if self.UpdateSGN and self.cold_start == 0:
             return {}
         
         for i in range(self._trans_optimization_epochs):
@@ -790,7 +703,7 @@ class CAUSER(IOD):
         if self.method['phi'] == 'baseline':
             self.update_target_traj(theta=1)
         else:
-            self.update_target_traj(theta=2e-5)
+            self.update_target_traj(theta=1e-3)
 
         if self.dual_reg:
             self._update_loss_dual_lam(tensors, internal_vars)
@@ -850,10 +763,10 @@ class CAUSER(IOD):
         cur_z = self.traj_encoder(obs).mean
         next_z = self.traj_encoder(next_obs).mean               # 试试不detach
 
-        if self.method['phi'] in ['soft_update', 'her_reward', 'contrastive']:   
+        if self.method['policy_type'] in ['discrete']:   
             sub_goal = v['sub_goal']
             option = v['options']
-            option_s_s_next = self.vec_norm(next_z - cur_z)
+            option_s_s_next = next_z - cur_z
             
             # 以下使用的是target_traj_encoder；
             # 最终方向和采样方向加权；
@@ -867,6 +780,10 @@ class CAUSER(IOD):
             next_index = torch.argmax((self.vec_norm(goal_z - target_next_z) * self.Support_tensor).sum(dim=1)).detach().cpu().numpy()
             next_option_goal = self.Support_tensor[next_index]
             
+            # 计算reward；
+            masks = (option_goal - option_goal.mean(dim=1, keepdim=True)) * self.dim_option / (self.dim_option - 1 if self.dim_option != 1 else 1)
+            rewards = (option_s_s_next * masks).sum(dim=1)
+            
             ###########################################
             v.update({
                 'cur_z': cur_z,
@@ -876,6 +793,7 @@ class CAUSER(IOD):
                 'option_goal': option_goal,             # 是phi_sub_g - phi_s / norm()
                 'option_s_s_next': option_s_s_next,     # 是phi_s_next - phi_s
                 'next_option_goal': next_option_goal,   # 为了输入next_option
+                'rewards': rewards,
             })
             ###########################################
             
@@ -889,27 +807,23 @@ class CAUSER(IOD):
                 'option_s_s_next': option_s_s_next,
             })
 
-        # 如果z是one-hot形式：
-        if self.discrete == 1:
-            masks = (v['options'] - v['options'].mean(dim=1, keepdim=True)) * self.dim_option / (self.dim_option - 1 if self.dim_option != 1 else 1)
-            rewards = (option_s_s_next * masks).sum(dim=1)
-        else:
-            inner = (option_s_s_next * option).sum(dim=1)
-            rewards = inner
-        tensors.update({
-            'PureRewardMean': rewards.mean(),           # baseline reward;
-            'PureRewardStd': rewards.std(),             # baseline reward;
-        })
-        v['rewards'] = rewards                          # 是baseline的reward; 具体用到的reward之后再根据self.method计算；
+            # 如果z是one-hot形式：
+            if self.discrete == 1:
+                masks = (v['options'] - v['options'].mean(dim=1, keepdim=True)) * self.dim_option / (self.dim_option - 1 if self.dim_option != 1 else 1)
+                rewards = (option_s_s_next * masks).sum(dim=1)
+            else:
+                inner = (option_s_s_next * option).sum(dim=1)
+                rewards = inner
+            tensors.update({
+                'PureRewardMean': rewards.mean(),           # baseline reward;
+                'PureRewardStd': rewards.std(),             # baseline reward;
+            })
+            v['rewards'] = rewards                          # 是baseline的reward; 具体用到的reward之后再根据self.method计算；
 
     
     '''
     【1.1】计算phi函数的loss
-    '''
-    
-    def compute_loss(self):
-        raise NotImplementedError
-   
+    '''   
     def _update_loss_te(self, tensors, v): 
         self._update_rewards(tensors, v)      
         rewards = v['rewards']
@@ -1057,7 +971,12 @@ class CAUSER(IOD):
                 'diff_option_g_option_sample': torch.norm((v['option_goal'] - v['options']), p=2, dim=-1).mean(),
             })
         
-        else: # basline
+        elif self.method["policy"] in ['discrete']:
+            option = v['option_goal']
+            next_option = v['next_option_goal']
+            policy_rewards = v['rewards'] * self._reward_scale_factor
+        
+        elif self.method["policy"] in ["baseline"]:
             option = v['options']
             next_option = v['next_options']
             policy_rewards = v['rewards'] * self._reward_scale_factor
@@ -1065,9 +984,11 @@ class CAUSER(IOD):
                 'policy_rewards': policy_rewards.mean(),
             })
             
+        else:
+            raise NotImplementedError
+            
         processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), option.float())
         next_processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['next_obs']), next_option.float())
-        
         
         sac_utils.update_loss_qf(
             self, tensors, v,
@@ -1094,7 +1015,7 @@ class CAUSER(IOD):
     【2.2】计算policy的loss；
     '''
     def _update_loss_op(self, tensors, v):
-        if self.method['policy'] == "her_reward":
+        if self.method['policy'] in ["discrete"]:
             option = v['option_goal'].detach()
         else:
             option = v['options'].detach()
