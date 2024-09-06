@@ -46,7 +46,7 @@ from garagei.torch.policies.policy_ex import PolicyEx
 from garagei.torch.q_functions.continuous_mlp_q_function_ex import ContinuousMLPQFunctionEx
 from garagei.torch.optimizers.optimizer_group_wrapper import OptimizerGroupWrapper
 from garagei.torch.utils import xavier_normal_ex
-from iod.metra import METRA
+from iod.metra_bl import METRA
 from iod.causer import CAUSER
 from iod.dads import DADS
 from iod.utils import get_normalizer_preset
@@ -142,10 +142,10 @@ def get_argparser():
     parser.add_argument('--dual_lr', type=float, default=None)
     
     # method type    
-    parser.add_argument('--phi_type', type=str, default=None)
-    parser.add_argument('--policy_type', type=str, default=None)
-    parser.add_argument('--explore_type', type=str, default=None)
-    parser.add_argument('--sample_type', type=str, default=None)
+    parser.add_argument('--phi_type', type=str, default='baseline')
+    parser.add_argument('--policy_type', type=str, default='baseline')
+    parser.add_argument('--explore_type', type=str, default='baseline')
+    parser.add_argument('--sample_type', type=str, default='baseline')
     parser.add_argument('--num_her', type=int, default=0)
     
     parser.add_argument('--is_wandb', type=int, default=0)

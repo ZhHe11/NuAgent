@@ -57,9 +57,9 @@ class METRA(IOD):
             
             init_obs=None,
             
-            phi_type=None,
-            policy_type=None,
-            explore_type=None,
+            phi_type="baseline",
+            policy_type="baseline",
+            explore_type="baseline",
             
             goal_sample_network=None,
             space_predictor=None,

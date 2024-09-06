@@ -149,6 +149,7 @@ class CAUSER(IOD):
         
         self.last_w = None
         self.Support_tensor = None
+        self.Support_tensor = torch.eye(self.dim_option).to(self.device)
         
         
     @property
@@ -383,21 +384,18 @@ class CAUSER(IOD):
                 alpha = 0.1
                 if self.last_w is None:
                     self.Support_tensor = torch.eye(self.dim_option).to(self.device)
+                    Contrast_Support_tensor = self.Support_tensor - self.Support_tensor.mean(dim=1, keepdim=True) / (self.dim_option - 1 if self.dim_option != 1 else 1)
                     Weight_important = torch.ones(self.dim_option).to(self.device) / self.dim_option
                     self.last_TS = torch.zeros(self.dim_option).to(self.device)
-                    
 
-                TS, TS_mean = self.get_TS(s=self.epoch_final['obs'][:-1], s_next=self.epoch_final['obs'][1:], Support=self.Support_tensor, is_norm=False)
-                Weight_important = torch.clip(F.softmax(TS - self.last_TS), min= 1 / (2*self.dim_option))
+                TS, TS_mean = self.get_TS(s=self.epoch_final['obs'][:-1], s_next=self.epoch_final['obs'][1:], Support=Contrast_Support_tensor, is_norm=False)
+                Weight_important = torch.clip(F.softmax(TS - self.last_TS, dim=-1), min= 1 / (2*self.dim_option))
                 Weight_important = Weight_important / Weight_important.sum()
                 
                 w = Weight_important.cpu().numpy()
                 Sample_z = random.choices(self.Support_tensor.cpu().numpy(), weights=w, k=self.num_random_trajectories)
                 Sample_z_array = np.array(Sample_z)
                 Sample_z_array = Sample_z_array + std * np.random.randn(Sample_z_array.shape[0], Sample_z_array.shape[1])
-                # for i in range(Sample_z_array.shape[0]):
-                #     Sample_z_array[i] = Sample_z_array[i] + ((w + np.random.rand(self.dim_option)) * self.Support_tensor).sum(dim=0)
-                
                 Sample_z_array = Sample_z_array / np.linalg.norm(Sample_z_array, axis=-1, keepdims=True)
                 extras = self._generate_option_extras(Sample_z_array)
                 
@@ -708,7 +706,6 @@ class CAUSER(IOD):
                             self.sample_wait_count = 0 
                     else:
                         # 选择更小的acc进行采样
-                        # probabilities = self.acc / self.acc.sum(dim=-1, keepdim=True)
                         probabilities = torch.zeros(dim_support).to(self.device)
                         for j in range(times_sample):
                             probabilities += self.acc[j*dim_support : (j+1)*dim_support]
@@ -724,8 +721,6 @@ class CAUSER(IOD):
                         np_phi_g = self.last_phi_g.detach().cpu().numpy()
                         extras = self._generate_option_extras(random_options, phi_sub_goal=np_phi_g)  
                     
-                    # print('acc', self.acc, 'acc_buffer', self.acc_buffer)
-                    # print('self.phi_g', self.last_phi_g)
                     
                 else:
                     extras = self._generate_option_extras(random_options)
@@ -749,53 +744,36 @@ class CAUSER(IOD):
     Train Process;
     '''
     def _train_once_inner(self, path_data):
-        import time
-        start = time.time()
         self._update_replay_buffer(path_data)           # 这里需要修改，因为我要把subgoal加入进去；
-        time1 = time.time()
-        # print('[1]update replay buffer time', time1 - start)    # 0.9s
         epoch_data = self._flatten_data(path_data)      # 本质上是，把array和list转化为tensor
         tensors = self._train_components(epoch_data)    # 训练模型，tensor是info;
-        # print('[1]_flatten_data and _train_components', time.time() - time1)
         return tensors
     
     '''
     Main Function;
     '''
     def _train_components(self, epoch_data):
-        import time
-        start_time = time.time()        
         if self.replay_buffer is not None and self.replay_buffer.n_transitions_stored < self.min_buffer_size:
             return {}
         if self.UpdateSGN and self.cold_start == 0:
             return {}
         
         for i in range(self._trans_optimization_epochs):
-            time1 = time.time()
             for j in range(self._trans_phi_optimization_epochs):
-                time1 = time.time()
                 tensors = {}
                 if self.replay_buffer is None:              
                     v = self._get_mini_tensors(epoch_data)
                 else:
                     v = self._sample_replay_buffer()
-                # print('[2]_sample_replay_buffer', time.time() - time1)     # 0.4s
-                time2 = time.time()
                 self._optimize_te(tensors, v)
-                # print('[2]_optimize_te', time.time() - time2)              # 0.1s
-            time2 = time.time()
             for j in range(self._trans_phi_optimization_epochs):
-                time1 = time.time()
                 if self.replay_buffer is None:              
                     v = self._get_mini_tensors(epoch_data)
                 else:
                     v = self._sample_replay_buffer()
-                # print('[3]_sample_replay_buffer', time.time() - time1)     # 0.4s
                 with torch.no_grad():
                     self._update_rewards(tensors, v)
-                time2 = time.time()  
                 self._optimize_op(tensors, v)
-                # print('[3]_optimize_op', time.time() - time2)              # 0.1s
             
         return tensors
 
@@ -875,20 +853,20 @@ class CAUSER(IOD):
         if self.method['phi'] in ['soft_update', 'her_reward', 'contrastive']:   
             sub_goal = v['sub_goal']
             option = v['options']
-            # 最终方向和采样方向加权；
-            # goal_z = 0.5 * (self.target_traj_encoder(sub_goal).mean.detach() + v['phi_sub_goal'])
-            goal_z = self.target_traj_encoder(sub_goal).mean.detach()
-            # goal_z = v['phi_sub_goal']
-            # final_goal_z = v['phi_sub_goal']
+            option_s_s_next = self.vec_norm(next_z - cur_z)
             
+            # 以下使用的是target_traj_encoder；
+            # 最终方向和采样方向加权；
+            goal_z = self.target_traj_encoder(sub_goal).mean.detach()
             target_cur_z = self.target_traj_encoder(obs).mean.detach()
             target_next_z = self.target_traj_encoder(next_obs).mean.detach()
-            option_goal = (self.vec_norm(goal_z - target_cur_z) + option) / 2
-            next_option_goal = (self.vec_norm(goal_z - target_next_z) + option) / 2
             
-            # option_final_goal = self.vec_norm(final_goal_z - target_cur_z)
+            # 离散化：
+            index = torch.argmax((self.vec_norm(goal_z - target_cur_z) * self.Support_tensor).sum(dim=1)).detach().cpu().numpy()
+            option_goal = self.Support_tensor[index]
+            next_index = torch.argmax((self.vec_norm(goal_z - target_next_z) * self.Support_tensor).sum(dim=1)).detach().cpu().numpy()
+            next_option_goal = self.Support_tensor[next_index]
             
-            option_s_s_next = next_z - cur_z
             ###########################################
             v.update({
                 'cur_z': cur_z,
@@ -898,8 +876,6 @@ class CAUSER(IOD):
                 'option_goal': option_goal,             # 是phi_sub_g - phi_s / norm()
                 'option_s_s_next': option_s_s_next,     # 是phi_s_next - phi_s
                 'next_option_goal': next_option_goal,   # 为了输入next_option
-                # 'final_goal_z': final_goal_z,
-                # 'option_final_goal': option_final_goal,           # 采样traj.的目标goal。为了标定；
             })
             ###########################################
             
@@ -947,10 +923,10 @@ class CAUSER(IOD):
             # option_goal = v['option_goal']
             # w = 0.99 ** v['final_goal_distance']
             # s s_next
-            vec_phi_s_s_next = phi_s_next - phi_s
+            vec_phi_s_s_next = self.vec_norm(phi_s_next - phi_s)
             # s s_pos
             vec_phi_pos = self.target_traj_encoder(v['pos_sample']).mean
-            target_phi_s = self.target_traj_encoder(obs).mean + v['options']
+            target_phi_s = self.target_traj_encoder(obs).mean
             matrix_s_sp = vec_phi_pos.unsqueeze(0) - target_phi_s.unsqueeze(1)
             # (s s_next) * (s s_pos / ||s s_pos||_2)
             matrix_s_sp_norm = matrix_s_sp / (torch.norm(matrix_s_sp, p=2, dim=-1, keepdim=True) + 1e-8)
