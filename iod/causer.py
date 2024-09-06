@@ -31,6 +31,7 @@ import torch.nn.functional as F
 
 from torch.distributions import Normal
 
+import random
 
 class CAUSER(IOD):
     def __init__(
@@ -146,6 +147,10 @@ class CAUSER(IOD):
         self.space_predictor_optim = None
         self._trans_phi_optimization_epochs = _trans_phi_optimization_epochs
         
+        self.last_w = None
+        self.Support_tensor = None
+        
+        
     @property
     def policy(self):
         return {
@@ -231,6 +236,32 @@ class CAUSER(IOD):
             batch_regret = (batch_regret - batch_regret.mean()) / (batch_regret.std() + 1e-8)
         
         return batch_regret, batch_regret_mean
+    
+    
+    
+    @torch.no_grad()
+    def get_TS(self, s, s_next, Support, is_norm=True):
+        '''
+        s = [batch, seq, dim]
+        a = [batch, seq, dim]
+        batch_regret = [batch]
+        '''
+        s = s.reshape(s.shape[0]*s.shape[1], s.shape[-1])   # [batch*seq, dim]
+        s_next = s_next.reshape(s_next.shape[0]*s_next.shape[1], s_next.shape[-1])  # [batch*seq, dim]
+        
+        phi_s = self.target_traj_encoder(s).mean
+        phi_s_next = self.target_traj_encoder(s_next).mean
+        
+        TS = torch.zeros(self.dim_option).to(self.device)
+        for i in range(self.dim_option):
+            TS[i] = (self.vec_norm(phi_s_next - phi_s) * Support[i].unsqueeze(0)).sum(dim=-1).mean()    # [batch*seq, 1]
+        TS_mean = TS.mean()
+        if is_norm:
+            TS = (TS - TS.mean()) / (TS.std() + 1e-8)
+                    
+        return TS, TS_mean
+
+    
     
     
     @torch.no_grad()
@@ -341,17 +372,44 @@ class CAUSER(IOD):
             # print('[3]data[key]', time2 - time1, key)
         # print('[3]from_numpy ', time.time() - time1)
         return data
-    
-    
 
-    
     '''
     【0】 计算online时的option；
     '''
     def _get_train_trajectories_kwargs(self, runner):
         if self.discrete == 1:
-            extras = self._generate_option_extras(np.eye(self.dim_option)[np.random.randint(0, self.dim_option, runner._train_args.batch_size)])
-        
+            if self.method['explore'] == 'table' and self.epoch_final is not None:
+                std = 0.1
+                alpha = 0.1
+                if self.last_w is None:
+                    self.Support_tensor = torch.eye(self.dim_option).to(self.device)
+                    Weight_important = torch.ones(self.dim_option).to(self.device) / self.dim_option
+                    self.last_TS = torch.zeros(self.dim_option).to(self.device)
+                    
+
+                TS, TS_mean = self.get_TS(s=self.epoch_final['obs'][:-1], s_next=self.epoch_final['obs'][1:], Support=self.Support_tensor, is_norm=False)
+                Weight_important = torch.clip(F.softmax(TS - self.last_TS), min= 1 / (2*self.dim_option))
+                Weight_important = Weight_important / Weight_important.sum()
+                
+                w = Weight_important.cpu().numpy()
+                Sample_z = random.choices(self.Support_tensor.cpu().numpy(), weights=w, k=self.num_random_trajectories)
+                Sample_z_array = np.array(Sample_z)
+                Sample_z_array = Sample_z_array + std * np.random.randn(Sample_z_array.shape[0], Sample_z_array.shape[1])
+                # for i in range(Sample_z_array.shape[0]):
+                #     Sample_z_array[i] = Sample_z_array[i] + ((w + np.random.rand(self.dim_option)) * self.Support_tensor).sum(dim=0)
+                
+                Sample_z_array = Sample_z_array / np.linalg.norm(Sample_z_array, axis=-1, keepdims=True)
+                extras = self._generate_option_extras(Sample_z_array)
+                
+                self.last_TS = self.last_TS + alpha * (TS - self.last_TS)
+                if wandb.run is not None:
+                    wandb.log({
+                                "table/TS_mean": TS_mean,
+                                }) 
+            
+            else:
+                extras = self._generate_option_extras(np.eye(self.dim_option)[np.random.randint(0, self.dim_option, runner._train_args.batch_size)])
+
         else:
             random_options = np.random.randn(runner._train_args.batch_size, self.dim_option)
             if self.unit_length:
@@ -678,8 +736,7 @@ class CAUSER(IOD):
                 self.last_phi_g = phi_s_0 + 50 * self.vec_norm(direction)
                 np_phi_g = self.last_phi_g.detach().cpu().numpy()
                 extras = self._generate_option_extras(random_options, phi_sub_goal=np_phi_g) 
-                
-            
+                 
             elif self.method['explore'] == "baseline": 
                 extras = self._generate_option_extras(random_options)      # 变成字典的形式；
             
@@ -826,8 +883,8 @@ class CAUSER(IOD):
             
             target_cur_z = self.target_traj_encoder(obs).mean.detach()
             target_next_z = self.target_traj_encoder(next_obs).mean.detach()
-            option_goal = self.vec_norm(goal_z - target_cur_z)
-            next_option_goal = self.vec_norm(goal_z - target_next_z)
+            option_goal = (self.vec_norm(goal_z - target_cur_z) + option) / 2
+            next_option_goal = (self.vec_norm(goal_z - target_next_z) + option) / 2
             
             # option_final_goal = self.vec_norm(final_goal_z - target_cur_z)
             
@@ -887,13 +944,13 @@ class CAUSER(IOD):
         option_s_s_next = v['option_s_s_next']
         
         if self.method["phi"] in ['contrastive']:
-            option_goal = v['option_goal']
-            w = 0.99 ** v['final_goal_distance']
+            # option_goal = v['option_goal']
+            # w = 0.99 ** v['final_goal_distance']
             # s s_next
             vec_phi_s_s_next = phi_s_next - phi_s
             # s s_pos
-            vec_phi_pos = self.target_traj_encoder(v['pos_sample']).mean + v['options']
-            target_phi_s = self.target_traj_encoder(obs).mean
+            vec_phi_pos = self.target_traj_encoder(v['pos_sample']).mean
+            target_phi_s = self.target_traj_encoder(obs).mean + v['options']
             matrix_s_sp = vec_phi_pos.unsqueeze(0) - target_phi_s.unsqueeze(1)
             # (s s_next) * (s s_pos / ||s s_pos||_2)
             matrix_s_sp_norm = matrix_s_sp / (torch.norm(matrix_s_sp, p=2, dim=-1, keepdim=True) + 1e-8)
@@ -967,8 +1024,6 @@ class CAUSER(IOD):
             cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)             # 限制最大值；trick，如果惩罚项太大，会导致优化困难；不要太小；
             
             if self.method["phi"] in ['contrastive']:
-                len = torch.square(phi_s_next - phi_s).mean(dim=1) 
-                len_encourage = torch.clamp(len, max=0.1)    
                 te_obj = rewards + dual_lam.detach() * cst_penalty
             else:
                 te_obj = rewards + dual_lam.detach() * cst_penalty                      # 这是最终的loss： reward + 惩罚项；
@@ -1009,9 +1064,7 @@ class CAUSER(IOD):
         if self.method["policy"] in ['her_reward']:
             option = v['option_goal']
             next_option = v['next_option_goal']
-            
-            # arr_reward = torch.where((torch.norm(v['obs'] - v['sub_goal'], p=2, dim=-1, keepdim=True) + 1e-8)< 1e-5, 1, 0).squeeze(-1)
-                
+                            
             # 对应的reward
             assert v['option_s_s_next'].shape == option.shape, (v['option_s_s_next'].shape, option.shape)
             # goal_reward = ((v['option_s_s_next']) * option).sum(dim=1) 
@@ -1097,22 +1150,23 @@ class CAUSER(IOD):
             self.eval_maze(runner)
         
         elif env_name == 'kitchen':
-            self.eval_kitchen(runner)
+            # self.eval_kitchen(runner)
+            self.eval_kitchen_metra(runner)
               
     def eval_kitchen(self, runner):
         import imageio
         # 初始化
         env = runner._env
-        
+        num_task = 6
+        filepath = wandb.run.dir
+        PhiPlot = True
+        Given_g = False
         # 加载goal
-        metric_success_task_relevant = {}
-        metric_success_all_objects = {}
+        all_success = np.zeros(num_task)
         all_goal_obs = []
-        for i in range(6):
+        for i in range(num_task):
             goal_obs = env.render_goal(i)
             all_goal_obs.append(goal_obs)
-            metric_success_task_relevant[i] = 0
-            metric_success_all_objects[i] = 0
         all_goal_obs_tensor = torch.tensor(all_goal_obs, dtype=torch.float)
 
         for i in range(all_goal_obs_tensor.shape[0]):
@@ -1121,7 +1175,10 @@ class CAUSER(IOD):
             obs_tensor = torch.tensor(obs, dtype=torch.float).unsqueeze(0).to('cuda')
             goal_tensor = torch.tile(all_goal_obs_tensor[i].reshape(-1), (3,1)).reshape(-1).unsqueeze(0).to('cuda')
             phi_g = self.target_traj_encoder(goal_tensor).mean
-            
+            if PhiPlot: 
+                Traj = []
+                if Given_g:
+                    Traj.append(phi_g)
             for t in trange(self.max_path_length):
                 # policy
                 phi_s = self.target_traj_encoder(obs_tensor).mean
@@ -1138,23 +1195,22 @@ class CAUSER(IOD):
                 # for viz
                 obs_img = info['image']
                 frames.append(obs_img)
-                # for metrics
-                k = 'metric_success_task_relevant/goal_'+str(i)
-                metric_success_all_objects[i] = max(metric_success_all_objects[i], info[k])
-                k = 'metric_success_all_objects/goal_'+str(i)   
-                metric_success_all_objects[i] = max(metric_success_all_objects[i], info[k])
-            
-            filepath = wandb.run.dir
+                if PhiPlot:
+                    Traj.append(phi_s)
+                
+                
+            # metrics:
+            success = np.zeros(num_task)
+            for id_task in range(num_task):
+                success[id_task] = env.compute_success(id_task)[0]
+            # save traj. as gif:
             gif_name = filepath + str(i) + '.gif'
             imageio.mimsave(gif_name, frames, 'GIF', duration=1)
             print('saved', gif_name)
             
-        # print('metric_success_task_relevant:', metric_success_task_relevant)
-        # print('metric_success_all_objects:', metric_success_all_objects)
         if wandb.run is not None:
             wandb.log({
-                'metric_success_task_relevant': sum(metric_success_task_relevant.values()) / len(metric_success_task_relevant),
-                'metric_success_all_objects': sum(metric_success_all_objects.values()) / len(metric_success_all_objects),
+                'success': success.mean(),
                 'epoch': runner.step_itr,
             })
     
@@ -1315,5 +1371,26 @@ class CAUSER(IOD):
             'goal_sample_network': self.goal_sample_network,
         }, file_name)
 
+    def eval_kitchen_metra(self, runner):
+        random_options = np.eye(self.dim_option)
+        random_trajectories = self._get_trajectories(
+            runner,
+            sampler_key='option_policy',
+            extras=self._generate_option_extras(random_options),
+            worker_update=dict(
+                _render=True,
+                _deterministic_policy=True,
+            ),
+            env_update=dict(_action_noise_std=None),
+        )
+        eval_option_metrics = {}
+        eval_option_metrics.update(runner._env.calc_eval_metrics(random_trajectories, is_option_trajectories=True))
+        
+        record_video(runner, 'Video_RandomZ', random_trajectories, skip_frames=self.video_skip_frames)
+        
+        if wandb.run is not None:
+            eval_option_metrics.update({'epoch': runner.step_itr})
+            wandb.log(eval_option_metrics)
+        
         
         

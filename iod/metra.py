@@ -1081,7 +1081,8 @@ class METRA(IOD):
             self.eval_maze(runner)
         
         elif env_name == 'kitchen':
-            self.eval_kitchen(runner)
+            # self.eval_kitchen(runner)
+            self.eval_kitchen_metra(runner)
             
             
     def eval_kitchen(self, runner):
@@ -1301,5 +1302,24 @@ class METRA(IOD):
             'goal_sample_network': self.goal_sample_network,
         }, file_name)
 
+    def eval_kitchen_metra(self, runner):
+        random_options = np.eye(self.dim_option)
+        random_trajectories = self._get_trajectories(
+            runner,
+            sampler_key='option_policy',
+            extras=self._generate_option_extras(random_options),
+            worker_update=dict(
+                _render=True,
+                _deterministic_policy=True,
+            ),
+            env_update=dict(_action_noise_std=None),
+        )
+        eval_option_metrics = {}
+        eval_option_metrics.update(runner._env.calc_eval_metrics(random_trajectories, is_option_trajectories=True))
         
+        record_video(runner, 'Video_RandomZ', random_trajectories, skip_frames=self.video_skip_frames)
+        
+        if wandb.run is not None:
+            eval_option_metrics.update({'epoch': runner.step_itr})
+            wandb.log(eval_option_metrics)
         

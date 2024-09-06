@@ -72,6 +72,8 @@ else:
         support_options = torch.tensor(directions).to(device)
     eval_times = support_options.shape[0]
 
+Traj_info = []
+
 # interact with env
 for i in trange(eval_times):
     # 初始化
