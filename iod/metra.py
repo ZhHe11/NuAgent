@@ -683,7 +683,7 @@ class METRA(IOD):
                     
                 else:
                     extras = self._generate_option_extras(random_options)
-                
+            
             elif self.method['explore'] == "baseline": 
                 extras = self._generate_option_extras(random_options)      # 变成字典的形式；
             
