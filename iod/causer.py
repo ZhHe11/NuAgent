@@ -65,6 +65,8 @@ class CAUSER(IOD):
             goal_sample_network=None,
             space_predictor=None,
             _trans_phi_optimization_epochs=1,
+            
+            target_theta = 1,
 
             **kwargs,
     ):
@@ -150,6 +152,7 @@ class CAUSER(IOD):
         self.last_w = None
         self.Support_tensor = None
         self.Support_tensor = torch.eye(self.dim_option).to(self.device)
+        self.target_theta = target_theta    
         
         
     @property
@@ -295,8 +298,8 @@ class CAUSER(IOD):
     def _get_train_trajectories_kwargs(self, runner):
         if self.discrete == 1:
             if self.method['explore'] == 'table' and self.epoch_final is not None:
-                std = 0.1
-                alpha = 0.1
+                std = 0.3
+                alpha = 0.3
                 if self.last_w is None:
                     self.Support_tensor = torch.eye(self.dim_option).to(self.device)
                     Contrast_Support_tensor = self.Support_tensor - self.Support_tensor.mean(dim=1, keepdim=True) / (self.dim_option - 1 if self.dim_option != 1 else 1)
@@ -304,12 +307,12 @@ class CAUSER(IOD):
                     self.last_TS = torch.zeros(self.dim_option).to(self.device)
 
                 TS, TS_mean = self.get_TS(s=self.epoch_final['obs'][:-1], s_next=self.epoch_final['obs'][1:], Support=Contrast_Support_tensor, is_norm=False)
-                Weight_important = torch.clip(F.softmax(TS - self.last_TS, dim=-1), min= 1 / (2*self.dim_option))
+                Weight_important = torch.clip(F.softmax(TS - self.last_TS, dim=-1), min= 1 / (8*self.dim_option))
                 Weight_important = Weight_important / Weight_important.sum()
                 
-                w = Weight_important.cpu().numpy()
+                w = Weight_important.cpu().numpy()      # [dim_option]
                 Sample_z = random.choices(self.Support_tensor.cpu().numpy(), weights=w, k=self.num_random_trajectories)
-                Sample_z_array = np.array(Sample_z)
+                Sample_z_array = np.array(Sample_z)     # [sample_batch, dim_option]
                 Sample_z_array = Sample_z_array + std * np.random.randn(Sample_z_array.shape[0], Sample_z_array.shape[1])
                 Sample_z_array = Sample_z_array / np.linalg.norm(Sample_z_array, axis=-1, keepdims=True)
                 extras = self._generate_option_extras(Sample_z_array)
@@ -700,10 +703,8 @@ class CAUSER(IOD):
             tensors['LossTe'],
             optimizer_keys=['traj_encoder'],
         )
-        if self.method['phi'] == 'baseline':
-            self.update_target_traj(theta=1)
-        else:
-            self.update_target_traj(theta=1e-3)
+
+        self.update_target_traj(theta=self.target_theta)
 
         if self.dual_reg:
             self._update_loss_dual_lam(tensors, internal_vars)
@@ -763,10 +764,11 @@ class CAUSER(IOD):
         cur_z = self.traj_encoder(obs).mean
         next_z = self.traj_encoder(next_obs).mean               # 试试不detach
 
-        if self.method['policy_type'] in ['discrete']:   
+        if self.method['policy'] in ['discrete']:   
             sub_goal = v['sub_goal']
             option = v['options']
-            option_s_s_next = next_z - cur_z
+            # option_s_s_next = next_z - cur_z
+            option_s_s_next = self.vec_norm(next_z - cur_z)
             
             # 以下使用的是target_traj_encoder；
             # 最终方向和采样方向加权；
@@ -775,9 +777,13 @@ class CAUSER(IOD):
             target_next_z = self.target_traj_encoder(next_obs).mean.detach()
             
             # 离散化：
-            index = torch.argmax((self.vec_norm(goal_z - target_cur_z) * self.Support_tensor).sum(dim=1)).detach().cpu().numpy()
+            # self.vec_norm(goal_z - target_cur_z) = [1024, 24]
+            # self.Support_tensor = [24, 24]
+            # torch.matmul(self.vec_norm(goal_z - target_cur_z), self.Support_tensor.T) = [1024, 24]
+            # import pdb; pdb.set_trace()
+            index = torch.argmax(torch.matmul(self.vec_norm(goal_z - target_cur_z), self.Support_tensor.T), dim=1).detach().cpu().numpy()
             option_goal = self.Support_tensor[index]
-            next_index = torch.argmax((self.vec_norm(goal_z - target_next_z) * self.Support_tensor).sum(dim=1)).detach().cpu().numpy()
+            next_index = torch.argmax(torch.matmul(self.vec_norm(goal_z - target_next_z), self.Support_tensor.T), dim=1).detach().cpu().numpy()
             next_option_goal = self.Support_tensor[next_index]
             
             # 计算reward；
@@ -837,7 +843,7 @@ class CAUSER(IOD):
             # option_goal = v['option_goal']
             # w = 0.99 ** v['final_goal_distance']
             # s s_next
-            vec_phi_s_s_next = self.vec_norm(phi_s_next - phi_s)
+            vec_phi_s_s_next = phi_s_next - phi_s
             # s s_pos
             vec_phi_pos = self.target_traj_encoder(v['pos_sample']).mean
             target_phi_s = self.target_traj_encoder(obs).mean
@@ -846,33 +852,31 @@ class CAUSER(IOD):
             matrix_s_sp_norm = matrix_s_sp / (torch.norm(matrix_s_sp, p=2, dim=-1, keepdim=True) + 1e-8)
             matrix = (vec_phi_s_s_next.unsqueeze(1) * matrix_s_sp_norm).sum(dim=-1)
             # pos loss
-            # mask_pos = torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
-            # inner_pos = torch.diag(matrix)
+            mask_pos = torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
+            inner_pos = torch.diag(matrix)
             # neg loss
             # 加一个判断，如果g-与g特别接近，就用mask掉；
-            # dist_theta = 1e-3
-            # distance_pos_neg = torch.norm(matrix_s_sp - (vec_phi_pos - target_phi_s), p=2, dim=-1)
-            # mask = torch.where( distance_pos_neg < dist_theta , 0, 1)
-            # matrix = matrix * (mask + torch.eye(matrix.shape[0]).to(self.device))         
-            # inner_neg = (matrix * (1 - mask_pos)).sum(dim=1) / (phi_s.shape[0]-1)
-            # # total loss
-            # print('inner_pos:', inner_pos.min(), inner_pos.max())
-            # print('inner_neg:', inner_neg.min(), inner_neg.max())
-            # new_reward = torch.log(1e-6 + F.sigmoid(inner_pos)) + torch.log(1 + 1e-6 - F.sigmoid(inner_neg))
+            dist_theta = 1e-3
+            distance_pos_neg = torch.norm(matrix_s_sp - (vec_phi_pos - target_phi_s), p=2, dim=-1)
+            mask = torch.where( distance_pos_neg < dist_theta , 0, 1)
+            matrix = matrix * (mask + torch.eye(matrix.shape[0]).to(self.device))         
+            inner_neg = (matrix * (1 - mask_pos)).sum(dim=1) / (phi_s.shape[0]-1)
+            new_reward = torch.log(1e-6 + F.sigmoid(inner_pos)) + torch.log(1 + 1e-6 - F.sigmoid(inner_neg))
             
             # t = torch.tensor(0.5).to(self.device)
-            t = 1
-            matrix = matrix / t
-            label = torch.arange(matrix.shape[0]).to(self.device)
+            # t = 1
+            # matrix = matrix / t
+            # label = torch.arange(matrix.shape[0]).to(self.device)
             
-            new_reward1 = - F.cross_entropy(matrix, label)
-            new_reward2 = - F.cross_entropy(matrix.T, label)
+            # new_reward1 = - F.cross_entropy(matrix, label)
+            # new_reward2 = - F.cross_entropy(matrix.T, label)
         
-            rewards = (new_reward1 + new_reward2 ) / 2
+            # rewards = (new_reward1 + new_reward2 ) / 2
+            rewards = new_reward
             tensors.update({
                 'next_z_reward': rewards.mean(),
-                'new_reward1': new_reward1.mean(),
-                'new_reward2': new_reward2.mean(),
+                # 'new_reward1': new_reward1.mean(),
+                # 'new_reward2': new_reward2.mean(),
                 # 'inner_s_s_next_pos': inner_pos.mean(),
                 # 'inner_s_s_next_neg': inner_neg.mean(),
                 # 'distance_pos_neg': distance_pos_neg.mean(),
@@ -975,6 +979,16 @@ class CAUSER(IOD):
             option = v['option_goal']
             next_option = v['next_option_goal']
             policy_rewards = v['rewards'] * self._reward_scale_factor
+        
+        elif self.method["policy"] in ["norm"]:
+            option = v['options']
+            next_option = v['next_options']
+            masks = (v['options'] - v['options'].mean(dim=1, keepdim=True)) * self.dim_option / (self.dim_option - 1 if self.dim_option != 1 else 1)
+            reward = (self.vec_norm(v['option_s_s_next']) * masks).sum(dim=1) 
+            policy_rewards = reward * self._reward_scale_factor
+            tensors.update({
+                'policy_rewards': policy_rewards.mean(),
+            })
         
         elif self.method["policy"] in ["baseline"]:
             option = v['options']

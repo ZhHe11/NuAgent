@@ -46,7 +46,7 @@ from garagei.torch.policies.policy_ex import PolicyEx
 from garagei.torch.q_functions.continuous_mlp_q_function_ex import ContinuousMLPQFunctionEx
 from garagei.torch.optimizers.optimizer_group_wrapper import OptimizerGroupWrapper
 from garagei.torch.utils import xavier_normal_ex
-from iod.metra_bl import METRA
+from iod.metra import METRA
 from iod.causer import CAUSER
 from iod.dads import DADS
 from iod.utils import get_normalizer_preset
@@ -87,7 +87,7 @@ def get_argparser():
 
     parser.add_argument('--n_epochs', type=int, default=1000000)
     parser.add_argument('--traj_batch_size', type=int, default=8)
-    parser.add_argument('--trans_minibatch_size', type=int, default=1024)
+    parser.add_argument('--trans_minibatch_size', type=int, default=256)
     parser.add_argument('--trans_optimization_epochs', type=int, default=200)
 
     parser.add_argument('--n_epochs_per_eval', type=int, default=125)
@@ -131,7 +131,7 @@ def get_argparser():
     parser.add_argument('--num_alt_samples', type=int, default=100)
     parser.add_argument('--split_group', type=int, default=65536)
 
-    parser.add_argument('--discrete', type=int, default=0, choices=[0, 1, 2])
+    parser.add_argument('--discrete', type=int, default=0, choices=[0, 1])
     parser.add_argument('--inner', type=int, default=1, choices=[0, 1])
     parser.add_argument('--unit_length', type=int, default=1, choices=[0, 1])  # Only for continuous skills
 
@@ -152,6 +152,7 @@ def get_argparser():
     
     parser.add_argument('--_trans_phi_optimization_epochs', type=int, default=1)
     parser.add_argument('--_trans_online_sample_epochs', type=int, default=1)
+    parser.add_argument('--target_theta', type=float, default=1.)
     
     return parser
 
@@ -536,6 +537,7 @@ def run(ctxt=None):
         num_her=args.num_her,
         _trans_phi_optimization_epochs=args._trans_phi_optimization_epochs,
         _trans_online_sample_epochs=args._trans_online_sample_epochs,
+        target_theta=args.target_theta,
     )
 
     skill_common_args = dict(

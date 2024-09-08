@@ -696,14 +696,10 @@ class METRA(IOD):
     Train Process;
     '''
     def _train_once_inner(self, path_data):
-        # import time
-        # start = time.time()
-        self._update_replay_buffer(path_data)           # 这里需要修改，因为我要把subgoal加入进去；
-        # time1 = time.time()
-        # print('[1]update replay buffer time', time1 - start)
-        epoch_data = self._flatten_data(path_data)      # 本质上是，把array和list转化为tensor
-        tensors = self._train_components(epoch_data)    # 训练模型，tensor是info;
-        # print('[1]_flatten_data and _train_components', time.time() - time1)
+
+        self._update_replay_buffer(path_data)       
+        epoch_data = self._flatten_data(path_data) 
+        tensors = self._train_components(epoch_data)  
         return tensors
     
     '''
@@ -815,8 +811,8 @@ class METRA(IOD):
             sub_goal = v['sub_goal']
             option = v['options']
             # 最终方向和采样方向加权；
-            # goal_z = 0.5 * (self.target_traj_encoder(sub_goal).mean.detach() + v['phi_sub_goal'])
-            goal_z = v['phi_sub_goal']
+            goal_z = 0.5 * (self.target_traj_encoder(sub_goal).mean.detach() + v['phi_sub_goal'])
+            # goal_z = v['phi_sub_goal']
             final_goal_z = v['phi_sub_goal']
             
             target_cur_z = self.target_traj_encoder(obs).mean.detach()
@@ -1081,8 +1077,8 @@ class METRA(IOD):
             self.eval_maze(runner)
         
         elif env_name == 'kitchen':
-            # self.eval_kitchen(runner)
-            self.eval_kitchen_metra(runner)
+            self.eval_kitchen(runner)
+            # self.eval_kitchen_metra(runner)
             
             
     def eval_kitchen(self, runner):
@@ -1277,7 +1273,6 @@ class METRA(IOD):
                 img_path = os.path.join(path, "SGN.png")
                 plt.savefig(img_path)
 
-
     def _save_pt(self):
         if wandb.run is not None:
             path = wandb.run.dir
@@ -1303,7 +1298,11 @@ class METRA(IOD):
         }, file_name)
 
     def eval_kitchen_metra(self, runner):
-        random_options = np.eye(self.dim_option)
+        if self.discrete == 1:
+            random_options = np.eye(self.dim_option)
+        else:
+            random_options = np.random.randn(self.num_random_trajectories, self.dim_option)
+            random_options = self.vec_norm(random_options)
         random_trajectories = self._get_trajectories(
             runner,
             sampler_key='option_policy',
