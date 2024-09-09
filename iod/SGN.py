@@ -57,14 +57,11 @@ class METRA(IOD):
             
             init_obs=None,
             
-            phi_type="baseline",
-            policy_type="baseline",
-            explore_type="baseline",
+            phi_type=None,
+            policy_type=None,
+            explore_type=None,
             
             goal_sample_network=None,
-            space_predictor=None,
-            _trans_phi_optimization_epochs=1,
-            target_theta=1,
 
             **kwargs,
     ):
@@ -129,24 +126,14 @@ class METRA(IOD):
         self.MaxLenPhi = 0
         
         # for psro:
-        self.init_obs = torch.tensor(init_obs).unsqueeze(0).expand(self.num_random_trajectories, -1).to(self.device)
+        self.init_obs = torch.tensor(init_obs).unsqueeze(0).expand(8, -1).to(self.device)
         self.exp_z = None   
         self.goal_sample_network = goal_sample_network.to(self.device)
-        self.space_predictor = space_predictor.to(self.device)
         self.goal_sample_optim = None
         self.last_phi_g = None
         self.last_phi_g_dist = None
         self.epoch_final = None
         self.Network_None_Update_count = None
-        self.sample_wait_count = 0
-        self.exp_theta_dist = None
-        self.UpdateSGN = 0
-        self.cold_start = 1
-        self.acc_buffer = torch.zeros(self.num_random_trajectories).to(self.device)
-        self.acc = torch.ones(self.num_random_trajectories).to(self.device)
-        self.space_predictor_optim = None
-        self._trans_phi_optimization_epochs = _trans_phi_optimization_epochs
-        self.target_theta = target_theta
         
     @property
     def policy(self):
@@ -197,54 +184,35 @@ class METRA(IOD):
         return R
     
     @torch.no_grad()
-    def get_regret(self, s, a, s_next, a_next, g=None, phi_g=None, is_norm=True):
-        '''
-        s = [batch, seq, dim]
-        a = [batch, seq, dim]
-        batch_regret = [batch]
-        '''
-        batch_regret = []
-        for i in range(s.shape[0]):
-            discount = 0.99
-            epoch_traj_s = s[i]
-            epoch_traj_a = a[i]
-            epoch_traj_s_next = s_next[i]
-            epoch_traj_a_next = a_next[i]
-            
-            phi_s = self.target_traj_encoder(epoch_traj_s).mean
-            phi_s_next = self.target_traj_encoder(epoch_traj_s_next).mean
-            
-            option = self.vec_norm(phi_g[i] - phi_s)
-            next_option = self.vec_norm(phi_g[i] - phi_s_next)
-            
-            processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(epoch_traj_s), option.float())
-            next_processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(epoch_traj_s_next), next_option.float())
-            
-            q = torch.min(
-                self.qf1(processed_cat_obs, epoch_traj_a).flatten(),
-                self.qf2(processed_cat_obs, epoch_traj_a).flatten(),
-            )
-            q_next = torch.min(
-                self.qf1(next_processed_cat_obs, epoch_traj_a_next).flatten(),
-                self.qf2(next_processed_cat_obs, epoch_traj_a_next).flatten(),
-            )
-            
-            r = (self.vec_norm(phi_s_next - phi_s) * self.vec_norm(phi_g[i] - phi_s)).sum(dim=-1)
+    def get_regret(self, s, a, s_next, a_next, g=None, phi_g=None):
+        discount = 0.99
+        s = s
+        phi_s = self.target_traj_encoder(s).mean
+        phi_s_next = self.target_traj_encoder(s_next).mean
         
-            regret = torch.abs(r + discount * q_next - q).sum()
-            batch_regret.append(regret)
+        option = phi_g - phi_s
+        next_option = phi_g - phi_s_next
         
-        batch_regret = torch.tensor(batch_regret).to(self.device)
-        batch_regret_mean = batch_regret.mean() / self.max_path_length
-        if is_norm:
-            batch_regret = (batch_regret - batch_regret.mean()) / (batch_regret.std() + 1e-8)
+        processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(s).unsqueeze(0), option.float().unsqueeze(0))
+        next_processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(s_next).unsqueeze(0), next_option.float().unsqueeze(0))
         
-        return batch_regret, batch_regret_mean
+        q = torch.min(
+            self.qf1(processed_cat_obs, a.unsqueeze(0)).flatten(),
+            self.qf2(processed_cat_obs, a.unsqueeze(0)).flatten(),
+        )
+        q_next = torch.min(
+            self.qf1(next_processed_cat_obs, a_next.unsqueeze(0)).flatten(),
+            self.qf2(next_processed_cat_obs, a_next.unsqueeze(0)).flatten(),
+        )
+        
+        r = (self.vec_norm(phi_s_next - phi_s) * self.vec_norm(phi_g - phi_s)).sum(dim=-1)
     
+        regret = torch.abs(r + discount * q_next - q)
+        return regret
     
     @torch.no_grad()
     def get_R(self, phi_s_f, phi_g, sample_batch):
-        train_max_count = 20
+        train_max_count = 100
         Network_Update = torch.zeros((sample_batch)).to(self.device)
         Sample_Update = torch.zeros((sample_batch)).to(self.device)
         Network_R_std = torch.zeros((sample_batch)).to(self.device)
@@ -268,13 +236,13 @@ class METRA(IOD):
             self.Network_None_Update_count[i] = self.Network_None_Update_count[i] + 1
                 
             # 判定是否需要更新目标；
-            if R[i] >= (0.1): 
+            if R[i] >= 0.5: 
                 # 说明学会了，要更新网络，向更远的方向；
                 Network_Update[i] = 1       # 1 是学会了
                 Sample_Update[i] = 1        # 要更新phi_g
                 self.Network_None_Update_count[i] = 0
                 self.Network_R[i] = torch.zeros_like(self.Network_R[i])
-            elif (Network_R_std[i] < 0.05 and self.Network_None_Update_count[i] > 2) or self.Network_None_Update_count[i] >= 5:
+            elif (Network_R_std[i] < 0.05 and self.Network_None_Update_count[i] > 10) or self.Network_None_Update_count[i] >= 50:
                 # 说明学不会，不更新网路，但更新phi_g;
                 # 我试试反向更新；我想让网络的mean有变化；
                 Network_Update[i] = -1      # 是没学会；
@@ -301,13 +269,10 @@ class METRA(IOD):
         epoch_data = {}
         epoch_final = {}
         num_her = self.num_her
-        num_sample_batch = self.num_random_trajectories
+        num_sample_batch = 8
         for key, value in data.items():
-            if key in ['dones']:
-                dones = np.concatenate(value, axis=0)
             epoch_data[key] = torch.tensor(np.concatenate(value, axis=0), dtype=torch.float32, device=self.device)
-            # for explore_type != baseline
-            if key in ['obs', 'actions'] :
+            if key == 'obs':
                 traj_key_dim = value[0].shape[-1]
                 epoch_key_final = torch.zeros((num_sample_batch, self.max_path_length, traj_key_dim), dtype=torch.float32, device=self.device)
                 for i in range(num_sample_batch):
@@ -316,7 +281,7 @@ class METRA(IOD):
                     if traj_shape[0] < self.max_path_length:
                         epoch_key_final[i][traj_shape[0]:] = torch.tensor(value[(num_her+1) * i][-1], dtype=torch.float32, device=self.device)
                 epoch_final[key] = epoch_key_final
-
+            
         self.epoch_final = epoch_final
         return epoch_data
 
@@ -338,13 +303,12 @@ class METRA(IOD):
         samples = self.replay_buffer.sample_transitions(batch_size)
         data = {}
         for key, value in samples.items():
-            if key in ['rewards', 'returns', 'ori_obs', 'next_ori_obs', 'pre_tanh_values', 'log_probs']:
-                continue
             if value.shape[1] == 1 and 'option' not in key:
                 value = np.squeeze(value, axis=1)
             data[key] = torch.from_numpy(value).float().to(self.device)
-
         return data
+    
+    
 
     
     '''
@@ -359,67 +323,114 @@ class METRA(IOD):
             if self.unit_length:
                 random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
             
-            if self.method['explore'] == 'theta' and self.epoch_final is not None:
-                sample_batch = self.epoch_final['obs'].shape[0]
-                final_state = self.epoch_final['obs'][:,-1]
-                with torch.no_grad():
-                    phi_s_0 = self.target_traj_encoder(self.init_obs).mean
-                    phi_s_f = self.target_traj_encoder(final_state).mean
-                s_f_theta = self.vec_norm(phi_s_f - phi_s_0)
-            
-                if self.goal_sample_optim is None:
-                    self.goal_sample_optim = optim.SGD(self.goal_sample_network.parameters(), lr=self.dim_option * 1e-2)
-                    self.last_phi_g = phi_s_f       # 第一次初始化让self.last_phi_g = phi_s_f
-            
-                # 用s_f_theta更新GSN网络
-                s_f_L = torch.norm(phi_s_f - phi_s_0, dim=-1) 
-                theta_L = self.goal_sample_network(s_f_theta)
-                theta_L_mean = self._clip_phi_g(theta_L.mean, lower_value=-self.max_path_length, upper_value=self.max_path_length)
-                theta_L_stddev = theta_L.stddev
-                # calculate R
-                Network_Update, Sample_Update, R = self.get_R(phi_s_f=phi_s_f, phi_g=self.last_phi_g, sample_batch=sample_batch)
-                # 更新网络
-                # 对于mean的更新：
-                loss_mean = torch.abs(Network_Update) * self.AsymmetricLoss(s_f_L - theta_L_mean.squeeze(-1),alpha_neg=-0.1, alpha_pos=1)
-                # 对于分布的更新；
-                loss_std = self.AsymmetricLoss(-Network_Update * 1 * theta_L_stddev.squeeze(-1), alpha_neg=1, alpha_pos=0.01)
-                loss = (loss_mean + loss_std).mean()
-                self.goal_sample_optim.zero_grad()
-                loss.backward()
-                self.goal_sample_optim.step()
+            if self.method['explore'] == 'theta':
+                if self.epoch_final is not None:
+                    sample_batch = self.epoch_final['obs'].shape[0]
+                    final_state = self.epoch_final['obs'][:,-1]
+                    with torch.no_grad():
+                        phi_s_0 = self.target_traj_encoder(self.init_obs).mean
+                        phi_s_f = self.target_traj_encoder(final_state).mean
                     
-                # 推理，获取新的phi_g
-                with torch.no_grad():
-                    # random:
-                    randn_exp_theta = self.vec_norm(torch.randn_like(self.last_phi_g)).to(self.device)
-                    theta_L = self.goal_sample_network(randn_exp_theta)
-                    theta_L_mean = self._clip_phi_g(theta_L.mean)
-                    theta_L_stddev = theta_L.stddev
-                        
-                # 更新新的phi_g
-                next_phi_g = phi_s_0 + (theta_L_mean + torch.rand_like(theta_L_stddev) * theta_L_stddev) * randn_exp_theta
-                # 软更新；
-                self.last_phi_g = Sample_Update.unsqueeze(-1) * next_phi_g + (1 - Sample_Update.unsqueeze(-1)) * self.last_phi_g
-
-                np_phi_g = self.last_phi_g.detach().cpu().numpy()
-                extras = self._generate_option_extras(random_options, phi_sub_goal=np_phi_g)  
-
-                if wandb.run is not None:
-                    wandb.log({
-                            "theta/loss_mean": loss_mean.detach().mean(),
-                            "theta/loss_std": loss_std.detach().mean(),
-                            "theta/loss": loss.detach(),
-                            }) 
-                    Mean = theta_L_mean
-                    Stddev = theta_L_stddev
-                    for i in range(sample_batch):    
-                        wandb.log({
-                                    "theta/mean-" + str(i): float(Mean[i][0].cpu()),
-                                    "theta/std-" + str(i): float(Stddev[i][0].cpu()),
-                                    "theta/R-" + str(i): float(R[i].cpu()),
-                                    })
+                    exp_theta = self.vec_norm(phi_s_f - phi_s_0)
             
-            else: 
+                    if self.goal_sample_optim is None:
+                        self.goal_sample_optim = optim.SGD(self.goal_sample_network.parameters(), lr=1e-2)
+                        self.last_phi_g = phi_s_f
+                        
+                    s_f_L = torch.norm(phi_s_f - phi_s_0, dim=-1) 
+                    theta_L = self.goal_sample_network(exp_theta)
+                    theta_L_mean = self._clip_phi_g(theta_L.mean, lower_value=-300, upper_value=300)
+                    theta_L_stddev = theta_L.stddev
+                    s_g_L = torch.norm(self.last_phi_g - phi_s_0, dim=-1) 
+                    s_g_L_log_probs = theta_L.log_prob(s_g_L)
+                    # calculate R
+                    Network_Update, Sample_Update, R = self.get_R(phi_s_f=phi_s_f, phi_g=self.last_phi_g, sample_batch=sample_batch)
+                    # 更新网络
+                    # 对于mean的更新：
+                    loss_mean = torch.abs(Network_Update) * self.AsymmetricLoss(s_f_L - theta_L_mean.squeeze(-1),alpha_neg=-0.1, alpha_pos=1)
+                    # normal_dist = Normal(theta_L_mean.squeeze(-1), theta_L_stddev.squeeze(-1))
+                    # s_f_L_cdf = normal_dist.cdf(s_f_L)
+                    # loss_mean = 100 * torch.clip(s_f_L_cdf, max=0.4)
+                    # 对于分布的更新；
+                    loss_std = self.AsymmetricLoss(-Network_Update * 1 * theta_L_stddev.squeeze(-1), alpha_neg=1, alpha_pos=0.01)
+                    # K = 10
+                    # loss_std = torch.abs((theta_L_stddev.squeeze(-1) * (torch.norm(self.last_phi_g - phi_s_f, dim=-1) + 1e-5) - K ))
+                    loss = (loss_mean + loss_std).mean()
+                    self.goal_sample_optim.zero_grad()
+                    loss.backward()
+                    self.goal_sample_optim.step()
+                    
+                    # 推理，获取新的phi_g
+                    with torch.no_grad():
+                        # 1) freeze:
+                        # freeze_direction = [[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1],[0,-1],[1,-1]]
+                        # freeze_direction = torch.tensor(freeze_direction, dtype=torch.float32).to(self.device)
+                        # randn_exp_theta = self.vec_norm(freeze_direction)
+                        # 2) random:
+                        randn_exp_theta = self.vec_norm(torch.randn_like(self.last_phi_g)).to(self.device)
+                        theta_L = self.goal_sample_network(randn_exp_theta)
+                        theta_L_mean = self._clip_phi_g(theta_L.mean)
+                        theta_L_stddev = theta_L.stddev
+                        # 3) 启发式:
+                        # num_sample = 10
+                        # randn_exps = torch.randn((num_sample, 2)).to(self.device)
+                        # randn_exps = self.vec_norm(randn_exps)
+                        # theta_Ls = self.goal_sample_network(randn_exps)
+                        # theta_Ls_mean = self._clip_phi_g(theta_Ls.mean, lower_value=-300, upper_value=300)
+                        # theta_Ls_stddev = theta_Ls.stddev
+                        # values, indices = torch.topk(theta_Ls_stddev.squeeze(-1), sample_batch)
+                        # theta_L_mean = theta_Ls_mean[indices]
+                        # theta_L_stddev = theta_Ls_stddev[indices]
+                        # randn_exp_theta = randn_exps[indices]
+        
+                    # 更新新的phi_g
+                    next_phi_g = phi_s_0 + (theta_L_mean + torch.rand_like(theta_L_stddev) * theta_L_stddev) * randn_exp_theta
+                    self.last_phi_g = Sample_Update.unsqueeze(-1) * next_phi_g + (1 - Sample_Update.unsqueeze(-1)) * self.last_phi_g
+
+                    np_phi_g = self.last_phi_g.detach().cpu().numpy()
+                    extras = self._generate_option_extras(random_options, phi_sub_goal=np_phi_g)  
+
+                    if wandb.run is not None:
+                        wandb.log({
+                                "theta/loss_mean": loss_mean.detach().mean(),
+                                "theta/loss_std": loss_std.detach().mean(),
+                                "theta/loss": loss.detach(),
+                                }) 
+                        Mean = theta_L_mean
+                        Stddev = theta_L_stddev
+                        for i in range(sample_batch):    
+                            wandb.log({
+                                        "theta/mean-" + str(i): float(Mean[i][0].cpu()),
+                                        "theta/std-" + str(i): float(Stddev[i][0].cpu()),
+                                        "theta/R-" + str(i): float(R[i].cpu()),
+                                        })
+                        if runner.step_itr % 50 == 0:
+                            path = wandb.run.dir
+                            file_name = os.path.join(path, 'SampleGoalNet.pt')
+                            torch.save({
+                                'SampleGoalNet': self.goal_sample_network,
+                            }, file_name)
+                else:
+                    extras = self._generate_option_extras(random_options)  
+            
+
+            elif self.method['explore'] == "freeze":
+                init_obs = self.init_obs.cpu().numpy()
+                goals_list = [
+                                [12.7, 16.5],
+                                [1.1, 12.9],
+                                [4.7, 4.5],
+                                [17.2, 0.9],
+                                [20.2, 20.1],
+                                [4.7, 0.9],
+                                [0.9, 4.7],
+                                [5.0, 5.0],
+                            ]
+                goals_np = np.array(goals_list)
+                init_obs[:,:2] = goals_np
+                extras = self._generate_option_extras(random_options, init_obs)
+            
+            elif self.method['explore'] == "baseline": 
                 extras = self._generate_option_extras(random_options)      # 变成字典的形式；
             
         return dict(
@@ -431,10 +442,9 @@ class METRA(IOD):
     Train Process;
     '''
     def _train_once_inner(self, path_data):
-
-        self._update_replay_buffer(path_data)       
-        epoch_data = self._flatten_data(path_data) 
-        tensors = self._train_components(epoch_data)  
+        self._update_replay_buffer(path_data)           # 这里需要修改，因为我要把subgoal加入进去；
+        epoch_data = self._flatten_data(path_data)      # 本质上是，把array和list转化为tensor
+        tensors = self._train_components(epoch_data)    # 训练模型，tensor是info;
         return tensors
     
     '''
@@ -443,29 +453,18 @@ class METRA(IOD):
     def _train_components(self, epoch_data):
         if self.replay_buffer is not None and self.replay_buffer.n_transitions_stored < self.min_buffer_size:
             return {}
-        if self.UpdateSGN and self.cold_start == 0:
-            return {}
-        
-        for i in range(self._trans_optimization_epochs):
-            for j in range(self._trans_phi_optimization_epochs):
-                tensors = {}
-                if self.replay_buffer is None:              
-                    v = self._get_mini_tensors(epoch_data)
-                else:
-                    v = self._sample_replay_buffer()
+
+        for _ in range(self._trans_optimization_epochs):
+            tensors = {}
+            if self.replay_buffer is None:              
+                v = self._get_mini_tensors(epoch_data)
+            else:
+                v = self._sample_replay_buffer()
                 
-                self._optimize_te(tensors, v)
-            
-            for j in range(self._trans_phi_optimization_epochs):
-                if self.replay_buffer is None:              
-                    v = self._get_mini_tensors(epoch_data)
-                else:
-                    v = self._sample_replay_buffer()
-                with torch.no_grad():
-                    self._update_rewards(tensors, v)
-
-                self._optimize_op(tensors, v)
-
+            self._optimize_te(tensors, v)
+            with torch.no_grad():
+                self._update_rewards(tensors, v)
+            self._optimize_op(tensors, v)
             
         return tensors
 
@@ -479,8 +478,10 @@ class METRA(IOD):
             tensors['LossTe'],
             optimizer_keys=['traj_encoder'],
         )
-
-        self.update_target_traj(theta=self.target_theta)
+        if self.method['phi'] == 'baseline':
+            self.update_target_traj(theta=1)
+        else:
+            self.update_target_traj(theta=2e-5)
 
         if self.dual_reg:
             self._update_loss_dual_lam(tensors, internal_vars)
@@ -544,8 +545,7 @@ class METRA(IOD):
             sub_goal = v['sub_goal']
             option = v['options']
             # 最终方向和采样方向加权；
-            # goal_z = 0.5 * (self.target_traj_encoder(sub_goal).mean.detach() + v['phi_sub_goal'])
-            goal_z = v['phi_sub_goal']
+            goal_z = 0.5 * (self.target_traj_encoder(sub_goal).mean.detach() + v['phi_sub_goal'])
             # goal_z = v['phi_sub_goal']
             final_goal_z = v['phi_sub_goal']
             
@@ -554,7 +554,7 @@ class METRA(IOD):
             option_goal = self.vec_norm(goal_z - target_cur_z)
             next_option_goal = self.vec_norm(goal_z - target_next_z)
             
-            # option_final_goal = self.vec_norm(final_goal_z - target_cur_z)
+            option_final_goal = self.vec_norm(final_goal_z - target_cur_z)
             
             option_s_s_next = next_z - cur_z
             ###########################################
@@ -612,14 +612,25 @@ class METRA(IOD):
         option_s_s_next = v['option_s_s_next']
         
         if self.method["phi"] in ['contrastive']:
+            option_goal = v['option_goal']
+            # option_goal_detach = v['option_goal'].detach()
             samples = self.traj_encoder(v['pos_sample']).mean
+            
+            # zhanghe:0819
+            # 为了标定，使用:final_goal_z
+            # final_goal_z = v['final_goal_z']
+            # final_g_weight = 0.1
+            # samples = (1-final_g_weight) * samples + final_g_weight * final_goal_z
+            
+            # discount weight
+            discount = 0.99
+            w = discount ** (v['pos_sample_distance'])
             vec_phi_s_s_next = phi_s_next - phi_s
             vec_phi_sample = samples
-        
+            
             matrix_s_sample = vec_phi_sample.unsqueeze(0) - phi_s.unsqueeze(1)
             matrix_s_sp_norm = matrix_s_sample / (torch.norm(matrix_s_sample, p=2, dim=-1, keepdim=True) + 1e-8)
             matrix = (vec_phi_s_s_next.unsqueeze(1) * matrix_s_sp_norm).sum(dim=-1)
-            inner_pos = torch.diag(matrix) + rewards
                         
             # 加一个判断，如果g-与g特别接近，就用mask掉；
             dist_theta = 1e-3
@@ -628,16 +639,15 @@ class METRA(IOD):
             matrix = matrix * mask
                                
             mask_pos = torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
-            inner_neg1 = (matrix * (1 - mask_pos)).sum(dim=1) / (phi_s.shape[0]-1)
-            inner_neg2 = (matrix * (1 - mask_pos)).sum(dim=0) / (phi_s.shape[0]-1)
-            new_reward = 2 * torch.log(1e-3 + F.sigmoid(inner_pos)) + torch.log(1 + 1e-3 - F.sigmoid(inner_neg1)) + torch.log(1 + 1e-3 - F.sigmoid(inner_neg2))
+            inner_pos = torch.diag(matrix)
+            inner_neg = (matrix * (1 - mask_pos)).sum(dim=1) / (phi_s.shape[0]-1)
+            new_reward = w * torch.log(F.sigmoid(inner_pos)) + w * torch.log(1 - F.sigmoid((inner_neg - 0.25)))
             
             rewards = new_reward
             tensors.update({
                 'next_z_reward': rewards.mean(),
                 'inner_s_s_next_pos': inner_pos.mean(),
-                'inner_s_s_next_neg': inner_neg1.mean(),
-                'inner_s_s_next_neg2': inner_neg2.mean(),
+                'inner_s_s_next_neg': inner_neg.mean(),
                 'distance_pos_neg': distance_pos_neg.mean(),
             })
         
@@ -674,13 +684,10 @@ class METRA(IOD):
                 raise NotImplementedError
 
             cst_penalty = cst_dist - torch.square(phi_s_next - phi_s).mean(dim=1)        # 这是后面的约束项，约束skill表征的大小；
-            cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)             # 限制最大值；trick，如果惩罚项太大，会导致优化困难；不要太小；
+            cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)             # 限制最大值；trick，如果惩罚项太大，会导致优化困难；
             
             if self.method["phi"] in ['contrastive']:
-                len = torch.square(phi_s_next - phi_s).mean(dim=1) 
-                len_encourage = torch.clamp(len, max=0.25)    
-                
-                te_obj = rewards + dual_lam.detach() * cst_penalty
+                te_obj = rewards + dual_lam.detach() * cst_penalty    
             else:
                 te_obj = rewards + dual_lam.detach() * cst_penalty                      # 这是最终的loss： reward + 惩罚项；
 
@@ -799,82 +806,13 @@ class METRA(IOD):
         )
 
 
+
+
     '''
     Evaluation
     '''
     @torch.no_grad()
-    def _evaluate_policy(self, runner, env_name):
-        if env_name == 'ant_maze':  
-            self.eval_maze(runner)
-        
-        elif env_name == 'kitchen':
-            self.eval_kitchen(runner)
-            # self.eval_kitchen_metra(runner)
-            
-        else:
-            self.eval_metra(runner)
-            
-            
-    def eval_kitchen(self, runner):
-        import imageio
-        # 初始化
-        env = runner._env
-        
-        # 加载goal
-        metric_success_task_relevant = {}
-        metric_success_all_objects = {}
-        all_goal_obs = []
-        for i in range(6):
-            goal_obs = env.render_goal(i)
-            all_goal_obs.append(goal_obs)
-            metric_success_task_relevant[i] = 0
-            metric_success_all_objects[i] = 0
-        all_goal_obs_tensor = torch.tensor(all_goal_obs, dtype=torch.float)
-
-        for i in range(all_goal_obs_tensor.shape[0]):
-            obs = env.reset()
-            frames = []
-            obs_tensor = torch.tensor(obs, dtype=torch.float).unsqueeze(0).to('cuda')
-            goal_tensor = torch.tile(all_goal_obs_tensor[i].reshape(-1), (3,1)).reshape(-1).unsqueeze(0).to('cuda')
-            phi_g = self.target_traj_encoder(goal_tensor).mean
-            
-            for t in trange(self.max_path_length):
-                # policy
-                phi_s = self.target_traj_encoder(obs_tensor).mean
-                option = self.vec_norm(phi_g - phi_s)
-                print('option:', option)
-                obs_option = torch.cat((obs_tensor, option), -1).float()
-                action_tensor = self.option_policy(obs_option)[1]['mean']
-                action = action_tensor[0].detach().cpu().numpy()
-                
-                # iteration
-                obs, reward, _, info = env.step(action)
-                obs_tensor = torch.tensor(obs, dtype=torch.float).unsqueeze(0).to('cuda')
-                
-                # for viz
-                obs_img = info['image']
-                frames.append(obs_img)
-                # for metrics
-                k = 'metric_success_task_relevant/goal_'+str(i)
-                metric_success_all_objects[i] = max(metric_success_all_objects[i], info[k])
-                k = 'metric_success_all_objects/goal_'+str(i)   
-                metric_success_all_objects[i] = max(metric_success_all_objects[i], info[k])
-            
-            filepath = wandb.run.dir
-            gif_name = filepath + str(i) + '.gif'
-            imageio.mimsave(gif_name, frames, 'GIF', duration=1)
-            print('saved', gif_name)
-            
-        print('metric_success_task_relevant:', metric_success_task_relevant)
-        print('metric_success_all_objects:', metric_success_all_objects)
-        if wandb.run is not None:
-            wandb.log({
-                'metric_success_task_relevant': sum(metric_success_task_relevant.values()) / len(metric_success_task_relevant),
-                'metric_success_all_objects': sum(metric_success_all_objects.values()) / len(metric_success_all_objects),
-                'epoch': runner.step_itr,
-            })
-    
-    def eval_maze(self, runner):
+    def _evaluate_policy(self, runner):
         '''
         this is for zero-shot task evaluation;
         right now in ant_maze env;
@@ -991,181 +929,35 @@ class METRA(IOD):
                 PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length)
                 print('Repr_Space_traj saved')
 
-                directions = self.vec_norm(torch.randn((100, self.dim_option))).to('cuda')
-                dist = self.goal_sample_network(directions)
-                mean = dist.mean.detach()
-                stddev = dist.stddev.detach()
-                edge_mean = (directions * mean).cpu().numpy()
-                edge_std = (directions * (mean+stddev)).cpu().numpy()
-                plt.figure(figsize=(8, 8))
-                plt.scatter(x=edge_mean[:,0], y=edge_mean[:,1])
-                plt.scatter(x=edge_std[:,0], y=edge_std[:,1])
-                # plt.colorbar(label='Probability Density')
-                plt.title('Edge')
-                plt.xlabel('X-axis')
-                plt.ylabel('Y-axis')
-                img_path = os.path.join(path, "SGN.png")
-                plt.savefig(img_path)
+            directions = self.vec_norm(torch.randn((100, 2))).to('cuda')
+            dist = self.goal_sample_network(directions)
+            mean = dist.mean.detach()
+            stddev = dist.stddev.detach()
+            edge_mean = (directions * mean).cpu().numpy()
+            edge_std = (directions * (mean+stddev)).cpu().numpy()
+            plt.figure(figsize=(8, 8))
+            plt.scatter(x=edge_mean[:,0], y=edge_mean[:,1])
+            plt.scatter(x=edge_std[:,0], y=edge_std[:,1])
+            # plt.colorbar(label='Probability Density')
+            plt.title('Edge')
+            plt.xlabel('X-axis')
+            plt.ylabel('Y-axis')
+            img_path = os.path.join(path, "SGN.png")
+            plt.savefig(img_path)
 
-    def _save_pt(self):
-        if wandb.run is not None:
-            path = wandb.run.dir
-        else:
-            path = '.'
-        file_name = path + 'option_policy.pt'
+        file_name = 'option_policy.pt'
         torch.save({
             'discrete': self.discrete,
             'dim_option': self.dim_option,
             'policy': self.option_policy,
         }, file_name)
-        file_name = path + 'taregt_traj_encoder.pt'
+        file_name = 'traj_encoder.pt'
         torch.save({
             'discrete': self.discrete,
             'dim_option': self.dim_option,
-            'target_traj_encoder': self.target_traj_encoder,
+            'traj_encoder': self.traj_encoder,
         }, file_name)
-        file_name = path + 'sample_goal_network.pt'
-        torch.save({
-            'discrete': self.discrete,
-            'dim_option': self.dim_option,
-            'goal_sample_network': self.goal_sample_network,
-        }, file_name)
-
-    def eval_kitchen_metra(self, runner):
-        if self.discrete == 1:
-            random_options = np.eye(self.dim_option)
-        else:
-            random_options = np.random.randn(self.num_random_trajectories, self.dim_option)
-            random_options = self.vec_norm(random_options)
-        random_trajectories = self._get_trajectories(
-            runner,
-            sampler_key='option_policy',
-            extras=self._generate_option_extras(random_options),
-            worker_update=dict(
-                _render=True,
-                _deterministic_policy=True,
-            ),
-            env_update=dict(_action_noise_std=None),
-        )
-        eval_option_metrics = {}
-        eval_option_metrics.update(runner._env.calc_eval_metrics(random_trajectories, is_option_trajectories=True))
-        
-        record_video(runner, 'Video_RandomZ', random_trajectories, skip_frames=self.video_skip_frames)
-        
-        if wandb.run is not None:
-            eval_option_metrics.update({'epoch': runner.step_itr})
-            wandb.log(eval_option_metrics)
-        
-        
-    def eval_metra(self, runner):
-        if self.discrete:
-            eye_options = np.eye(self.dim_option)
-            random_options = []
-            colors = []
-            for i in range(self.dim_option):
-                num_trajs_per_option = self.num_random_trajectories // self.dim_option + (i < self.num_random_trajectories % self.dim_option)
-                for _ in range(num_trajs_per_option):
-                    random_options.append(eye_options[i])
-                    colors.append(i)
-            random_options = np.array(random_options)
-            colors = np.array(colors)
-            num_evals = len(random_options)
-            from matplotlib import cm
-            cmap = 'tab10' if self.dim_option <= 10 else 'tab20'
-            random_option_colors = []
-            for i in range(num_evals):
-                random_option_colors.extend([cm.get_cmap(cmap)(colors[i])[:3]])
-            random_option_colors = np.array(random_option_colors)
-        else:
-            random_options = np.random.randn(self.num_random_trajectories, self.dim_option)
-            if self.unit_length:
-                random_options = random_options / np.linalg.norm(random_options, axis=1, keepdims=True)
-            random_option_colors = get_option_colors(random_options * 4)
-        random_trajectories = self._get_trajectories(
-            runner,
-            sampler_key='option_policy',
-            extras=self._generate_option_extras(random_options),
-            worker_update=dict(
-                _render=False,
-                _deterministic_policy=True,
-            ),
-            env_update=dict(_action_noise_std=None),
-        )
-
-        with FigManager(runner, 'TrajPlot_RandomZ') as fm:
-            runner._env.render_trajectories(
-                random_trajectories, random_option_colors, self.eval_plot_axis, fm.ax
-            )
-
-        data = self.process_samples(random_trajectories)
-        last_obs = torch.stack([torch.from_numpy(ob[-1]).to(self.device) for ob in data['obs']])
-        option_dists = self.traj_encoder(last_obs)
-
-        option_means = option_dists.mean.detach().cpu().numpy()
-        if self.inner:
-            option_stddevs = torch.ones_like(option_dists.stddev.detach().cpu()).numpy()
-        else:
-            option_stddevs = option_dists.stddev.detach().cpu().numpy()
-        option_samples = option_dists.mean.detach().cpu().numpy()
-
-        option_colors = random_option_colors
-
-        with FigManager(runner, f'PhiPlot') as fm:
-            draw_2d_gaussians(option_means, option_stddevs, option_colors, fm.ax)
-            draw_2d_gaussians(
-                option_samples,
-                [[0.03, 0.03]] * len(option_samples),
-                option_colors,
-                fm.ax,
-                fill=True,
-                use_adaptive_axis=True,
-            )
-
-        eval_option_metrics = {}
-
-        # Videos
-        if self.eval_record_video:
-            if self.discrete:
-                video_options = np.eye(self.dim_option)
-                video_options = video_options.repeat(self.num_video_repeats, axis=0)
-            else:
-                if self.dim_option == 2:
-                    radius = 1. if self.unit_length else 1.5
-                    video_options = []
-                    for angle in [3, 2, 1, 4]:
-                        video_options.append([radius * np.cos(angle * np.pi / 4), radius * np.sin(angle * np.pi / 4)])
-                    video_options.append([0, 0])
-                    for angle in [0, 5, 6, 7]:
-                        video_options.append([radius * np.cos(angle * np.pi / 4), radius * np.sin(angle * np.pi / 4)])
-                    video_options = np.array(video_options)
-                else:
-                    video_options = np.random.randn(9, self.dim_option)
-                    if self.unit_length:
-                        video_options = video_options / np.linalg.norm(video_options, axis=1, keepdims=True)
-                video_options = video_options.repeat(self.num_video_repeats, axis=0)
-            video_trajectories = self._get_trajectories(
-                runner,
-                sampler_key='local_option_policy',
-                extras=self._generate_option_extras(video_options),
-                worker_update=dict(
-                    _render=True,
-                    _deterministic_policy=True,
-                ),
-            )
-            record_video(runner, 'Video_RandomZ', video_trajectories, skip_frames=self.video_skip_frames)
-
-        eval_option_metrics.update(runner._env.calc_eval_metrics(random_trajectories, is_option_trajectories=True))
-        if wandb.run is not None:
-            eval_option_metrics.update({'epoch': runner.step_itr})
-            wandb.log(eval_option_metrics)
-
         
         
         
         
-        
-        
-        
-        
-        
-                

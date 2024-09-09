@@ -14,7 +14,7 @@ import wandb
 from iod.agent import AgentWrapper
 
 
-class METRA(IOD):
+class METRA_bl(IOD):
     def __init__(
             self,
             *,
@@ -46,6 +46,7 @@ class METRA(IOD):
             goal_sample_network=None,
             space_predictor=None,
             _trans_phi_optimization_epochs=1,
+            target_theta=1,
 
             **kwargs,
     ):
@@ -436,6 +437,10 @@ class METRA(IOD):
         elif env_name == 'kitchen':
             self.eval_kitchen_metra(runner)
             
+        else:
+            self.eval_metra(runner)
+            
+            
     def _save_pt(self):
         if wandb.run is not None:
             path = wandb.run.dir
@@ -474,4 +479,110 @@ class METRA(IOD):
         if wandb.run is not None:
             eval_option_metrics.update({'epoch': runner.step_itr})
             wandb.log(eval_option_metrics)
+            
+    def eval_metra(self, runner):
+        if self.discrete:
+            eye_options = np.eye(self.dim_option)
+            random_options = []
+            colors = []
+            for i in range(self.dim_option):
+                num_trajs_per_option = self.num_random_trajectories // self.dim_option + (i < self.num_random_trajectories % self.dim_option)
+                for _ in range(num_trajs_per_option):
+                    random_options.append(eye_options[i])
+                    colors.append(i)
+            random_options = np.array(random_options)
+            colors = np.array(colors)
+            num_evals = len(random_options)
+            from matplotlib import cm
+            cmap = 'tab10' if self.dim_option <= 10 else 'tab20'
+            random_option_colors = []
+            for i in range(num_evals):
+                random_option_colors.extend([cm.get_cmap(cmap)(colors[i])[:3]])
+            random_option_colors = np.array(random_option_colors)
+        else:
+            random_options = np.random.randn(self.num_random_trajectories, self.dim_option)
+            if self.unit_length:
+                random_options = random_options / np.linalg.norm(random_options, axis=1, keepdims=True)
+            random_option_colors = get_option_colors(random_options * 4)
+        random_trajectories = self._get_trajectories(
+            runner,
+            sampler_key='option_policy',
+            extras=self._generate_option_extras(random_options),
+            worker_update=dict(
+                _render=False,
+                _deterministic_policy=True,
+            ),
+            env_update=dict(_action_noise_std=None),
+        )
+
+        with FigManager(runner, 'TrajPlot_RandomZ') as fm:
+            runner._env.render_trajectories(
+                random_trajectories, random_option_colors, self.eval_plot_axis, fm.ax
+            )
+
+        data = self.process_samples(random_trajectories)
+        last_obs = torch.stack([torch.from_numpy(ob[-1]).to(self.device) for ob in data['obs']])
+        option_dists = self.traj_encoder(last_obs)
+
+        option_means = option_dists.mean.detach().cpu().numpy()
+        if self.inner:
+            option_stddevs = torch.ones_like(option_dists.stddev.detach().cpu()).numpy()
+        else:
+            option_stddevs = option_dists.stddev.detach().cpu().numpy()
+        option_samples = option_dists.mean.detach().cpu().numpy()
+
+        option_colors = random_option_colors
+
+        with FigManager(runner, f'PhiPlot') as fm:
+            draw_2d_gaussians(option_means, option_stddevs, option_colors, fm.ax)
+            draw_2d_gaussians(
+                option_samples,
+                [[0.03, 0.03]] * len(option_samples),
+                option_colors,
+                fm.ax,
+                fill=True,
+                use_adaptive_axis=True,
+            )
+
+        eval_option_metrics = {}
+
+        # Videos
+        if self.eval_record_video:
+            if self.discrete:
+                video_options = np.eye(self.dim_option)
+                video_options = video_options.repeat(self.num_video_repeats, axis=0)
+            else:
+                if self.dim_option == 2:
+                    radius = 1. if self.unit_length else 1.5
+                    video_options = []
+                    for angle in [3, 2, 1, 4]:
+                        video_options.append([radius * np.cos(angle * np.pi / 4), radius * np.sin(angle * np.pi / 4)])
+                    video_options.append([0, 0])
+                    for angle in [0, 5, 6, 7]:
+                        video_options.append([radius * np.cos(angle * np.pi / 4), radius * np.sin(angle * np.pi / 4)])
+                    video_options = np.array(video_options)
+                else:
+                    video_options = np.random.randn(9, self.dim_option)
+                    if self.unit_length:
+                        video_options = video_options / np.linalg.norm(video_options, axis=1, keepdims=True)
+                video_options = video_options.repeat(self.num_video_repeats, axis=0)
+            video_trajectories = self._get_trajectories(
+                runner,
+                sampler_key='local_option_policy',
+                extras=self._generate_option_extras(video_options),
+                worker_update=dict(
+                    _render=True,
+                    _deterministic_policy=True,
+                ),
+            )
+            record_video(runner, 'Video_RandomZ', video_trajectories, skip_frames=self.video_skip_frames)
+
+        eval_option_metrics.update(runner._env.calc_eval_metrics(random_trajectories, is_option_trajectories=True))
+        if wandb.run is not None:
+            eval_option_metrics.update({'epoch': runner.step_itr})
+            wandb.log(eval_option_metrics)
+
+        
+        
+        
         

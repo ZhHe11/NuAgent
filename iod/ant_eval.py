@@ -7,22 +7,26 @@ import matplotlib.cm as cm
 
 
 def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_PCA=False, tag=''):
+    if len(All_Goal_obs_list) == 0:
+        PhiGoal_viz = False
+    else:
+        PhiGoal_viz = True
     Repr_obs_array = np.array(All_Repr_obs_list[0])
-    All_Goal_obs_array = np.array(All_Goal_obs_list[0])
+    if PhiGoal_viz:
+        All_Goal_obs_array = np.array(All_Goal_obs_list[0])
     for i in range(1,len(All_Repr_obs_list)):
         Repr_obs_array = np.concatenate((Repr_obs_array, np.array(All_Repr_obs_list[i])), axis=0)
-        All_Goal_obs_array = np.concatenate((All_Goal_obs_array, np.array(All_Goal_obs_list[i])), axis=0)
-    if len(Repr_obs_array) != len(All_Goal_obs_array):
-        print("Error: len(Repr_obs_array) != len(All_Goal_obs_array)")
-        return
+        if PhiGoal_viz:
+            All_Goal_obs_array = np.concatenate((All_Goal_obs_array, np.array(All_Goal_obs_list[i])), axis=0)
     # 创建 PCA 对象，指定降到2维
-    if is_PCA:
+    if is_PCA and Repr_obs_array.shape[1] > 2:
         pca = PCA(n_components=2)
         # 对数据进行 PCA
         Repr_obs_2d = pca.fit_transform(Repr_obs_array)
     else:
         Repr_obs_2d = Repr_obs_array
-        All_Goal_obs_2d = All_Goal_obs_array
+        if PhiGoal_viz:
+            All_Goal_obs_2d = All_Goal_obs_array
     # 绘制 PCA 降维后的数据
     plt.figure(figsize=(8, 6))
     colors = cm.rainbow(np.linspace(0, 1, len(All_Repr_obs_list)))
@@ -33,7 +37,8 @@ def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_P
         if end_index >= Repr_obs_2d.shape[0]:
             continue
         plt.scatter(Repr_obs_2d[start_index:end_index, 0], Repr_obs_2d[start_index:end_index, 1], color=color, s=5, label="traj."+str(i))
-        plt.scatter(All_Goal_obs_2d[start_index, 0], All_Goal_obs_2d[start_index, 1], marker='*', s=100, c=color, label="option."+str(i))
+        if PhiGoal_viz:
+            plt.scatter(All_Goal_obs_2d[start_index, 0], All_Goal_obs_2d[start_index, 1], marker='*', s=100, c=color, label="option."+str(i))
     file_path = os.path.join(path, tag + "repr_traj.png")
     plt.xlabel('z[0]')
     plt.ylabel('z[1]')

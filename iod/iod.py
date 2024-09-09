@@ -260,7 +260,12 @@ class IOD(RLAlgorithm):
         plot training traj
         '''
         if (runner.step_itr + 2) % self.n_epochs_per_log == 0 and wandb.run is not None and 'phi_s' in trajectories[0]['agent_infos'].keys():
-            Pepr_viz = False
+            if "phi_s" in trajectories[0]['agent_infos'].keys() and "phi_sub_goal" in trajectories[0]['agent_infos'].keys():
+                Pepr_viz = True
+                PhiGoal_viz = False     # 暂时不想看phi_g
+            else:
+                Pepr_viz = False
+                PhiGoal_viz = False
             if self.env_name == 'ant_maze':
                 fig, ax = plt.subplots()
                 env = runner._env
@@ -294,21 +299,22 @@ class IOD(RLAlgorithm):
                 print(filepath)
                 plt.savefig(filepath) 
                 wandb.log(({"train_Maze_traj": wandb.Image(filepath)}))
-            # else:
-            #     All_Repr_obs_list = []
-            #     All_Goal_obs_list = []
-            #     for i in range(len(trajectories)):
-            #         # plot phi
-            #         if Pepr_viz:
-            #             phi_s = trajectories[i]['agent_infos']['phi_s']
-            #             # phi_g = trajectories[i]['agent_infos']['phi_sub_goal']
-            #             All_Repr_obs_list.append(phi_s)
-            #             # All_Goal_obs_list.append(phi_g)
+            else:
+                All_Repr_obs_list = []
+                All_Goal_obs_list = []
+                for i in range(len(trajectories)):
+                    # plot phi
+                    if Pepr_viz:
+                        phi_s = trajectories[i]['agent_infos']['phi_s']
+                        All_Repr_obs_list.append(phi_s)
+                        if PhiGoal_viz:
+                            phi_g = trajectories[i]['agent_infos']['phi_sub_goal']
+                            All_Goal_obs_list.append(phi_g)
                         
-            # if Pepr_viz:
-            #     path = wandb.run.dir
-            #     PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=self.max_path_length, tag='train')                
-            #     print('Repr_Space_traj saved')
+            if Pepr_viz:
+                path = wandb.run.dir
+                PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=self.max_path_length, is_PCA=True, tag='train')                
+                print('Repr_Space_traj saved')
             
         return trajectories
 
@@ -334,6 +340,9 @@ class IOD(RLAlgorithm):
         data = defaultdict(list)
         for i in range(len(paths)):     
             path = paths[i]
+            if len(path['observations']) < self.max_path_length:
+                print('Bad traj: len(path[observations]) < self.max_path_length')
+                continue
             data['obs'].append(path['observations'])
             data['next_obs'].append(path['next_observations'])
             data['actions'].append(path['actions'])
@@ -363,7 +372,7 @@ class IOD(RLAlgorithm):
                 data['phi_sub_goal'].append(path["agent_infos"]["phi_sub_goal"])
             
             ## for contrastive positive sample：
-            path_goal_dist = np.zeros(path['observations'].shape[0])
+            pos_sample_index = np.zeros(path['observations'].shape[0])
             path_subgoal = np.zeros(path['observations'].shape)
             if self.sample_type in ['contrastive']:
                 data['final_goal_distance'].append(traj_len - 1 - index)
@@ -371,11 +380,11 @@ class IOD(RLAlgorithm):
                 for t in range(traj_len):
                     t_pos = random.choices([_ for _ in range(0,traj_len-t)], weights=[0.9**index for index in range(0,traj_len-t)], k=1)[0]
                     t_pos = min(t_pos+2, traj_len-1-t)
-                    path_goal_dist[t] = t_pos
+                    pos_sample_index[t] = t_pos
                     path_subgoal[t] = path['observations'][t + t_pos]
-                data['pos_sample_distance'].append(path_goal_dist)
+                data['pos_sample_index'].append(pos_sample_index)
                 data['pos_sample'].append(path_subgoal)
-    
+            
             ## for HER resample sub_goal:
             if self.sample_type in ['her_reward']:
                 num_her = self.num_her
@@ -399,7 +408,7 @@ class IOD(RLAlgorithm):
                         data['options'].append(path['agent_infos']['option'][:subgoal_index+1])
                         data['next_options'].append(np.concatenate([path['agent_infos']['option'][:subgoal_index+1][1:], path['agent_infos']['option'][:subgoal_index+1][-1:]], axis=0))
                     if self.sample_type in ['contrastive']:
-                        data['pos_sample_distance'].append(path_goal_dist[:subgoal_index+1])
+                        # data['pos_sample_distance'].append(path_goal_dist[:subgoal_index+1])
                         data['pos_sample'].append(path_subgoal[:subgoal_index+1])
                     if 'phi_sub_goal' in path['agent_infos']:
                         data['phi_sub_goal'].append(path["agent_infos"]["phi_sub_goal"][:subgoal_index+1])

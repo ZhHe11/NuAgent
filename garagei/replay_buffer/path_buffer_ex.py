@@ -99,6 +99,7 @@ class PathBufferEx:
                     ret_dict[key] = self._buffer[pixel_key][idx]
             for key in keys:
                 ret_dict[key] = self._buffer[key][idx]
+            
             return ret_dict
         else:
             return {key: buf_arr[idx] for key, buf_arr in self._buffer.items()}

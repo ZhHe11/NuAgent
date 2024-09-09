@@ -47,6 +47,7 @@ from garagei.torch.q_functions.continuous_mlp_q_function_ex import ContinuousMLP
 from garagei.torch.optimizers.optimizer_group_wrapper import OptimizerGroupWrapper
 from garagei.torch.utils import xavier_normal_ex
 from iod.metra import METRA
+from iod.metra_bl import METRA_bl
 from iod.causer import CAUSER
 from iod.dads import DADS
 from iod.utils import get_normalizer_preset
@@ -109,7 +110,7 @@ def get_argparser():
 
     parser.add_argument('--alpha', type=float, default=0.01)
 
-    parser.add_argument('--algo', type=str, default='metra', choices=['metra', 'dads', 'causer'])
+    parser.add_argument('--algo', type=str, default='metra', choices=['metra', 'dads', 'causer', 'metra_bl'])
 
     parser.add_argument('--sac_tau', type=float, default=5e-3)
     parser.add_argument('--sac_lr_q', type=float, default=None)
@@ -362,11 +363,12 @@ def run(ctxt=None):
         hidden_nonlinearity=nonlinearity or torch.relu,
         w_init=torch.nn.init.xavier_uniform_,
         input_dim=args.dim_option,
-        output_dim=args.dim_option,
-        init_std=0.5,
-        type='vector',
-        const_std=True
+        output_dim=1,
+        init_std=10,
+        min_std=1,
+        max_std=args.max_path_length,
     )
+    # 如果是输出vecter的话，要再改;
     goal_sample_network = module_cls(**module_kwargs)
      # Network for dist_predictor
     module_cls, module_kwargs = get_gaussian_module_construction(
@@ -459,7 +461,7 @@ def run(ctxt=None):
 
     replay_buffer = PathBufferEx(capacity_in_transitions=int(args.sac_max_buffer_size), pixel_shape=pixel_shape)
 
-    if args.algo in ['metra', 'dads', 'causer']:
+    if args.algo in ['metra', 'dads', 'causer', 'metra_bl']:
         qf1 = ContinuousMLPQFunctionEx(
             obs_dim=policy_q_input_dim,
             action_dim=action_dim,
@@ -564,6 +566,12 @@ def run(ctxt=None):
 
     if args.algo == 'metra':
         algo = METRA(
+            **algo_kwargs,
+            **skill_common_args,
+        )
+    
+    elif args.algo == 'metra_bl':        
+        algo = METRA_bl(
             **algo_kwargs,
             **skill_common_args,
         )
