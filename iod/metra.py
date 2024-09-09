@@ -431,7 +431,6 @@ class METRA(IOD):
     Train Process;
     '''
     def _train_once_inner(self, path_data):
-
         self._update_replay_buffer(path_data)       
         epoch_data = self._flatten_data(path_data) 
         tensors = self._train_components(epoch_data)  
@@ -453,7 +452,7 @@ class METRA(IOD):
                     v = self._get_mini_tensors(epoch_data)
                 else:
                     v = self._sample_replay_buffer()
-                
+                # v = self._get_mini_tensors(epoch_data)
                 self._optimize_te(tensors, v)
             
             for j in range(self._trans_phi_optimization_epochs):
@@ -461,12 +460,12 @@ class METRA(IOD):
                     v = self._get_mini_tensors(epoch_data)
                 else:
                     v = self._sample_replay_buffer()
+                # v = self._get_mini_tensors(epoch_data)
                 with torch.no_grad():
                     self._update_rewards(tensors, v)
 
                 self._optimize_op(tensors, v)
-
-            
+                
         return tensors
 
     '''
@@ -544,8 +543,8 @@ class METRA(IOD):
             sub_goal = v['sub_goal']
             option = v['options']
             # 最终方向和采样方向加权；
-            # goal_z = 0.5 * (self.target_traj_encoder(sub_goal).mean.detach() + v['phi_sub_goal'])
-            goal_z = v['phi_sub_goal']
+            goal_z = 0.5 * (self.target_traj_encoder(sub_goal).mean.detach() + v['phi_sub_goal'])
+            # goal_z = v['phi_sub_goal']
             # goal_z = v['phi_sub_goal']
             final_goal_z = v['phi_sub_goal']
             
@@ -619,25 +618,33 @@ class METRA(IOD):
             matrix_s_sample = vec_phi_sample.unsqueeze(0) - phi_s.unsqueeze(1)
             matrix_s_sp_norm = matrix_s_sample / (torch.norm(matrix_s_sample, p=2, dim=-1, keepdim=True) + 1e-8)
             matrix = (vec_phi_s_s_next.unsqueeze(1) * matrix_s_sp_norm).sum(dim=-1)
-            inner_pos = torch.diag(matrix) + rewards
+            inner_pos = torch.diag(matrix) 
                         
             # 加一个判断，如果g-与g特别接近，就用mask掉；
             dist_theta = 1e-3
             distance_pos_neg = torch.norm(vec_phi_sample.unsqueeze(0) - vec_phi_sample.unsqueeze(1), p=2, dim=-1)
             mask = torch.where( distance_pos_neg < dist_theta , 0, 1)
+            mask = mask + torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
             matrix = matrix * mask
                                
-            mask_pos = torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
-            inner_neg1 = (matrix * (1 - mask_pos)).sum(dim=1) / (phi_s.shape[0]-1)
-            inner_neg2 = (matrix * (1 - mask_pos)).sum(dim=0) / (phi_s.shape[0]-1)
-            new_reward = 2 * torch.log(1e-3 + F.sigmoid(inner_pos)) + torch.log(1 + 1e-3 - F.sigmoid(inner_neg1)) + torch.log(1 + 1e-3 - F.sigmoid(inner_neg2))
+            # mask_pos = torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
+            # inner_neg1 = (matrix * (1 - mask_pos)).sum(dim=1) 
+            # inner_neg2 = (matrix * (1 - mask_pos)).sum(dim=0)
             
-            rewards = new_reward
+            # new_reward = 2 * torch.log(1e-3 + F.sigmoid(inner_pos)) + torch.log(1 + 1e-3 - F.sigmoid(inner_neg1)) + torch.log(1 + 1e-3 - F.sigmoid(inner_neg2))
+            
+            t = 1
+            matrix = matrix / t
+            label = torch.arange(matrix.shape[0]).to(self.device)
+            new_reward1 = - F.cross_entropy(matrix, label)
+            new_reward2 = - F.cross_entropy(matrix.T, label)
+            rewards = (new_reward1 + new_reward2 ) / 2
+            
             tensors.update({
                 'next_z_reward': rewards.mean(),
                 'inner_s_s_next_pos': inner_pos.mean(),
-                'inner_s_s_next_neg': inner_neg1.mean(),
-                'inner_s_s_next_neg2': inner_neg2.mean(),
+                'inner_s_s_next_neg': new_reward1.mean(),
+                'inner_s_s_next_neg2': new_reward2.mean(),
                 'distance_pos_neg': distance_pos_neg.mean(),
             })
         
