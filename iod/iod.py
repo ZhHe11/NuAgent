@@ -170,12 +170,9 @@ class IOD(RLAlgorithm):
                     train_log[k] = np.array2string(tensors[k].detach().cpu().numpy(), suppress_small=True)
             
         if wandb.run is not None:
+            tensors.update({'epoch': runner.step_itr})
             wandb.log(tensors)
                 
-        if wandb.run is not None:        
-            wandb.log({
-                        "train/step": runner.step_itr,
-                        })   
 
         return np.mean(undiscounted_returns)
     
@@ -259,13 +256,15 @@ class IOD(RLAlgorithm):
         '''
         plot training traj
         '''
-        if (runner.step_itr + 2) % self.n_epochs_per_log == 0 and wandb.run is not None and 'phi_s' in trajectories[0]['agent_infos'].keys():
-            if "phi_s" in trajectories[0]['agent_infos'].keys() and "phi_sub_goal" in trajectories[0]['agent_infos'].keys():
-                Pepr_viz = True
-                PhiGoal_viz = False     # 暂时不想看phi_g
-            else:
-                Pepr_viz = False
-                PhiGoal_viz = False
+        if (runner.step_itr + 2) % self.n_epochs_per_log == 0 and wandb.run is not None:
+            # if "phi_s" in trajectories[0]['agent_infos'].keys() and "phi_sub_goal" in trajectories[0]['agent_infos'].keys():
+            #     Pepr_viz = True
+            #     PhiGoal_viz = False     # 暂时不想看phi_g
+            # else:
+            #     Pepr_viz = False
+            #     PhiGoal_viz = False
+            Pepr_viz = True
+            PhiGoal_viz = False
             if self.env_name == 'ant_maze':
                 fig, ax = plt.subplots()
                 env = runner._env
@@ -378,7 +377,7 @@ class IOD(RLAlgorithm):
                 data['final_goal_distance'].append(traj_len - 1 - index)
                 traj_len = len(path['observations'])
                 for t in range(traj_len):
-                    t_pos = random.choices([_ for _ in range(0,traj_len-t)], weights=[0.9**index for index in range(0,traj_len-t)], k=1)[0]
+                    t_pos = random.choices([_ for _ in range(0,traj_len-t)], weights=[0.99**index for index in range(0,traj_len-t)], k=1)[0]
                     t_pos = min(t_pos+2, traj_len-1-t)
                     pos_sample_index[t] = t_pos
                     path_subgoal[t] = path['observations'][t + t_pos]

@@ -37,6 +37,12 @@ class AgentWrapper(object):
         if ret_emb:
             return z.numpy(), target_cur_z.numpy(), goal_z.numpy()
         return z
+    
+    @torch.no_grad()
+    def gen_phi_s(self, obs, device='cpu', ret_emb: bool = False):
+        traj_encoder = self.target_traj_encoder.to(device)
+        target_cur_z = traj_encoder(obs.unsqueeze(0)).mean.squeeze(0)
+        return target_cur_z.numpy()
         
         
     def get_param_values(self):

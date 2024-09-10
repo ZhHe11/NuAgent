@@ -20,8 +20,6 @@ import wandb
 import os
 
 import torch.nn as nn
-# from iod.SAC import *
-# from iod.RND import *
 from iod.agent import *
 from iod.ant_eval import *
 from iod.update_policy import *
@@ -30,6 +28,8 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from torch.distributions import Normal
+
+import time
 
 
 class METRA(IOD):
@@ -369,8 +369,8 @@ class METRA(IOD):
             
                 if self.goal_sample_optim is None:
                     self.goal_sample_optim = optim.SGD(self.goal_sample_network.parameters(), lr=self.dim_option * 1e-2)
-                    self.last_phi_g = phi_s_f       # 第一次初始化让self.last_phi_g = phi_s_f
-            
+                    self.last_phi_g = phi_s_f    
+                    
                 # 用s_f_theta更新GSN网络
                 s_f_L = torch.norm(phi_s_f - phi_s_0, dim=-1) 
                 theta_L = self.goal_sample_network(s_f_theta)
@@ -431,9 +431,16 @@ class METRA(IOD):
     Train Process;
     '''
     def _train_once_inner(self, path_data):
+        # t1 = time.time()
         self._update_replay_buffer(path_data)       
+        # t2 = time.time()
+        # print("[_update_replay_buffer]", t2-t1) 
         epoch_data = self._flatten_data(path_data) 
+        # t3 = time.time()
+        # print("[_flatten_data]", t3-t2)
         tensors = self._train_components(epoch_data)  
+        # t4 = time.time()
+        # print("[_train_components]", t4-t3)
         return tensors
     
     '''
@@ -447,24 +454,29 @@ class METRA(IOD):
         
         for i in range(self._trans_optimization_epochs):
             for j in range(self._trans_phi_optimization_epochs):
+                # t1 = time.time()
                 tensors = {}
                 if self.replay_buffer is None:              
                     v = self._get_mini_tensors(epoch_data)
                 else:
                     v = self._sample_replay_buffer()
-                # v = self._get_mini_tensors(epoch_data)
+                # t2 = time.time()
+                # print(" [_get_mini_tensors]", t2-t1)
                 self._optimize_te(tensors, v)
-            
-            for j in range(self._trans_phi_optimization_epochs):
-                if self.replay_buffer is None:              
-                    v = self._get_mini_tensors(epoch_data)
-                else:
-                    v = self._sample_replay_buffer()
-                # v = self._get_mini_tensors(epoch_data)
+                # t3 = time.time()
+                # print(" [_optimize_te]", t3-t2)
+            # for j in range(self._trans_phi_optimization_epochs):
+                # if self.replay_buffer is None:              
+                #     v = self._get_mini_tensors(epoch_data)
+                # else:
+                #     v = self._sample_replay_buffer()
                 with torch.no_grad():
                     self._update_rewards(tensors, v)
-
+                # t4 = time.time()
+                # print(" [_update_rewards]", t4-t3)
                 self._optimize_op(tensors, v)
+                # t5 = time.time()
+                # print(" [_optimize_op]", t5-t4)
                 
         return tensors
 
@@ -533,40 +545,31 @@ class METRA(IOD):
     '''
     【3】更新reward；更新option；更新phi_s；
     '''
-    def _update_rewards(self, tensors, v):                      # 【修改】这里修改reward的计算方法；
+    def _update_rewards(self, tensors, v):       
         obs = v['obs']
         next_obs = v['next_obs']
         cur_z = self.traj_encoder(obs).mean
-        next_z = self.traj_encoder(next_obs).mean               # 试试不detach
-
+        next_z = self.traj_encoder(next_obs).mean
         if self.method['phi'] in ['soft_update', 'her_reward', 'contrastive']:   
             sub_goal = v['sub_goal']
             option = v['options']
-            # 最终方向和采样方向加权；
-            goal_z = 0.5 * (self.target_traj_encoder(sub_goal).mean.detach() + v['phi_sub_goal'])
-            # goal_z = v['phi_sub_goal']
-            # goal_z = v['phi_sub_goal']
-            final_goal_z = v['phi_sub_goal']
-            
+            goal_z = self.target_traj_encoder(sub_goal).mean.detach()
             target_cur_z = self.target_traj_encoder(obs).mean.detach()
             target_next_z = self.target_traj_encoder(next_obs).mean.detach()
             option_goal = self.vec_norm(goal_z - target_cur_z)
             next_option_goal = self.vec_norm(goal_z - target_next_z)
-            
-            # option_final_goal = self.vec_norm(final_goal_z - target_cur_z)
-            
             option_s_s_next = next_z - cur_z
+            target_next_z_z = target_next_z - target_cur_z  
             ###########################################
             v.update({
                 'cur_z': cur_z,
                 'next_z': next_z,
                 'goal_z': goal_z,
-                'options': option,                      # 是online采样时候用的option；
-                'option_goal': option_goal,             # 是phi_sub_g - phi_s / norm()
-                'option_s_s_next': option_s_s_next,     # 是phi_s_next - phi_s
-                'next_option_goal': next_option_goal,   # 为了输入next_option
-                'final_goal_z': final_goal_z,
-                # 'option_final_goal': option_final_goal,           # 采样traj.的目标goal。为了标定；
+                'options': option,                   
+                'option_goal': option_goal,      
+                'option_s_s_next': option_s_s_next,
+                'next_option_goal': next_option_goal,   
+                'target_next_z_z': target_next_z_z,
             })
             ###########################################
             
@@ -608,37 +611,31 @@ class METRA(IOD):
         next_obs = v['next_obs']
         phi_s = v['cur_z']
         phi_s_next = v['next_z']
-        option_s_s_next = v['option_s_s_next']
         
         if self.method["phi"] in ['contrastive']:
-            samples = self.traj_encoder(v['pos_sample']).mean
-            vec_phi_s_s_next = phi_s_next - phi_s
-            vec_phi_sample = samples
-        
+            vec_phi_sample = self.target_traj_encoder(v['pos_sample']).mean
+            vec_phi_s_s_next = v['option_s_s_next']
+            vec_phi_sample = torch.where(torch.norm(vec_phi_sample-phi_s_next)<1e-5, v['goal_z'], vec_phi_sample)
             matrix_s_sample = vec_phi_sample.unsqueeze(0) - phi_s.unsqueeze(1)
             matrix_s_sp_norm = matrix_s_sample / (torch.norm(matrix_s_sample, p=2, dim=-1, keepdim=True) + 1e-8)
             matrix = (vec_phi_s_s_next.unsqueeze(1) * matrix_s_sp_norm).sum(dim=-1)
-            inner_pos = torch.diag(matrix) 
-                        
+            inner_pos = torch.diag(matrix)     
             # 加一个判断，如果g-与g特别接近，就用mask掉；
-            dist_theta = 1e-3
+            dist_theta = 1e-6
             distance_pos_neg = torch.norm(vec_phi_sample.unsqueeze(0) - vec_phi_sample.unsqueeze(1), p=2, dim=-1)
             mask = torch.where( distance_pos_neg < dist_theta , 0, 1)
             mask = mask + torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
             matrix = matrix * mask
-                               
-            # mask_pos = torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
-            # inner_neg1 = (matrix * (1 - mask_pos)).sum(dim=1) 
-            # inner_neg2 = (matrix * (1 - mask_pos)).sum(dim=0)
+            # # log softmax
+            # t = 1
+            # matrix = matrix / t
+            # label = torch.arange(matrix.shape[0]).to(self.device)
+            # new_reward1 = - F.cross_entropy(matrix, label)
+            # new_reward2 = - F.cross_entropy(matrix.T, label)
+            # rewards = (new_reward1 + new_reward2 ) / 2
             
-            # new_reward = 2 * torch.log(1e-3 + F.sigmoid(inner_pos)) + torch.log(1 + 1e-3 - F.sigmoid(inner_neg1)) + torch.log(1 + 1e-3 - F.sigmoid(inner_neg2))
             
-            t = 1
-            matrix = matrix / t
-            label = torch.arange(matrix.shape[0]).to(self.device)
-            new_reward1 = - F.cross_entropy(matrix, label)
-            new_reward2 = - F.cross_entropy(matrix.T, label)
-            rewards = (new_reward1 + new_reward2 ) / 2
+            
             
             tensors.update({
                 'next_z_reward': rewards.mean(),
@@ -647,14 +644,13 @@ class METRA(IOD):
                 'inner_s_s_next_neg2': new_reward2.mean(),
                 'distance_pos_neg': distance_pos_neg.mean(),
             })
-        
+                 
         if self.dual_dist == 's2_from_s':    
             s2_dist = self.dist_predictor(obs)
             loss_dp = -s2_dist.log_prob(next_obs - obs).mean()
             tensors.update({
                 'LossDp': loss_dp,
             })
-
         if self.dual_reg:
             dual_lam = self.dual_lam.param.exp()
             x = obs
@@ -680,16 +676,13 @@ class METRA(IOD):
             else:
                 raise NotImplementedError
 
-            cst_penalty = cst_dist - torch.square(phi_s_next - phi_s).mean(dim=1)        # 这是后面的约束项，约束skill表征的大小；
-            cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)             # 限制最大值；trick，如果惩罚项太大，会导致优化困难；不要太小；
+            cst_penalty = cst_dist - torch.square(phi_s_next - phi_s).mean(dim=1)       
+            cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)           
             
-            if self.method["phi"] in ['contrastive']:
-                len = torch.square(phi_s_next - phi_s).mean(dim=1) 
-                len_encourage = torch.clamp(len, max=0.25)    
-                
+            if self.method["phi"] in ['contrastive']:           
                 te_obj = rewards + dual_lam.detach() * cst_penalty
             else:
-                te_obj = rewards + dual_lam.detach() * cst_penalty                      # 这是最终的loss： reward + 惩罚项；
+                te_obj = rewards + dual_lam.detach() * cst_penalty    
 
             v.update({
                 'cst_penalty': cst_penalty
@@ -699,7 +692,6 @@ class METRA(IOD):
             })
         else:
             te_obj = rewards
-
         loss_te = -te_obj.mean()
         tensors.update(
             {
@@ -727,18 +719,8 @@ class METRA(IOD):
         if self.method["policy"] in ['her_reward']:
             option = v['option_goal']
             next_option = v['next_option_goal']
-            
-            # arr_reward = torch.where((torch.norm(v['obs'] - v['sub_goal'], p=2, dim=-1, keepdim=True) + 1e-8)< 1e-5, 1, 0).squeeze(-1)
-                
-            # 对应的reward
-            assert v['option_s_s_next'].shape == option.shape, (v['option_s_s_next'].shape, option.shape)
-            # goal_reward = ((v['option_s_s_next']) * option).sum(dim=1) 
-            # 引入标定:final_goal_z
-            goal_reward = ((v['option_s_s_next']) * option).sum(dim=1) 
-            
-            # final reward
+            goal_reward = ((v['target_next_z_z']) * option).sum(dim=1)
             policy_rewards = goal_reward * self._reward_scale_factor
-
             # update to logs
             tensors.update({
                 'policy_rewards': policy_rewards.mean(),
@@ -1062,8 +1044,7 @@ class METRA(IOD):
         if wandb.run is not None:
             eval_option_metrics.update({'epoch': runner.step_itr})
             wandb.log(eval_option_metrics)
-        
-        
+             
     def eval_metra(self, runner):
         if self.discrete:
             eye_options = np.eye(self.dim_option)
@@ -1165,6 +1146,9 @@ class METRA(IOD):
         if wandb.run is not None:
             eval_option_metrics.update({'epoch': runner.step_itr})
             wandb.log(eval_option_metrics)
+
+
+
 
         
         

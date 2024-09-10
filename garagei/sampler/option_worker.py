@@ -128,7 +128,10 @@ class OptionWorker(DefaultWorker):
                         phi_sub_goal = self._cur_extras[self._cur_extra_idx]['phi_sub_goal']
                         cur_extra, target_cur_z, goal_z = self.agent.gen_z_phi_g(torch.tensor(phi_sub_goal), torch.tensor(self._prev_obs), device="cpu", ret_emb=True)
                         self._agent_infos['phi_s'].append(target_cur_z)
-                        
+                    
+                    else:
+                        target_cur_z = self.agent.gen_phi_s(torch.tensor(self._prev_obs), device="cpu")
+                        self._agent_infos['phi_s'].append(target_cur_z)
                     
                 agent_input = get_np_concat_obs(
                     self._prev_obs, cur_extra,
