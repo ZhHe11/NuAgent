@@ -613,36 +613,45 @@ class METRA(IOD):
         phi_s_next = v['next_z']
         
         if self.method["phi"] in ['contrastive']:
-            vec_phi_sample = self.target_traj_encoder(v['pos_sample']).mean
+            # # vec_phi_sample = self.target_traj_encoder(v['pos_sample']).mean
+            # vec_phi_sample = self.target_traj_encoder(v['sub_goal']).mean
+            # vec_phi_s_s_next = v['option_s_s_next']
+            # vec_phi_sample = torch.where(torch.norm(vec_phi_sample-phi_s_next)<1e-5, v['goal_z'], vec_phi_sample)
+            # matrix_s_sample = vec_phi_sample.unsqueeze(0) - phi_s.unsqueeze(1)
+            # matrix_s_sp_norm = matrix_s_sample / (torch.norm(matrix_s_sample, p=2, dim=-1, keepdim=True) + 1e-8)
+            # matrix = (vec_phi_s_s_next.unsqueeze(1) * matrix_s_sp_norm).sum(dim=-1)
+            # inner_pos = torch.diag(matrix) 
+            # # 加一个判断，如果g-与g特别接近，就用mask掉；
+            # dist_theta = 1e-6
+            # distance_pos_neg = torch.norm(vec_phi_sample.unsqueeze(0) - vec_phi_sample.unsqueeze(1), p=2, dim=-1)
+            # mask = torch.where( distance_pos_neg < dist_theta , 0, 1)
+            # mask = mask + torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
+            # matrix = matrix * mask  
+            
+            
+            # option
             vec_phi_s_s_next = v['option_s_s_next']
-            vec_phi_sample = torch.where(torch.norm(vec_phi_sample-phi_s_next)<1e-5, v['goal_z'], vec_phi_sample)
-            matrix_s_sample = vec_phi_sample.unsqueeze(0) - phi_s.unsqueeze(1)
-            matrix_s_sp_norm = matrix_s_sample / (torch.norm(matrix_s_sample, p=2, dim=-1, keepdim=True) + 1e-8)
-            matrix = (vec_phi_s_s_next.unsqueeze(1) * matrix_s_sp_norm).sum(dim=-1)
-            inner_pos = torch.diag(matrix)     
-            # 加一个判断，如果g-与g特别接近，就用mask掉；
-            dist_theta = 1e-6
-            distance_pos_neg = torch.norm(vec_phi_sample.unsqueeze(0) - vec_phi_sample.unsqueeze(1), p=2, dim=-1)
-            mask = torch.where( distance_pos_neg < dist_theta , 0, 1)
-            mask = mask + torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
-            matrix = matrix * mask
+            matrix = (vec_phi_s_s_next.unsqueeze(0) * v['options'].unsqueeze(1)).sum(dim=-1)
+
             # # log softmax
-            # t = 1
-            # matrix = matrix / t
-            # label = torch.arange(matrix.shape[0]).to(self.device)
-            # new_reward1 = - F.cross_entropy(matrix, label)
-            # new_reward2 = - F.cross_entropy(matrix.T, label)
-            # rewards = (new_reward1 + new_reward2 ) / 2
-            
-            
-            
-            
+            t = 1
+            matrix = matrix / t
+            label = torch.arange(matrix.shape[0]).to(self.device)
+            new_reward1 = - F.cross_entropy(matrix, label)
+            new_reward2 = - F.cross_entropy(matrix.T, label)
+            rewards = (new_reward1 + new_reward2 ) / 2
+            # mask_pos = torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
+            # inner_pos = torch.diag(matrix)
+            # new_reward1 = (matrix * (1 - mask_pos)).sum(dim=1)
+            # new_reward2 = (matrix * (1 - mask_pos)).sum(dim=0)
+            # rewards = torch.log(1e-6 + F.sigmoid(inner_pos)) + torch.log(1 + 1e-6 - F.sigmoid(new_reward1)) + torch.log(1 + 1e-6 - F.sigmoid(new_reward2)) + torch.log(1e-6 + F.sigmoid(rewards))
+    
             tensors.update({
                 'next_z_reward': rewards.mean(),
-                'inner_s_s_next_pos': inner_pos.mean(),
+                # 'inner_s_s_next_pos': inner_pos.mean(),
                 'inner_s_s_next_neg': new_reward1.mean(),
                 'inner_s_s_next_neg2': new_reward2.mean(),
-                'distance_pos_neg': distance_pos_neg.mean(),
+                # 'distance_pos_neg': distance_pos_neg.mean(),
             })
                  
         if self.dual_dist == 's2_from_s':    
