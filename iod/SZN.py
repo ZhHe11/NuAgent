@@ -636,6 +636,34 @@ class SZN(IOD):
                 'rewards': rewards,
             })
             return
+        
+        elif self.method["policy"] in ['phi_g']:
+            s_f = v['sub_goal']
+            s_0 = v['s_0']
+            z_s_f = self.traj_encoder(s_f).mean
+            z_s_0 = self.traj_encoder(s_0).mean
+            # z_sample -> additional reward
+            z_sample = v['options']
+            option_g_s0 = z_s_f - z_s_0.detach()
+            sample_reward = (option_g_s0 * z_sample).sum(dim=-1)
+            # s_f - s -> policy option
+            option = self.vec_norm(z_s_f - cur_z)
+            option_s_s_next = next_z - cur_z
+            next_options = self.vec_norm(z_s_f - next_z)
+            # (s_next - s) * (option - s_next) -> reward
+            rewards = (option_s_s_next * self.vec_norm(z_s_f - next_z)).sum(dim=-1)
+            v.update({
+                'cur_z': cur_z,
+                'next_z': next_z,
+                'options': option,
+                'option_s_s_next': option_s_s_next,
+                'next_options': next_options,
+                'sample_reward': sample_reward,
+                'rewards': rewards,
+            })
+            return
+        
+        
         else: 
             option_s_s_next = next_z - cur_z
             option = v['options']
@@ -675,11 +703,11 @@ class SZN(IOD):
         phi_s = v['cur_z']
         phi_s_next = v['next_z']
         
-        if self.method["phi"] in ['contrastive']:
+        if self.method["phi"] in ['contrastive', 'phi_g']:
             vec_phi_s_s_next = v['option_s_s_next']
             matrix = (vec_phi_s_s_next.unsqueeze(0) * v['options'].unsqueeze(1)).sum(dim=-1)
             # log softmax
-            t = 0.3
+            t = 1
             alpha = 0.2
             matrix = matrix / t
             label = torch.arange(matrix.shape[0]).to(self.device)
@@ -1064,7 +1092,6 @@ class SZN(IOD):
             'goal_sample_network': self.SampleZPolicy,
         }, file_name)
         
-
     def eval_kitchen_metra(self, runner):
         if self.discrete == 1:
             random_options = np.eye(self.dim_option)
