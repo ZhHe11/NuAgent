@@ -611,7 +611,7 @@ class SZN(IOD):
         cur_z = self.traj_encoder(obs).mean
         next_z = self.traj_encoder(next_obs).mean
 
-        if self.method["policy"] in ['phi_g']:
+        if self.method["policy"] in ['reward3']:
             s_f = v['sub_goal']
             s_0 = v['s_0']
             z_s_f = self.traj_encoder(s_f).mean
@@ -621,17 +621,17 @@ class SZN(IOD):
             option_g_s0 = z_s_f - z_s_0.detach()
             sample_reward = (option_g_s0 * z_sample).sum(dim=-1)
             # s_f - s -> policy option
-            option = self.vec_norm(z_s_f - cur_z)
+            # option = self.vec_norm(z_s_f - cur_z)
             option_s_s_next = next_z - cur_z
-            next_options = self.vec_norm(z_s_f - next_z)
+            # next_options = self.vec_norm(z_s_f - next_z)
             # (s_next - s) * (option - s_next) -> reward
-            rewards = (option_s_s_next * (option-next_z)).sum(dim=-1)
+            rewards = (option_s_s_next * z_sample).sum(dim=-1)
             v.update({
                 'cur_z': cur_z,
                 'next_z': next_z,
-                'options': option,
+                'options': z_sample,
                 'option_s_s_next': option_s_s_next,
-                'next_options': next_options,
+                'next_options': v['next_options'],
                 'sample_reward': sample_reward,
                 'rewards': rewards,
             })
@@ -1045,12 +1045,25 @@ class SZN(IOD):
             'dim_option': self.dim_option,
             'target_traj_encoder': self.target_traj_encoder,
         }, file_name)
-        file_name = path + 'sample_goal_network.pt'
+        # file_name = path + 'sample_goal_network.pt'
+        # torch.save({
+        #     'discrete': self.discrete,
+        #     'dim_option': self.dim_option,
+        #     'goal_sample_network': self.goal_sample_network,
+        # }, file_name)
+        file_name = path + 'SampleZNetwork.pt'
         torch.save({
             'discrete': self.discrete,
             'dim_option': self.dim_option,
-            'goal_sample_network': self.goal_sample_network,
+            'goal_sample_network': self.SampleZNetwork,
         }, file_name)
+        file_name = path + 'SampleZPolicy.pt'
+        torch.save({
+            'discrete': self.discrete,
+            'dim_option': self.dim_option,
+            'goal_sample_network': self.SampleZPolicy,
+        }, file_name)
+        
 
     def eval_kitchen_metra(self, runner):
         if self.discrete == 1:
