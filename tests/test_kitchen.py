@@ -28,7 +28,7 @@ def vec_norm(vec):
     return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
     
 # 加载模型
-path = "/data/zh/project12_Metra/METRA/exp/kitchen/sd000_1724938146_kitchen_metra"
+path = "/data/zh/project12_Metra/METRA/exp/kitchen/k-blsd000_1726053626_kitchen_SZN"
 path = path + '/'
 load_option_policy_base = torch.load(path + "wandb/latest-run/filesoption_policy.pt")
 load_traj_encoder_base = torch.load(path + "wandb/latest-run/filestaregt_traj_encoder.pt")
@@ -36,7 +36,7 @@ policy = load_option_policy_base['policy']
 traj_encoder = load_traj_encoder_base['target_traj_encoder']
 
 # settings：
-max_path_length = 50
+max_path_length = 300
 option_dim = load_option_policy_base['dim_option']
 # path = '/data/zh/project12_Metra/METRA/tests/videos/local_test/'
 Given_g = True
@@ -52,19 +52,14 @@ device = 'cuda'
 
 # 加载goal
 support_options = torch.eye(option_dim).to(device)
-metric_success_task_relevant = {}
-metric_success_all_objects = {}
 if Given_g:
     all_goal_obs = []
     for i in range(num_task):
         goal_obs = env.render_goal(i)
         all_goal_obs.append(goal_obs)
-        metric_success_task_relevant[i] = 0
-        metric_success_all_objects[i] = 0
     all_goal_obs_tensor = torch.tensor(all_goal_obs, dtype=torch.float)
     eval_times = num_task
     support_vec = torch.eye(option_dim).to(device)
-    
     
 else:
     if option_dim == 2:
@@ -89,6 +84,7 @@ def interact_with_env():
             # support_option = support_vec[index].unsqueeze(0)
             # if freeze at start 
             freeze_option = vec_norm(phi_g - phi_s_0) 
+            freeze_option = vec_norm(torch.randn_like(freeze_option).to(device))
         else:
             support_option = support_options[i].unsqueeze(0)
         if PhiPlot: 
@@ -101,7 +97,7 @@ def interact_with_env():
             phi_s = traj_encoder(obs_tensor).mean
             if Given_g: 
                 # to do; 需要映射；
-                # option = (vec_norm(phi_g - phi_s) + support_option)/2
+                # option = vec_norm(phi_g - phi_s)
                 option = freeze_option
             else:
                 option = support_option

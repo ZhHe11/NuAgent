@@ -23,6 +23,7 @@ def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_P
         pca = PCA(n_components=2)
         # 对数据进行 PCA
         Repr_obs_2d = pca.fit_transform(Repr_obs_array)
+        PhiGoal_viz = False
     else:
         Repr_obs_2d = Repr_obs_array
         if PhiGoal_viz:

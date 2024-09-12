@@ -265,6 +265,7 @@ class IOD(RLAlgorithm):
             #     PhiGoal_viz = False
             Pepr_viz = True
             PhiGoal_viz = False
+            Z_viz = True
             if self.env_name == 'ant_maze':
                 fig, ax = plt.subplots()
                 env = runner._env
@@ -309,7 +310,9 @@ class IOD(RLAlgorithm):
                         if PhiGoal_viz:
                             phi_g = trajectories[i]['agent_infos']['phi_sub_goal']
                             All_Goal_obs_list.append(phi_g)
-                        
+                        if Z_viz:
+                            phi_g = trajectories[i]['agent_infos']['option'] + phi_s[0]
+                            All_Goal_obs_list.append(phi_g)
             if Pepr_viz:
                 path = wandb.run.dir
                 PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=self.max_path_length, is_PCA=True, tag='train')                

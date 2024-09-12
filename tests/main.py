@@ -50,6 +50,8 @@ from iod.metra import METRA
 from iod.metra_bl import METRA_bl
 from iod.causer import CAUSER
 from iod.dads import DADS
+from iod.SZN import SZN
+
 from iod.utils import get_normalizer_preset
 
 from tests.make_env import make_env
@@ -110,7 +112,7 @@ def get_argparser():
 
     parser.add_argument('--alpha', type=float, default=0.01)
 
-    parser.add_argument('--algo', type=str, default='metra', choices=['metra', 'dads', 'causer', 'metra_bl'])
+    parser.add_argument('--algo', type=str, default='metra', choices=['metra', 'dads', 'causer', 'metra_bl', 'SZN'])
 
     parser.add_argument('--sac_tau', type=float, default=5e-3)
     parser.add_argument('--sac_lr_q', type=float, default=None)
@@ -383,8 +385,34 @@ def run(ctxt=None):
         max_std=2.,
     )
     space_predictor = module_cls(**module_kwargs)
+    # SZN
+    module_cls, module_kwargs = get_gaussian_module_construction(
+        args,
+        hidden_sizes=master_dims,
+        hidden_nonlinearity=nonlinearity or torch.relu,
+        w_init=torch.nn.init.xavier_uniform_,
+        input_dim=args.dim_option,
+        output_dim=1,
+        init_std=1.,
+        const_std=True,
+    )
+    SampleZNetwork = module_cls(**module_kwargs)
+    # SampleZPolicy
+    module_cls, module_kwargs = get_gaussian_module_construction(
+        args,
+        hidden_sizes=master_dims,
+        hidden_nonlinearity=nonlinearity or torch.relu,
+        w_init=torch.nn.init.xavier_uniform_,
+        input_dim=obs_dim,
+        output_dim=args.dim_option,
+        init_std=1.,
+        min_std=1e-6,
+        max_std=1e3,
+    )
+    SampleZPolicy = module_cls(**module_kwargs)
+    # zhanghe end
 
-    
+   
    
     module_cls, module_kwargs = get_gaussian_module_construction(
         args,
@@ -461,7 +489,7 @@ def run(ctxt=None):
 
     replay_buffer = PathBufferEx(capacity_in_transitions=int(args.sac_max_buffer_size), pixel_shape=pixel_shape)
 
-    if args.algo in ['metra', 'dads', 'causer', 'metra_bl']:
+    if args.algo in ['metra', 'dads', 'causer', 'metra_bl', 'SZN']:
         qf1 = ContinuousMLPQFunctionEx(
             obs_dim=policy_q_input_dim,
             action_dim=action_dim,
@@ -581,6 +609,14 @@ def run(ctxt=None):
             **algo_kwargs,
             **skill_common_args,
         )   
+    
+    elif args.algo == 'SZN':
+        algo = SZN(
+            **algo_kwargs,
+            SampleZNetwork=SampleZNetwork,
+            SampleZPolicy=SampleZPolicy,
+            **skill_common_args,
+        )
     
     elif args.algo == 'dads':
         algo = DADS(

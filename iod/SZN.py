@@ -30,9 +30,11 @@ import torch.nn.functional as F
 from torch.distributions import Normal
 
 import time
+from iod.GradCLipper import GradClipper
 
 
-class METRA(IOD):
+
+class SZN(IOD):
     def __init__(
             self,
             *,
@@ -66,6 +68,9 @@ class METRA(IOD):
             _trans_phi_optimization_epochs=1,
             target_theta=1,
 
+            SampleZNetwork=None,
+            SampleZPolicy=None,
+            
             **kwargs,
     ):
         super().__init__(**kwargs)
@@ -147,6 +152,13 @@ class METRA(IOD):
         self.space_predictor_optim = None
         self._trans_phi_optimization_epochs = _trans_phi_optimization_epochs
         self.target_theta = target_theta
+        
+        self.last_z = None
+        self.SampleZNetwork = SampleZNetwork.to(self.device)
+        self.SZN_optim = optim.SGD(self.SampleZNetwork.parameters(), lr=1e-4)
+        self.SampleZPolicy = SampleZPolicy.to(self.device)
+        self.SampleZPolicy_optim = optim.SGD(self.SampleZPolicy.parameters(), lr=1e-4)
+        self.grad_clip = GradClipper(clip_type='clip_norm', threshold=2, norm_type=2)
         
     @property
     def policy(self):
@@ -241,7 +253,6 @@ class METRA(IOD):
         
         return batch_regret, batch_regret_mean
     
-    
     @torch.no_grad()
     def get_R(self, phi_s_f, phi_g, sample_batch):
         train_max_count = 20
@@ -288,7 +299,6 @@ class METRA(IOD):
         mask = torch.where(value>0, 1, 0)
         loss = alpha_pos * mask * value + alpha_neg * (1-mask) * value
         return loss 
-
 
     '''
     For soft-update
@@ -346,6 +356,30 @@ class METRA(IOD):
 
         return data
 
+
+    @torch.no_grad()
+    def get_CV(self, s, s_next, Support, is_norm=False):
+        '''
+        s = [batch, seq, dim]
+        a = [batch, seq, dim]
+        batch_regret = [batch]
+        '''
+        Support_num = Support.shape[0]
+        
+        s = s.reshape(s.shape[0]*s.shape[1], s.shape[-1])   # [batch*seq, dim]
+        s_next = s_next.reshape(s_next.shape[0]*s_next.shape[1], s_next.shape[-1])  # [batch*seq, dim]
+        
+        phi_s = self.target_traj_encoder(s).mean
+        phi_s_next = self.target_traj_encoder(s_next).mean
+        
+        TS = torch.zeros(Support_num).to(self.device)
+        for i in range(Support_num):
+            TS[i] = (self.vec_norm(phi_s_next - phi_s) * Support[i].unsqueeze(0)).sum(dim=-1).mean()    # [batch*seq, 1]
+        TS_mean = TS.mean()
+        if is_norm:
+            TS = (TS - TS.mean()) / (TS.std() + 1e-8)
+                    
+        return TS, TS_mean
     
     '''
     【0】 计算online时的option；
@@ -419,7 +453,48 @@ class METRA(IOD):
                                     "theta/R-" + str(i): float(R[i].cpu()),
                                     })
             
+            elif self.method['explore'] == 'SZN' and self.epoch_final is not None:
+                CV, CV_mean = self.get_CV(s=self.epoch_final['obs'][:-1], s_next=self.epoch_final['obs'][1:], Support=self.last_z, is_norm=False)
+                
+                # update SZN
+                CV_szn = self.SampleZNetwork(self.last_z).mean.squeeze(-1)
+                delta_CV = CV - CV_szn
+                self.SZN_optim.zero_grad()
+                loss_SZN = F.mse_loss(CV_szn, CV)
+                loss_SZN.backward()
+                self.SZN_optim.step()
+                
+                # update SampleZPolicy
+                dist_z = self.SampleZPolicy(self.init_obs)
+                z_logp = dist_z.log_prob(self.last_z)
+                self.SampleZPolicy_optim.zero_grad()
+                delta_CV_norm = (delta_CV - delta_CV.mean()) / (delta_CV.std() + 1e-6)
+                delta_CV_norm = torch.clip(delta_CV_norm, -1, 1)
+                loss_SZP = (-z_logp * delta_CV_norm.detach()).mean()
+                loss_SZP.backward()
+                self.grad_clip.apply(self.SampleZPolicy.parameters())
+                self.SampleZPolicy_optim.step()
+                
+                # sample SZN
+                self.last_z = self.vec_norm(self.SampleZPolicy(self.init_obs).sample().detach())
+                np_z = self.last_z.cpu().numpy()
+                print("Sample Z: ", np_z)
+                extras = self._generate_option_extras(np_z)
+
+                if wandb.run is not None:
+                    wandb.log({
+                        "SZN/loss_SZN": loss_SZN,
+                        "SZN/loss_SZP": loss_SZP,
+                        "SZN/delta_CV": delta_CV.mean(),
+                        "SZN/delta_CV_std": delta_CV.std(),
+                        "SZN/delta_CV_norm": delta_CV_norm.mean(),
+                        "SZN/logp": z_logp.mean(),
+                        "SZN/CV": CV.mean(),
+                        "epoch": runner.step_itr,
+                    })
+                
             else: 
+                self.last_z = torch.tensor(random_options, dtype=torch.float32).to(self.device)
                 extras = self._generate_option_extras(random_options)      # 变成字典的形式；
             
         return dict(
@@ -431,16 +506,9 @@ class METRA(IOD):
     Train Process;
     '''
     def _train_once_inner(self, path_data):
-        # t1 = time.time()
         self._update_replay_buffer(path_data)       
-        # t2 = time.time()
-        # print("[_update_replay_buffer]", t2-t1) 
         epoch_data = self._flatten_data(path_data) 
-        # t3 = time.time()
-        # print("[_flatten_data]", t3-t2)
         tensors = self._train_components(epoch_data)  
-        # t4 = time.time()
-        # print("[_train_components]", t4-t3)
         return tensors
     
     '''
@@ -454,29 +522,15 @@ class METRA(IOD):
         
         for i in range(self._trans_optimization_epochs):
             for j in range(self._trans_phi_optimization_epochs):
-                # t1 = time.time()
                 tensors = {}
                 if self.replay_buffer is None:              
                     v = self._get_mini_tensors(epoch_data)
                 else:
                     v = self._sample_replay_buffer()
-                # t2 = time.time()
-                # print(" [_get_mini_tensors]", t2-t1)
                 self._optimize_te(tensors, v)
-                # t3 = time.time()
-                # print(" [_optimize_te]", t3-t2)
-            # for j in range(self._trans_phi_optimization_epochs):
-                # if self.replay_buffer is None:              
-                #     v = self._get_mini_tensors(epoch_data)
-                # else:
-                #     v = self._sample_replay_buffer()
                 with torch.no_grad():
                     self._update_rewards(tensors, v)
-                # t4 = time.time()
-                # print(" [_update_rewards]", t4-t3)
                 self._optimize_op(tensors, v)
-                # t5 = time.time()
-                # print(" [_optimize_op]", t5-t4)
                 
         return tensors
 
@@ -550,38 +604,15 @@ class METRA(IOD):
         next_obs = v['next_obs']
         cur_z = self.traj_encoder(obs).mean
         next_z = self.traj_encoder(next_obs).mean
-        if self.method['phi'] in ['soft_update', 'her_reward', 'contrastive']:   
-            sub_goal = v['sub_goal']
-            option = v['options']
-            goal_z = self.target_traj_encoder(sub_goal).mean.detach()
-            target_cur_z = self.target_traj_encoder(obs).mean.detach()
-            target_next_z = self.target_traj_encoder(next_obs).mean.detach()
-            option_goal = self.vec_norm(goal_z - target_cur_z)
-            next_option_goal = self.vec_norm(goal_z - target_next_z)
-            option_s_s_next = next_z - cur_z
-            target_next_z_z = target_next_z - target_cur_z  
-            ###########################################
-            v.update({
-                'cur_z': cur_z,
-                'next_z': next_z,
-                'goal_z': goal_z,
-                'options': option,                   
-                'option_goal': option_goal,      
-                'option_s_s_next': option_s_s_next,
-                'next_option_goal': next_option_goal,   
-                'target_next_z_z': target_next_z_z,
-            })
-            ###########################################
-            
-        else:
-            option_s_s_next = next_z - cur_z
-            option = v['options']
-            v.update({
-                'cur_z': cur_z,
-                'next_z': next_z,
-                'options': option,
-                'option_s_s_next': option_s_s_next,
-            })
+
+        option_s_s_next = next_z - cur_z
+        option = v['options']
+        v.update({
+            'cur_z': cur_z,
+            'next_z': next_z,
+            'options': option,
+            'option_s_s_next': option_s_s_next,
+        })
 
         # 如果z是one-hot形式：
         if self.discrete == 1:
@@ -613,47 +644,21 @@ class METRA(IOD):
         phi_s_next = v['next_z']
         
         if self.method["phi"] in ['contrastive']:
-            # # vec_phi_sample = self.target_traj_encoder(v['pos_sample']).mean
-            # vec_phi_sample = self.target_traj_encoder(v['sub_goal']).mean
-            # vec_phi_s_s_next = v['option_s_s_next']
-            # vec_phi_sample = torch.where(torch.norm(vec_phi_sample-phi_s_next)<1e-5, v['goal_z'], vec_phi_sample)
-            # matrix_s_sample = vec_phi_sample.unsqueeze(0) - phi_s.unsqueeze(1)
-            # matrix_s_sp_norm = matrix_s_sample / (torch.norm(matrix_s_sample, p=2, dim=-1, keepdim=True) + 1e-8)
-            # matrix = (vec_phi_s_s_next.unsqueeze(1) * matrix_s_sp_norm).sum(dim=-1)
-            # inner_pos = torch.diag(matrix) 
-            # # 加一个判断，如果g-与g特别接近，就用mask掉；
-            # dist_theta = 1e-6
-            # distance_pos_neg = torch.norm(vec_phi_sample.unsqueeze(0) - vec_phi_sample.unsqueeze(1), p=2, dim=-1)
-            # mask = torch.where( distance_pos_neg < dist_theta , 0, 1)
-            # mask = mask + torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
-            # matrix = matrix * mask  
-            
-            
-            # option
             vec_phi_s_s_next = v['option_s_s_next']
             matrix = (vec_phi_s_s_next.unsqueeze(0) * v['options'].unsqueeze(1)).sum(dim=-1)
-
-            # # log softmax
-            t = 1
+            # log softmax
+            t = 3
             matrix = matrix / t
             label = torch.arange(matrix.shape[0]).to(self.device)
             new_reward1 = - F.cross_entropy(matrix, label)
             new_reward2 = - F.cross_entropy(matrix.T, label)
             rewards = (new_reward1 + new_reward2 ) / 2
-            # mask_pos = torch.eye(phi_s.shape[0], phi_s.shape[0]).to(self.device)
-            # inner_pos = torch.diag(matrix)
-            # new_reward1 = (matrix * (1 - mask_pos)).sum(dim=1)
-            # new_reward2 = (matrix * (1 - mask_pos)).sum(dim=0)
-            # rewards = torch.log(1e-6 + F.sigmoid(inner_pos)) + torch.log(1 + 1e-6 - F.sigmoid(new_reward1)) + torch.log(1 + 1e-6 - F.sigmoid(new_reward2)) + torch.log(1e-6 + F.sigmoid(rewards))
-    
             tensors.update({
                 'next_z_reward': rewards.mean(),
-                # 'inner_s_s_next_pos': inner_pos.mean(),
                 'new_reward1': new_reward1.mean(),
                 'new_reward2': new_reward2.mean(),
-                # 'distance_pos_neg': distance_pos_neg.mean(),
             })
-                 
+
         if self.dual_dist == 's2_from_s':    
             s2_dist = self.dist_predictor(obs)
             loss_dp = -s2_dist.log_prob(next_obs - obs).mean()
@@ -725,25 +730,12 @@ class METRA(IOD):
     【2.1】计算qf的reward
     '''
     def _update_loss_qf(self, tensors, v):
-        if self.method["policy"] in ['her_reward']:
-            option = v['option_goal']
-            next_option = v['next_option_goal']
-            goal_reward = ((v['target_next_z_z']) * option).sum(dim=1)
-            policy_rewards = goal_reward * self._reward_scale_factor
-            # update to logs
-            tensors.update({
-                'policy_rewards': policy_rewards.mean(),
-                'norm_option_s_s_next': torch.norm(v['option_s_s_next'], p=2, dim=-1).mean(),
-                'diff_option_g_option_sample': torch.norm((v['option_goal'] - v['options']), p=2, dim=-1).mean(),
-            })
-        
-        else: # basline
-            option = v['options']
-            next_option = v['next_options']
-            policy_rewards = v['rewards'] * self._reward_scale_factor
-            tensors.update({
-                'policy_rewards': policy_rewards.mean(),
-            })
+        option = v['options']
+        next_option = v['next_options']
+        policy_rewards = v['rewards'] * self._reward_scale_factor
+        tensors.update({
+            'policy_rewards': policy_rewards.mean(),
+        })
             
         processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), option.float())
         next_processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['next_obs']), next_option.float())
@@ -774,10 +766,7 @@ class METRA(IOD):
     【2.2】计算policy的loss；
     '''
     def _update_loss_op(self, tensors, v):
-        if self.method['policy'] == "her_reward":
-            option = v['option_goal'].detach()
-        else:
-            option = v['options'].detach()
+        option = v['options'].detach()
         processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), option)
         sac_utils.update_loss_sacp(
             self, tensors, v,
@@ -805,13 +794,12 @@ class METRA(IOD):
         if env_name == 'ant_maze':  
             self.eval_maze(runner)
         
-        elif env_name == 'kitchen':
-            self.eval_kitchen(runner)
-            # self.eval_kitchen_metra(runner)
+        # elif env_name == 'kitchen':
+        #     self.eval_kitchen(runner)
+        #     # self.eval_kitchen_metra(runner)
             
         else:
             self.eval_metra(runner)
-            
             
     def eval_kitchen(self, runner):
         import imageio
@@ -1156,16 +1144,4 @@ class METRA(IOD):
             eval_option_metrics.update({'epoch': runner.step_itr})
             wandb.log(eval_option_metrics)
 
-
-
-
-        
-        
-        
-        
-        
-        
-        
-        
-        
                 
