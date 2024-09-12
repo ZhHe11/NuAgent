@@ -369,6 +369,7 @@ class IOD(RLAlgorithm):
                 data['sub_goal'].append(path["agent_infos"]["sub_goal"])
             else:
                 data['sub_goal'].append(np.tile(path['observations'][-1], (traj_len, 1)))
+            data['s_0'].append(np.tile(path['observations'][0], (traj_len, 1)))
 
             if 'phi_sub_goal' in path['agent_infos']:
                 data['phi_sub_goal'].append(path["agent_infos"]["phi_sub_goal"])
@@ -441,9 +442,11 @@ class IOD(RLAlgorithm):
                 
         return extras
 
-    def _gradient_descent(self, loss, optimizer_keys):
+    def _gradient_descent(self, loss, optimizer_keys, params=None):
         self._optimizer.zero_grad(keys=optimizer_keys)
         loss.backward()
+        if params is not None:
+            self.grad_clip.apply(params)
         self._optimizer.step(keys=optimizer_keys)
 
     def _get_mini_tensors(self, epoch_data):

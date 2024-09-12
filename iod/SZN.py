@@ -543,6 +543,7 @@ class SZN(IOD):
         self._gradient_descent(
             tensors['LossTe'],
             optimizer_keys=['traj_encoder'],
+            params=self.traj_encoder.parameters(),
         )
 
         self.update_target_traj(theta=self.target_theta)
@@ -552,11 +553,13 @@ class SZN(IOD):
             self._gradient_descent(
                 tensors['LossDualLam'],
                 optimizer_keys=['dual_lam'],
+                params=[self.dual_lam.param],
             )
             if self.dual_dist == 's2_from_s':
                 self._gradient_descent(
                     tensors['LossDp'],
                     optimizer_keys=['dist_predictor'],
+                    params=self.dist_predictor.parameters(),
                 )
 
     '''
@@ -568,18 +571,21 @@ class SZN(IOD):
         self._gradient_descent(
             tensors['LossQf1'] + tensors['LossQf2'],
             optimizer_keys=['qf'],
+            params=list(self.qf1.parameters()) + list(self.qf2.parameters()),
         )
 
         self._update_loss_op(tensors, internal_vars)
         self._gradient_descent(
             tensors['LossSacp'],
             optimizer_keys=['option_policy'],
+            params=self.option_policy.parameters(),
         )
 
         self._update_loss_alpha(tensors, internal_vars) 
         self._gradient_descent(
             tensors['LossAlpha'],
             optimizer_keys=['log_alpha'],
+            params=[self.log_alpha.param],
         )
 
         sac_utils.update_targets(self)
@@ -605,14 +611,40 @@ class SZN(IOD):
         cur_z = self.traj_encoder(obs).mean
         next_z = self.traj_encoder(next_obs).mean
 
-        option_s_s_next = next_z - cur_z
-        option = v['options']
-        v.update({
-            'cur_z': cur_z,
-            'next_z': next_z,
-            'options': option,
-            'option_s_s_next': option_s_s_next,
-        })
+        if self.method["policy"] in ['phi_g']:
+            s_f = v['sub_goal']
+            s_0 = v['s_0']
+            z_s_f = self.traj_encoder(s_f).mean
+            z_s_0 = self.traj_encoder(s_0).mean
+            # z_sample -> additional reward
+            z_sample = v['options']
+            option_g_s0 = z_s_f - z_s_0.detach()
+            sample_reward = (option_g_s0 * z_sample).sum(dim=-1)
+            # s_f - s -> policy option
+            option = self.vec_norm(z_s_f - cur_z)
+            option_s_s_next = next_z - cur_z
+            next_options = self.vec_norm(z_s_f - next_z)
+            # (s_next - s) * (option - s_next) -> reward
+            rewards = (option_s_s_next * (option-next_z)).sum(dim=-1)
+            v.update({
+                'cur_z': cur_z,
+                'next_z': next_z,
+                'options': option,
+                'option_s_s_next': option_s_s_next,
+                'next_options': next_options,
+                'sample_reward': sample_reward,
+                'rewards': rewards,
+            })
+            return
+        else: 
+            option_s_s_next = next_z - cur_z
+            option = v['options']
+            v.update({
+                'cur_z': cur_z,
+                'next_z': next_z,
+                'options': option,
+                'option_s_s_next': option_s_s_next,
+            })
 
         # 如果z是one-hot形式：
         if self.discrete == 1:
@@ -647,16 +679,19 @@ class SZN(IOD):
             vec_phi_s_s_next = v['option_s_s_next']
             matrix = (vec_phi_s_s_next.unsqueeze(0) * v['options'].unsqueeze(1)).sum(dim=-1)
             # log softmax
-            t = 3
+            t = 0.3
+            alpha = 0.2
             matrix = matrix / t
             label = torch.arange(matrix.shape[0]).to(self.device)
             new_reward1 = - F.cross_entropy(matrix, label)
             new_reward2 = - F.cross_entropy(matrix.T, label)
-            rewards = (new_reward1 + new_reward2 ) / 2
+            new_reward3 = torch.log(1e-6 + F.sigmoid(v['sample_reward']))
+            rewards = (1-alpha) * (new_reward1 + new_reward2) + alpha * new_reward3
             tensors.update({
                 'next_z_reward': rewards.mean(),
                 'new_reward1': new_reward1.mean(),
                 'new_reward2': new_reward2.mean(),
+                'new_reward3': new_reward3.mean(),
             })
 
         if self.dual_dist == 's2_from_s':    
