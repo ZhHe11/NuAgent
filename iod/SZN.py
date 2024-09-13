@@ -521,13 +521,18 @@ class SZN(IOD):
             return {}
         
         for i in range(self._trans_optimization_epochs):
+            tensors = {}
             for j in range(self._trans_phi_optimization_epochs):
-                tensors = {}
                 if self.replay_buffer is None:              
                     v = self._get_mini_tensors(epoch_data)
                 else:
                     v = self._sample_replay_buffer()
                 self._optimize_te(tensors, v)
+            for j in range(self._trans_phi_optimization_epochs):
+                if self.replay_buffer is None:              
+                    v = self._get_mini_tensors(epoch_data)
+                else:
+                    v = self._sample_replay_buffer()
                 with torch.no_grad():
                     self._update_rewards(tensors, v)
                 self._optimize_op(tensors, v)
@@ -646,30 +651,35 @@ class SZN(IOD):
             target_z_s_0 = self.target_traj_encoder(s_0).mean         
             target_cur_z = self.target_traj_encoder(obs).mean
             target_next_z = self.target_traj_encoder(next_obs).mean
-
             option_s_s_next = next_z - cur_z
             
             # 计算(s_next - s) * (g - s_0) -> reward
-            rewards = (option_s_s_next * self.vec_norm(target_z_s_f - target_z_s_0)).sum(dim=-1)
+            goal_options = z_s_f - z_s_0
+            rewards = (option_s_s_next * goal_options).sum(dim=-1)
             
             # z_sample -> sample reward (let z_sample = g - s_0) 
             z_sample = v['options']
-            option_g_s0 = z_s_f - target_z_s_0
-            sample_reward = (option_g_s0 * z_sample).sum(dim=-1)
+            sample_reward = (goal_options * z_sample).sum(dim=-1)
             
             # s_f - s -> policy option
-            option = self.vec_norm(target_z_s_f - target_cur_z)
-            next_options = self.vec_norm(target_z_s_f - target_next_z)
-            target_rewards = ((target_next_z - target_cur_z) * self.vec_norm(target_z_s_f - target_z_s_0)).sum(dim=-1)
+            # target_options = self.vec_norm(target_z_s_f - target_z_s_0)
+            # target_next_options = self.vec_norm(target_z_s_f - target_z_s_0)
+            # target_rewards = ((target_next_z - target_cur_z) * self.vec_norm(target_z_s_f - target_z_s_0)).sum(dim=-1)
+            target_options = z_sample
+            target_next_options = z_sample
+            target_rewards = ((target_next_z - target_cur_z) * z_sample).sum(dim=-1)
             
             v.update({
                 'cur_z': cur_z,
                 'next_z': next_z,
-                'options': option,
                 'option_s_s_next': option_s_s_next,
-                'next_options': next_options,
+                'goal_options': goal_options,
+                'sample_options': z_sample,
                 'sample_reward': sample_reward,
                 'rewards': rewards,
+                # target
+                'target_options': target_options,
+                'target_next_options': target_next_options,
                 'target_rewards': target_rewards,
             })
             return
@@ -715,21 +725,22 @@ class SZN(IOD):
         
         if self.method["phi"] in ['contrastive', 'phi_g']:
             vec_phi_s_s_next = v['option_s_s_next']
-            matrix = (vec_phi_s_s_next.unsqueeze(0) * v['options'].unsqueeze(1)).sum(dim=-1)
+            alpha = 0.3
+            options = self.vec_norm(v['goal_options'])
+            matrix = (vec_phi_s_s_next.unsqueeze(0) * options.unsqueeze(1)).sum(dim=-1)
             # log softmax
             t = 1
-            alpha = 0.05
             matrix = matrix / t
             label = torch.arange(matrix.shape[0]).to(self.device)
             new_reward1 = - F.cross_entropy(matrix, label)
             new_reward2 = - F.cross_entropy(matrix.T, label)
-            new_reward3 = torch.log(1e-6 + F.sigmoid(v['sample_reward']))
-            rewards = (1-alpha) * (new_reward1 + new_reward2) + alpha * new_reward3
+            # new_reward3 = torch.log(1e-6 + F.sigmoid(v['sample_reward']))
+            rewards = new_reward1 + new_reward2 + alpha * v['sample_reward']
             tensors.update({
                 'next_z_reward': rewards.mean(),
                 'new_reward1': new_reward1.mean(),
                 'new_reward2': new_reward2.mean(),
-                'new_reward3': new_reward3.mean(),
+                'new_reward3': v['sample_reward'].mean(),
             })
 
         if self.dual_dist == 's2_from_s':    
@@ -803,11 +814,13 @@ class SZN(IOD):
     【2.1】计算qf的reward
     '''
     def _update_loss_qf(self, tensors, v):
-        option = v['options']
-        next_option = v['next_options']
         if self.method["policy"] in ['phi_g']:
+            option = v['target_options']
+            next_option = v['target_next_options']
             policy_rewards = v['target_rewards'] * self._reward_scale_factor
         else:
+            option = v['options']
+            next_option = v['next_options']
             policy_rewards = v['rewards'] * self._reward_scale_factor
         tensors.update({
             'policy_rewards': policy_rewards.mean(),
