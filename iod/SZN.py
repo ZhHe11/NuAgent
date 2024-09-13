@@ -654,20 +654,17 @@ class SZN(IOD):
             option_s_s_next = next_z - cur_z
             
             # 计算(s_next - s) * (g - s_0) -> reward
-            goal_options = z_s_f - z_s_0
+            goal_options = self.vec_norm(z_s_f - z_s_0)
             rewards = (option_s_s_next * goal_options).sum(dim=-1)
             
             # z_sample -> sample reward (let z_sample = g - s_0) 
             z_sample = v['options']
-            sample_reward = (goal_options * z_sample).sum(dim=-1)
+            sample_reward = ((z_s_f - z_s_0) * z_sample).sum(dim=-1)
             
             # s_f - s -> policy option
-            # target_options = self.vec_norm(target_z_s_f - target_z_s_0)
-            # target_next_options = self.vec_norm(target_z_s_f - target_z_s_0)
-            # target_rewards = ((target_next_z - target_cur_z) * self.vec_norm(target_z_s_f - target_z_s_0)).sum(dim=-1)
-            target_options = z_sample
-            target_next_options = z_sample
-            target_rewards = ((target_next_z - target_cur_z) * z_sample).sum(dim=-1)
+            target_options = self.vec_norm(target_z_s_f - target_cur_z)
+            target_next_options = self.vec_norm(target_z_s_f - target_next_z)
+            target_rewards = ((target_next_z - target_cur_z) * self.vec_norm(target_z_s_f - target_cur_z)).sum(dim=-1)
             
             v.update({
                 'cur_z': cur_z,
@@ -725,8 +722,8 @@ class SZN(IOD):
         
         if self.method["phi"] in ['contrastive', 'phi_g']:
             vec_phi_s_s_next = v['option_s_s_next']
-            alpha = 0.3
-            options = self.vec_norm(v['goal_options'])
+            alpha = 0.1
+            options = v['goal_options']
             matrix = (vec_phi_s_s_next.unsqueeze(0) * options.unsqueeze(1)).sum(dim=-1)
             # log softmax
             t = 1
@@ -735,7 +732,7 @@ class SZN(IOD):
             new_reward1 = - F.cross_entropy(matrix, label)
             new_reward2 = - F.cross_entropy(matrix.T, label)
             # new_reward3 = torch.log(1e-6 + F.sigmoid(v['sample_reward']))
-            rewards = new_reward1 + new_reward2 + alpha * v['sample_reward']
+            rewards = (1-alpha) * (new_reward1 + new_reward2) + alpha * v['sample_reward']
             tensors.update({
                 'next_z_reward': rewards.mean(),
                 'new_reward1': new_reward1.mean(),
@@ -855,7 +852,10 @@ class SZN(IOD):
     【2.2】计算policy的loss；
     '''
     def _update_loss_op(self, tensors, v):
-        option = v['options'].detach()
+        if self.method["policy"] in ['phi_g']:
+            option = v['target_options'].detach()
+        else:
+            option = v['options'].detach()
         processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), option)
         sac_utils.update_loss_sacp(
             self, tensors, v,
