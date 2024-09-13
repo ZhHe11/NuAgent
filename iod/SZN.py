@@ -642,16 +642,26 @@ class SZN(IOD):
             s_0 = v['s_0']
             z_s_f = self.traj_encoder(s_f).mean
             z_s_0 = self.traj_encoder(s_0).mean
-            # z_sample -> additional reward
-            z_sample = v['options']
-            option_g_s0 = z_s_f - z_s_0.detach()
-            sample_reward = (option_g_s0 * z_sample).sum(dim=-1)
-            # s_f - s -> policy option
-            option = self.vec_norm(z_s_f - cur_z)
+            target_z_s_f = self.target_traj_encoder(s_f).mean
+            target_z_s_0 = self.target_traj_encoder(s_0).mean         
+            target_cur_z = self.target_traj_encoder(obs).mean
+            target_next_z = self.target_traj_encoder(next_obs).mean
+
             option_s_s_next = next_z - cur_z
-            next_options = self.vec_norm(z_s_f - next_z)
-            # (s_next - s) * (option - s_next) -> reward
-            rewards = (option_s_s_next * self.vec_norm(z_s_f - next_z)).sum(dim=-1)
+            
+            # 计算(s_next - s) * (g - s_0) -> reward
+            rewards = (option_s_s_next * self.vec_norm(target_z_s_f - target_z_s_0)).sum(dim=-1)
+            
+            # z_sample -> sample reward (let z_sample = g - s_0) 
+            z_sample = v['options']
+            option_g_s0 = z_s_f - target_z_s_0
+            sample_reward = (option_g_s0 * z_sample).sum(dim=-1)
+            
+            # s_f - s -> policy option
+            option = self.vec_norm(target_z_s_f - target_cur_z)
+            next_options = self.vec_norm(target_z_s_f - target_next_z)
+            target_rewards = ((target_next_z - target_cur_z) * self.vec_norm(target_z_s_f - target_z_s_0)).sum(dim=-1)
+            
             v.update({
                 'cur_z': cur_z,
                 'next_z': next_z,
@@ -660,6 +670,7 @@ class SZN(IOD):
                 'next_options': next_options,
                 'sample_reward': sample_reward,
                 'rewards': rewards,
+                'target_rewards': target_rewards,
             })
             return
         
@@ -691,7 +702,6 @@ class SZN(IOD):
     '''
     【1.1】计算phi函数的loss
     '''
-    
     def compute_loss(self):
         raise NotImplementedError
    
@@ -708,7 +718,7 @@ class SZN(IOD):
             matrix = (vec_phi_s_s_next.unsqueeze(0) * v['options'].unsqueeze(1)).sum(dim=-1)
             # log softmax
             t = 1
-            alpha = 0.2
+            alpha = 0.05
             matrix = matrix / t
             label = torch.arange(matrix.shape[0]).to(self.device)
             new_reward1 = - F.cross_entropy(matrix, label)
@@ -795,7 +805,10 @@ class SZN(IOD):
     def _update_loss_qf(self, tensors, v):
         option = v['options']
         next_option = v['next_options']
-        policy_rewards = v['rewards'] * self._reward_scale_factor
+        if self.method["policy"] in ['phi_g']:
+            policy_rewards = v['target_rewards'] * self._reward_scale_factor
+        else:
+            policy_rewards = v['rewards'] * self._reward_scale_factor
         tensors.update({
             'policy_rewards': policy_rewards.mean(),
         })
