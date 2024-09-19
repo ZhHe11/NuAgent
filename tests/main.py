@@ -406,8 +406,8 @@ def run(ctxt=None):
         input_dim=obs_dim,
         output_dim=args.dim_option,
         init_std=1.,
-        min_std=1e-6,
-        max_std=1e3,
+        min_std=1e-1,
+        max_std=1e2,
     )
     SampleZPolicy = module_cls(**module_kwargs)
     # zhanghe end

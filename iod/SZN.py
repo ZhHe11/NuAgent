@@ -356,7 +356,6 @@ class SZN(IOD):
 
         return data
 
-
     @torch.no_grad()
     def get_CV(self, s, s_next, Support, is_norm=False):
         '''
@@ -493,6 +492,11 @@ class SZN(IOD):
                         "epoch": runner.step_itr,
                     })
                 
+            elif self.method['explore'] == 'phi_g' and self.epoch_final is not None:
+                self.last_z = self.target_traj_encoder(self.init_obs).mean + self.max_path_length * torch.randn_like(self.last_z)
+                np_z = self.last_z.detach().cpu().numpy()
+                extras = self._generate_option_extras(random_options, phi_sub_goal=np_z)
+            
             else: 
                 self.last_z = torch.tensor(random_options, dtype=torch.float32).to(self.device)
                 extras = self._generate_option_extras(random_options)      # 变成字典的形式；
@@ -643,11 +647,16 @@ class SZN(IOD):
             return
         
         elif self.method["policy"] in ['phi_g']:
-            s_f = v['sub_goal']
             s_0 = v['s_0']
-            z_s_f = self.traj_encoder(s_f).mean
             z_s_0 = self.traj_encoder(s_0).mean
-            target_z_s_f = self.target_traj_encoder(s_f).mean
+            if self.method["explore"] in ['phi_g']:
+                z_s_f = v['phi_sub_goal']
+                target_z_s_f = v['phi_sub_goal']
+            else:
+                s_f = v['sub_goal']
+                z_s_f = self.traj_encoder(s_f).mean
+                target_z_s_f = self.target_traj_encoder(s_f).mean
+            
             target_z_s_0 = self.target_traj_encoder(s_0).mean         
             target_cur_z = self.target_traj_encoder(obs).mean
             target_next_z = self.target_traj_encoder(next_obs).mean
@@ -659,12 +668,12 @@ class SZN(IOD):
             
             # z_sample -> sample reward (let z_sample = g - s_0) 
             z_sample = v['options']
-            sample_reward = ((z_s_f - z_s_0) * z_sample).sum(dim=-1)
+            sample_reward = ((cur_z - z_s_0) * z_sample).sum(dim=-1)
             
             # s_f - s -> policy option
             target_options = self.vec_norm(target_z_s_f - target_cur_z)
             target_next_options = self.vec_norm(target_z_s_f - target_next_z)
-            target_rewards = ((target_next_z - target_cur_z) * self.vec_norm(target_z_s_f - target_cur_z)).sum(dim=-1)
+            target_rewards = ((target_next_z - target_cur_z) * self.vec_norm(target_z_s_f - target_z_s_0)).sum(dim=-1)
             
             v.update({
                 'cur_z': cur_z,
@@ -680,6 +689,7 @@ class SZN(IOD):
                 'target_rewards': target_rewards,
             })
             return
+        
         
         
         else: 
@@ -726,13 +736,14 @@ class SZN(IOD):
             options = v['goal_options']
             matrix = (vec_phi_s_s_next.unsqueeze(0) * options.unsqueeze(1)).sum(dim=-1)
             # log softmax
-            t = 1
+            t = 0.1
             matrix = matrix / t
             label = torch.arange(matrix.shape[0]).to(self.device)
             new_reward1 = - F.cross_entropy(matrix, label)
             new_reward2 = - F.cross_entropy(matrix.T, label)
             # new_reward3 = torch.log(1e-6 + F.sigmoid(v['sample_reward']))
             rewards = (1-alpha) * (new_reward1 + new_reward2) + alpha * v['sample_reward']
+            # rewards = matrix.diag() + v['sample_reward'] 
             tensors.update({
                 'next_z_reward': rewards.mean(),
                 'new_reward1': new_reward1.mean(),
