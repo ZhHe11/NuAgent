@@ -646,7 +646,7 @@ class SZN(IOD):
             })
             return
         
-        elif self.method["policy"] in ['phi_g']:
+        if self.method["phi"] in ['contrastive']:
             s_0 = v['s_0']
             z_s_0 = self.traj_encoder(s_0).mean
             if self.method["explore"] in ['phi_g']:
@@ -664,11 +664,14 @@ class SZN(IOD):
             
             # 计算(s_next - s) * (g - s_0) -> reward
             goal_options = self.vec_norm(z_s_f - z_s_0)
-            rewards = (option_s_s_next * goal_options).sum(dim=-1)
+            rewards_goal = (option_s_s_next * goal_options).sum(dim=-1)
             
+            # original reward
+            rewards = (option_s_s_next * v['options']).sum(dim=-1)
+                        
             # z_sample -> sample reward (let z_sample = g - s_0) 
             z_sample = v['options']
-            sample_reward = ((cur_z - z_s_0) * z_sample).sum(dim=-1)
+            sample_reward = (option_s_s_next * z_sample).sum(dim=-1)
             
             # s_f - s -> policy option
             target_options = self.vec_norm(target_z_s_f - target_cur_z)
@@ -683,14 +686,13 @@ class SZN(IOD):
                 'sample_options': z_sample,
                 'sample_reward': sample_reward,
                 'rewards': rewards,
+                'rewards_goal': rewards_goal,
                 # target
                 'target_options': target_options,
                 'target_next_options': target_next_options,
                 'target_rewards': target_rewards,
             })
             return
-        
-        
         
         else: 
             option_s_s_next = next_z - cur_z
@@ -732,8 +734,13 @@ class SZN(IOD):
         
         if self.method["phi"] in ['contrastive', 'phi_g']:
             vec_phi_s_s_next = v['option_s_s_next']
-            alpha = 0.1
-            options = v['goal_options']
+            alpha = 0
+            # if self.method["policy"] in ['phi_g']:
+            #     options = v['goal_options']
+            # else:
+            #     options = v['options']
+            # options = v['goal_options']
+            options = v['options']
             matrix = (vec_phi_s_s_next.unsqueeze(0) * options.unsqueeze(1)).sum(dim=-1)
             # log softmax
             t = 0.1
@@ -742,8 +749,8 @@ class SZN(IOD):
             new_reward1 = - F.cross_entropy(matrix, label)
             new_reward2 = - F.cross_entropy(matrix.T, label)
             # new_reward3 = torch.log(1e-6 + F.sigmoid(v['sample_reward']))
+            # rewards = (1-alpha) * (new_reward1 + new_reward2) + alpha * v['sample_reward']
             rewards = (1-alpha) * (new_reward1 + new_reward2) + alpha * v['sample_reward']
-            # rewards = matrix.diag() + v['sample_reward'] 
             tensors.update({
                 'next_z_reward': rewards.mean(),
                 'new_reward1': new_reward1.mean(),
