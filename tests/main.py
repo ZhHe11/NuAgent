@@ -98,7 +98,7 @@ def get_argparser():
     parser.add_argument('--n_epochs_per_save', type=int, default=1000)
     parser.add_argument('--n_epochs_per_pt_save', type=int, default=1000)
     parser.add_argument('--n_epochs_per_pkl_update', type=int, default=None)
-    parser.add_argument('--num_random_trajectories', type=int, default=48)
+    parser.add_argument('--num_random_trajectories', type=int, default=8)
     parser.add_argument('--num_video_repeats', type=int, default=2)
     parser.add_argument('--eval_record_video', type=int, default=1)
     parser.add_argument('--eval_plot_axis', type=float, default=None, nargs='*')
@@ -397,7 +397,7 @@ def run(ctxt=None):
         const_std=True,
     )
     SampleZNetwork = module_cls(**module_kwargs)
-    # SampleZPolicy
+    # SampleZPolicyx
     module_cls, module_kwargs = get_gaussian_module_construction(
         args,
         hidden_sizes=master_dims,
@@ -406,7 +406,7 @@ def run(ctxt=None):
         input_dim=obs_dim,
         output_dim=args.dim_option,
         init_std=1.,
-        min_std=1e-1,
+        min_std=1e-2,
         max_std=1e2,
     )
     SampleZPolicy = module_cls(**module_kwargs)

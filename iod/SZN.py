@@ -160,6 +160,9 @@ class SZN(IOD):
         self.SampleZPolicy_optim = optim.SGD(self.SampleZPolicy.parameters(), lr=1e-4)
         self.grad_clip = GradClipper(clip_type='clip_norm', threshold=2, norm_type=2)
         
+        self.last_return = None
+        
+        
     @property
     def policy(self):
         return {
@@ -317,7 +320,7 @@ class SZN(IOD):
                 dones = np.concatenate(value, axis=0)
             epoch_data[key] = torch.tensor(np.concatenate(value, axis=0), dtype=torch.float32, device=self.device)
             # for explore_type != baseline
-            if key in ['obs', 'actions'] :
+            if key in ['obs', 'actions', 'options'] :
                 traj_key_dim = value[0].shape[-1]
                 epoch_key_final = torch.zeros((num_sample_batch, self.max_path_length, traj_key_dim), dtype=torch.float32, device=self.device)
                 for i in range(num_sample_batch):
@@ -361,24 +364,25 @@ class SZN(IOD):
         '''
         s = [batch, seq, dim]
         a = [batch, seq, dim]
+        Support = [batch, seq, dim]
         batch_regret = [batch]
         '''
-        Support_num = Support.shape[0]
-        
-        s = s.reshape(s.shape[0]*s.shape[1], s.shape[-1])   # [batch*seq, dim]
-        s_next = s_next.reshape(s_next.shape[0]*s_next.shape[1], s_next.shape[-1])  # [batch*seq, dim]
-        
-        phi_s = self.target_traj_encoder(s).mean
-        phi_s_next = self.target_traj_encoder(s_next).mean
-        
-        TS = torch.zeros(Support_num).to(self.device)
-        for i in range(Support_num):
-            TS[i] = (self.vec_norm(phi_s_next - phi_s) * Support[i].unsqueeze(0)).sum(dim=-1).mean()    # [batch*seq, 1]
-        TS_mean = TS.mean()
+        Batch_size = s.shape[0]
+        SupportReturn = torch.zeros(Batch_size).to(self.device)
+        for batch_i in range(Batch_size):
+            phi_s = self.target_traj_encoder(s[batch_i]).mean
+            phi_s_next = self.target_traj_encoder(s_next[batch_i]).mean
+            option = Support[batch_i]
+            
+            Return = ((phi_s_next - phi_s) * option).sum(dim=-1)       # [seq, 1]
+            discount = (self.discount ** torch.arange(Return.shape[0])).to(self.device)      # [seq]
+            SupportReturn[batch_i] = (Return * discount).sum(dim=0)   # [1]
+
+        SupportReturn_mean = SupportReturn.mean()
         if is_norm:
-            TS = (TS - TS.mean()) / (TS.std() + 1e-8)
+            SupportReturn = (SupportReturn - SupportReturn.mean()) / (SupportReturn.std() + 1e-8)
                     
-        return TS, TS_mean
+        return SupportReturn, SupportReturn_mean
     
     '''
     【0】 计算online时的option；
@@ -453,45 +457,46 @@ class SZN(IOD):
                                     })
             
             elif self.method['explore'] == 'SZN' and self.epoch_final is not None:
-                CV, CV_mean = self.get_CV(s=self.epoch_final['obs'][:-1], s_next=self.epoch_final['obs'][1:], Support=self.last_z, is_norm=False)
+
+                SupportReturn, SR_mean = self.get_CV(s=self.epoch_final['obs'][:,:-1], s_next=self.epoch_final['obs'][:,1:], Support=self.epoch_final['options'][:,:-1], is_norm=False)
                 
-                # update SZN
-                CV_szn = self.SampleZNetwork(self.last_z).mean.squeeze(-1)
-                delta_CV = CV - CV_szn
-                self.SZN_optim.zero_grad()
-                loss_SZN = F.mse_loss(CV_szn, CV)
-                loss_SZN.backward()
-                self.SZN_optim.step()
+                if self.last_return is None:
+                    # 如果没有计算last_return，则说明，此时是第一次采集、第一次训练；保持last_z再采集一次进行评估；
+                    self.last_return = SupportReturn
+                    
+                else:
+                    # 已经存在last_return, 说明，第二次采集、第二次训练；比较last_return和这次return，更新SZN，重新采集z；
+                    delta_SR = SupportReturn - self.last_return
+                    # update SZN 
+                    for epoch_t in range(3):
+                        dist_z = self.SampleZPolicy(self.init_obs)
+                        z_logp = dist_z.log_prob(self.last_z)
+                        self.SampleZPolicy_optim.zero_grad()      
+                        delta_SR_norm = (delta_SR - delta_SR.mean()) / (delta_SR.std() + 1e-6)
+                        loss_SZP = (-z_logp * delta_SR_norm.detach()).mean()
+                        loss_SZP.backward()
+                        self.grad_clip.apply(self.SampleZPolicy.parameters())
+                        self.SampleZPolicy_optim.step()  
+                    # sample z
+                    self.last_z = self.vec_norm(self.SampleZPolicy(self.init_obs).sample().detach())
+                    # reset last_return
+                    self.last_return = None
+                    
+                    if wandb.run is not None:
+                        wandb.log({
+                            "SZN/loss_SZP": loss_SZP,
+                            "SZN/delta_SR": delta_SR.mean(),
+                            "SZN/delta_SR_std": delta_SR.std(),
+                            "SZN/delta_SR_norm": delta_SR_norm.mean(),
+                            "SZN/logp": z_logp.mean(),
+                            "SZN/SR": SupportReturn.mean(),
+                            "epoch": runner.step_itr,
+                        })
                 
-                # update SampleZPolicy
-                dist_z = self.SampleZPolicy(self.init_obs)
-                z_logp = dist_z.log_prob(self.last_z)
-                self.SampleZPolicy_optim.zero_grad()
-                delta_CV_norm = (delta_CV - delta_CV.mean()) / (delta_CV.std() + 1e-6)
-                delta_CV_norm = torch.clip(delta_CV_norm, -1, 1)
-                loss_SZP = (-z_logp * delta_CV_norm.detach()).mean()
-                loss_SZP.backward()
-                self.grad_clip.apply(self.SampleZPolicy.parameters())
-                self.SampleZPolicy_optim.step()
-                
-                # sample SZN
-                self.last_z = self.vec_norm(self.SampleZPolicy(self.init_obs).sample().detach())
                 np_z = self.last_z.cpu().numpy()
                 print("Sample Z: ", np_z)
-                extras = self._generate_option_extras(np_z)
+                extras = self._generate_option_extras(np_z)                
 
-                if wandb.run is not None:
-                    wandb.log({
-                        "SZN/loss_SZN": loss_SZN,
-                        "SZN/loss_SZP": loss_SZP,
-                        "SZN/delta_CV": delta_CV.mean(),
-                        "SZN/delta_CV_std": delta_CV.std(),
-                        "SZN/delta_CV_norm": delta_CV_norm.mean(),
-                        "SZN/logp": z_logp.mean(),
-                        "SZN/CV": CV.mean(),
-                        "epoch": runner.step_itr,
-                    })
-                
             elif self.method['explore'] == 'phi_g' and self.epoch_final is not None:
                 self.last_z = self.target_traj_encoder(self.init_obs).mean + self.max_path_length * torch.randn_like(self.last_z)
                 np_z = self.last_z.detach().cpu().numpy()
@@ -511,7 +516,7 @@ class SZN(IOD):
     '''
     def _train_once_inner(self, path_data):
         self._update_replay_buffer(path_data)       
-        epoch_data = self._flatten_data(path_data) 
+        epoch_data = self._flatten_data(path_data)
         tensors = self._train_components(epoch_data)  
         return tensors
     
@@ -734,13 +739,8 @@ class SZN(IOD):
         
         if self.method["phi"] in ['contrastive', 'phi_g']:
             vec_phi_s_s_next = v['option_s_s_next']
-            alpha = 0
-            # if self.method["policy"] in ['phi_g']:
-            #     options = v['goal_options']
-            # else:
-            #     options = v['options']
-            # options = v['goal_options']
-            options = v['options']
+            alpha = 0.5
+            options = v['goal_options']
             matrix = (vec_phi_s_s_next.unsqueeze(0) * options.unsqueeze(1)).sum(dim=-1)
             # log softmax
             t = 0.1
@@ -748,8 +748,6 @@ class SZN(IOD):
             label = torch.arange(matrix.shape[0]).to(self.device)
             new_reward1 = - F.cross_entropy(matrix, label)
             new_reward2 = - F.cross_entropy(matrix.T, label)
-            # new_reward3 = torch.log(1e-6 + F.sigmoid(v['sample_reward']))
-            # rewards = (1-alpha) * (new_reward1 + new_reward2) + alpha * v['sample_reward']
             rewards = (1-alpha) * (new_reward1 + new_reward2) + alpha * v['sample_reward']
             tensors.update({
                 'next_z_reward': rewards.mean(),
