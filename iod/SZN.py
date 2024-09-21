@@ -468,7 +468,7 @@ class SZN(IOD):
                     # 已经存在last_return, 说明，第二次采集、第二次训练；比较last_return和这次return，更新SZN，重新采集z；
                     delta_SR = SupportReturn - self.last_return
                     # update SZN 
-                    for epoch_t in range(3):
+                    for t in range(3):
                         dist_z = self.SampleZPolicy(self.init_obs)
                         z_logp = dist_z.log_prob(self.last_z)
                         self.SampleZPolicy_optim.zero_grad()      

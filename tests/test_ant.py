@@ -14,6 +14,7 @@ from sklearn.decomposition import PCA
 import matplotlib.cm as cm
 from tqdm import trange, tqdm
 import tests.make_env as make_env
+import copy
 
 
 # save the traj. as fig
@@ -67,13 +68,13 @@ def gen_z(sub_goal, obs, traj_encoder, device="cpu", ret_emb: bool = False):
 # policy_path = '/data/zh/project12_Metra/METRA/exp/ant/baselinesd000_1725971140_ant_metra/option_policy10000.pt'
 # traj_encoder_path = '/data/zh/project12_Metra/METRA/exp/ant/baselinesd000_1725971140_ant_metra/traj_encoder10000.pt'
 
-policy_path = "/data/zh/project12_Metra/METRA/exp/Debug/t01/option_policy20000.pt"
-traj_encoder_path = "/data/zh/project12_Metra/METRA/exp/Debug/t01/traj_encoder20000.pt"
+# policy_path = "/data/zh/project12_Metra/METRA/exp/Debug/t01/option_policy20000.pt"
+# traj_encoder_path = "/data/zh/project12_Metra/METRA/exp/Debug/t01/traj_encoder20000.pt"
 
-load_option_policy_base = torch.load(policy_path)
-load_traj_encoder_base = torch.load(traj_encoder_path)
-agent_policy = load_option_policy_base['policy'].eval()
-agent_traj_encoder = load_traj_encoder_base['traj_encoder'].eval()
+# load_option_policy_base = torch.load(policy_path)
+# load_traj_encoder_base = torch.load(traj_encoder_path)
+# agent_policy = load_option_policy_base['policy'].eval()
+# agent_traj_encoder = load_traj_encoder_base['traj_encoder'].eval()
 
 # set up env
 from envs.mujoco.ant_env import AntEnv
@@ -96,7 +97,7 @@ device = 'cuda'
 # goal[:2] = [50,50]
 # goal_tensor = torch.tensor(goal).to(device).float().unsqueeze(0)
 
-num_eval = 5
+num_eval = 10
 num_model = 2
 max_path_length = 200
 
@@ -107,66 +108,91 @@ all_goalxy = []
 goal_list = []
 option_list = []
 for i in range(num_eval):
-    goal_xy = np.random.uniform(-100, 100, 2)
-    goal = obs
-    goal[:2] = goal_xy
-    goal_list.append(goal)
+    goal_xy = np.random.uniform(-200, 200, 2)
+    print(goal_xy)
     all_goalxy.append(goal_xy)
     option = np.random.uniform(-1, 1, 2)
     option = vec_norm(torch.tensor(option).to(device).float().unsqueeze(0))
     option_list.append(option)
-    
+
+print(all_goalxy)
+
 obs_cover_range_list = []
 
 for type in range(num_model):
     if type == 0:
         policy_path = '/data/zh/project12_Metra/METRA/exp/ant/baselinesd000_1725971140_ant_metra/option_policy10000.pt'
         traj_encoder_path = '/data/zh/project12_Metra/METRA/exp/ant/baselinesd000_1725971140_ant_metra/traj_encoder10000.pt'
+        
+        load_option_policy_base = torch.load(policy_path)
+        load_traj_encoder_base = torch.load(traj_encoder_path)
+        agent_policy = load_option_policy_base['policy'].eval()
+        agent_traj_encoder = load_traj_encoder_base['traj_encoder'].eval()
+        
     elif type == 1:
-        policy_path = "/data/zh/project12_Metra/METRA/exp/Debug/t01/option_policy20000.pt"
-        traj_encoder_path = "/data/zh/project12_Metra/METRA/exp/Debug/t01/traj_encoder20000.pt"
-    
-    load_option_policy_base = torch.load(policy_path)
-    load_traj_encoder_base = torch.load(traj_encoder_path)
-    agent_policy = load_option_policy_base['policy'].eval()
-    agent_traj_encoder = load_traj_encoder_base['traj_encoder'].eval()
-    
+        policy_path = "/data/zh/project12_Metra/METRA/exp/Debug/SZN-C2sd000_1726811060_ant_SZN/wandb/latest-run/filesoption_policy.pt"
+        traj_encoder_path = "/data/zh/project12_Metra/METRA/exp/Debug/SZN-C2sd000_1726811060_ant_SZN/wandb/latest-run/filestaregt_traj_encoder.pt"
+        
+        load_option_policy_base = torch.load(policy_path)
+        load_traj_encoder_base = torch.load(traj_encoder_path)
+        agent_policy = load_option_policy_base['policy'].eval()
+        agent_traj_encoder = load_traj_encoder_base['target_traj_encoder'].eval()
+        
+    model_distance = []
+    model_success = []
+    Return_list = []
     for i in trange(num_eval):
         obs = env.reset()
         obs_init = obs
+        goal = copy.deepcopy(obs_init)
         # goal_tensor = torch.tensor(goal_list[i]).to(device).float().unsqueeze(0)
+        goal[:2] = all_goalxy[i]
+        obs_tensor = torch.tensor(obs).to(device).float().unsqueeze(0)
+        goal_tensor = torch.tensor(goal).to(device).float().unsqueeze(0)
+        phi_g = agent_traj_encoder(goal_tensor).mean
+        phi_s = agent_traj_encoder(obs_tensor).mean
+        option = vec_norm(phi_g - phi_s)
         distance = []
         success = 0
+        Return = 0
+        init_distance = np.linalg.norm(obs[:2] - goal[:2])
         for t in range(max_path_length):
             obs_tensor = torch.tensor(obs).to(device).float().unsqueeze(0)
             phi_s = agent_traj_encoder(obs_tensor).mean
-            # goal = obs
-            # goal[:2] = goal_list[i][:2]
-            # goal_tensor = torch.tensor(goal).to(device).float().unsqueeze(0)
-            # phi_g = agent_traj_encoder(goal_tensor).mean
-            # option = vec_norm(phi_g - phi_s)
-            option = option_list[i]
+            # option = option_list[i]
             obs_option = torch.cat((obs_tensor, option), -1).float()
             action = agent_policy(obs_option)[1]['mean']
-            
             obs, reward, done, info = env.step(action.detach().cpu().numpy())
             # print(obs)
             # print(info['coordinates'])
             obs_cover_range_list.append(obs)
+            # frames.append(env.render(mode='rgb_array'))
+            distance_value = np.linalg.norm(obs[:2] - goal[:2])
+            Return = Return + (0.99 ** t) * (-distance_value) / (init_distance * max_path_length)
+            distance.append(distance_value)
+            if distance_value < 5:
+                success = 1
+            model_distance.append(distance_value)
+            model_success.append(success)
+            if success == 1:
+                break
             
-            frames.append(env.render(mode='rgb_array'))
-            distance.append(np.linalg.norm(obs[:2] - obs_init[:2]))
-            # if distance[-1] < 0.1:
-            #     success = 1
-        all_distane.append(distance)
+        Return_list.append(Return) 
+        # all_distane.append(distance)
+            
         # all_success.append(success)
+            
         # all_goalxy.append(goal_xy)
-
-# np_as = np.array(all_success)
+        
+    print('average_success:', np.array(model_success).mean())
+    print('average_distance:', np.array(model_distance).mean())
+    print('return:', np.array(Return_list).mean())
+    
+    
+np_as = np.array(all_success)
 np_ad = np.array(all_distane)
 
-# print('average_success:', np_as.mean())
-print('average_distance:', np_ad[:,-1].mean())
+
 
 # plot curve
 # import pdb; pdb.set_trace()
@@ -174,13 +200,13 @@ print('average_distance:', np_ad[:,-1].mean())
 # y1 = obs_cover_range_list[:num_eval*max_path_length] 
 # y2 = obs_cover_range_list[num_eval*max_path_length:]
 
-x_path = range(max_path_length)
-for i in range(num_eval):
-    label1 = 'baseline'
-    label2 = 'ours'
+# x_path = range(max_path_length)
+# for i in range(num_eval):
+#     label1 = 'baseline'
+#     label2 = 'ours'
     
-    plt.plot(x_path, all_distane[i], label=label1, color='grey')
-    plt.plot(x_path, all_distane[i+num_eval], label=label2, color='green')
+#     plt.plot(x_path, all_distane[i], label=label1, color='grey')
+#     plt.plot(x_path, all_distane[i+num_eval], label=label2, color='green')
     
     # for t in trange(len(y1)):
     #     plt.scatter([x_-0.125 for x_ in x_features], y1[t], color='grey', s=1)
@@ -189,12 +215,12 @@ for i in range(num_eval):
 # plt.ylabel('value')
 # plt.title('cover ranges')
 
-plt.xlabel('steps')
-plt.ylabel('distance from init')
-plt.title('distance curve')
+# plt.xlabel('steps')
+# plt.ylabel('distance from init')
+# plt.title('distance curve')
 
-plt.legend()
-plt.savefig('./test/distance_curve.png')
+# plt.legend()
+# plt.savefig('./test/distance_curve.png')
 
 # save the traj. as gif
 # path = './test/'
