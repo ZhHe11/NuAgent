@@ -545,18 +545,27 @@ class SZN(IOD):
             # dict_len = copy.deepcopy(self.replay_buffer.n_transitions_stored)
             dataset = BufferDataset(self.replay_buffer._buffer, len=self.replay_buffer.n_transitions_stored)
             dataloader = DataLoader(dataset, batch_size=256, shuffle=True, num_workers=4, multiprocessing_context='fork', pin_memory=True)
+            
+            # time1 = time.time()     
             for epoch_i, v in enumerate(dataloader):
+                # time2 = time.time()
                 v = {key: value.to(self.device) for key, value in v.items()}
                 if epoch_i > self._trans_phi_optimization_epochs:
                     break
                 self._optimize_te(tensors, v)
+                # print("##1._optimize_te: ", time.time() - time2)    # 0.04s
+            # time2 = time.time()                                     # 8-14s
+            # print("#1._optimize_te: ", time2 - time1)
             for epoch_i, v in enumerate(dataloader):
+                # time3 = time.time()
                 v = {key: value.to(self.device) for key, value in v.items()}
                 if epoch_i > self._trans_policy_optimization_epochs:
                     break
                 with torch.no_grad():
                     self._update_rewards(tensors, v)
-                self._optimize_op(tensors, v)            
+                self._optimize_op(tensors, v)   
+                # print('##2._optimize_op: ', time.time() - time3)    # 0.06s        
+            # print('#2 _optimize_op: ', time.time() - time2)         # 8-16s
 
             # # 原方法；
             # for j in range(self._trans_phi_optimization_epochs):
@@ -691,13 +700,13 @@ class SZN(IOD):
                 z_s_f = self.traj_encoder(s_f).mean
                 target_z_s_f = self.target_traj_encoder(s_f).mean
             
-            target_z_s_0 = self.target_traj_encoder(s_0).mean         
+            # target_z_s_0 = self.target_traj_encoder(s_0).mean         
             target_cur_z = self.target_traj_encoder(obs).mean
             target_next_z = self.target_traj_encoder(next_obs).mean
             option_s_s_next = next_z - cur_z
             
             # 计算(s_next - s) * (g - s_0) -> reward
-            goal_options = self.vec_norm(target_z_s_f - target_z_s_0)
+            goal_options = self.vec_norm(z_s_f - z_s_0)
             rewards_goal = (option_s_s_next * goal_options).sum(dim=-1)
             
             # original reward
@@ -773,19 +782,37 @@ class SZN(IOD):
             t = 1
             options = v['goal_options']
             
-            # contrastive
+            # # contrastive 1 
+            # matrix = (vec_phi_s_s_next.unsqueeze(1) * options.unsqueeze(0)).sum(dim=-1)
+            # # 过滤掉相似的option
+            # option_sim = (options.unsqueeze(1) * options.unsqueeze(0)).sum(dim=-1)
+            # mask = torch.where(option_sim>0.9, 0, 1)
+            # mask = torch.eye(mask.shape[0]).to(self.device) + mask
+            # matrix = matrix * mask
+            
+            # matrix = matrix / t
+            # label = torch.arange(matrix.shape[0]).to(self.device)
+            # new_reward1 = - F.cross_entropy(matrix, label)
+            # new_reward2 = - F.cross_entropy(matrix.T, label)
+            # rewards = (1-alpha) * (new_reward1 + new_reward2) + alpha * v['sample_reward']
+            
+            
+            # contrastive 2
+            # 不用softmax
             matrix = (vec_phi_s_s_next.unsqueeze(1) * options.unsqueeze(0)).sum(dim=-1)
             # 过滤掉相似的option
-            option_sim = (options.unsqueeze(1) * options.unsqueeze(0)).sum(dim=-1)
+            option_sim = (options.unsqueeze(1) * options.unsqueeze(0)).sum(dim=-1)    
             mask = torch.where(option_sim>0.9, 0, 1)
-            mask = torch.eye(mask.shape[0]).to(self.device) + mask
-            matrix = matrix * mask
+            # mask = torch.eye(mask.shape[0]).to(self.device) + mask
+            Mask_eye = torch.eye(mask.shape[0]).to(self.device)
+            matrix = matrix * Mask_eye + option_sim * mask
             
             matrix = matrix / t
             label = torch.arange(matrix.shape[0]).to(self.device)
             new_reward1 = - F.cross_entropy(matrix, label)
             new_reward2 = - F.cross_entropy(matrix.T, label)
             rewards = (1-alpha) * (new_reward1 + new_reward2) + alpha * v['sample_reward']
+            
             
             # no contrastive; but phi_g
             # new_reward1 = (vec_phi_s_s_next * options).sum(dim=-1)
