@@ -59,7 +59,7 @@ class Plotter:
         with self.sess.as_default(), self.graph.as_default():
             self._policy = policy.clone('plotter_policy')
         self.rollout = rollout
-        self.worker_thread = Thread(target=self._start_worker, daemon=True)
+        self.worker_thread = Thread(target=self._start_worker, daemon=False)
         self.queue = Queue()
 
         # Needed in order to draw glfw window on the main thread

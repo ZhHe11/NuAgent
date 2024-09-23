@@ -154,6 +154,7 @@ class SZN(IOD):
         self.acc = torch.ones(self.num_random_trajectories).to(self.device)
         self.space_predictor_optim = None
         self._trans_phi_optimization_epochs = _trans_phi_optimization_epochs
+        self._trans_policy_optimization_epochs = _trans_policy_optimization_epochs
         self.target_theta = target_theta
         
         self.last_z = None
@@ -539,20 +540,40 @@ class SZN(IOD):
         
         for i in range(self._trans_optimization_epochs):
             tensors = {}
+            # 尝试使用DateLoader加速图像数据的读取；
+            # dict_buffer = copy.deepcopy(self.replay_buffer._buffer)
+            # dict_len = copy.deepcopy(self.replay_buffer.n_transitions_stored)
             dataset = BufferDataset(self.replay_buffer._buffer, len=self.replay_buffer.n_transitions_stored)
-            dataloader = DataLoader(dataset, batch_size=self._trans_minibatch_size, shuffle=True, num_workers=0, pin_memory=True)
-            
-            for j in range(self._trans_phi_optimization_epochs):
-                if self.replay_buffer is None:              
-                    v = self._get_mini_tensors(epoch_data)
-                else:
-                    v = self._sample_replay_buffer()
+            dataloader = DataLoader(dataset, batch_size=256, shuffle=True, num_workers=4, multiprocessing_context='fork', pin_memory=True)
+            for epoch_i, v in enumerate(dataloader):
+                v = {key: value.to(self.device) for key, value in v.items()}
+                if epoch_i > self._trans_phi_optimization_epochs:
+                    break
                 self._optimize_te(tensors, v)
-                
-            for j in range(self._trans_policy_optimization_epochs):
+            for epoch_i, v in enumerate(dataloader):
+                v = {key: value.to(self.device) for key, value in v.items()}
+                if epoch_i > self._trans_policy_optimization_epochs:
+                    break
                 with torch.no_grad():
                     self._update_rewards(tensors, v)
-                self._optimize_op(tensors, v)
+                self._optimize_op(tensors, v)            
+
+            # # 原方法；
+            # for j in range(self._trans_phi_optimization_epochs):
+            #     if self.replay_buffer is None:              
+            #         v = self._get_mini_tensors(epoch_data)
+            #     else:
+            #         v = self._sample_replay_buffer()
+            #     self._optimize_te(tensors, v)
+                
+            # for j in range(self._trans_policy_optimization_epochs):
+            #     if self.replay_buffer is None:              
+            #         v = self._get_mini_tensors(epoch_data)
+            #     else:
+            #         v = self._sample_replay_buffer()
+            #     with torch.no_grad():
+            #         self._update_rewards(tensors, v)
+            #     self._optimize_op(tensors, v)
                 
         return tensors
 
@@ -676,7 +697,7 @@ class SZN(IOD):
             option_s_s_next = next_z - cur_z
             
             # 计算(s_next - s) * (g - s_0) -> reward
-            goal_options = self.vec_norm(z_s_f - z_s_0)
+            goal_options = self.vec_norm(target_z_s_f - target_z_s_0)
             rewards_goal = (option_s_s_next * goal_options).sum(dim=-1)
             
             # original reward
@@ -689,7 +710,7 @@ class SZN(IOD):
             # s_f - s -> policy option
             target_options = self.vec_norm(target_z_s_f - target_cur_z)
             target_next_options = self.vec_norm(target_z_s_f - target_next_z)
-            target_rewards = ((target_next_z - target_cur_z) * self.vec_norm(target_z_s_f - target_z_s_0)).sum(dim=-1)
+            target_rewards = ((target_next_z - target_cur_z) * z_sample).sum(dim=-1)
             
             v.update({
                 'cur_z': cur_z,
@@ -729,6 +750,7 @@ class SZN(IOD):
             'PureRewardStd': rewards.std(),             # baseline reward;
         })
         v['rewards'] = rewards                          # 是baseline的reward; 具体用到的reward之后再根据self.method计算；
+        v['target_rewards'] = rewards,
 
     
     '''
@@ -748,7 +770,7 @@ class SZN(IOD):
         if self.method["phi"] in ['contrastive', 'phi_g']:
             vec_phi_s_s_next = v['option_s_s_next']
             alpha = 0
-            t = 0.2
+            t = 1
             options = v['goal_options']
             
             # contrastive
@@ -855,7 +877,7 @@ class SZN(IOD):
         else:
             option = v['options']
             next_option = v['next_options']
-            policy_rewards = v['rewards'] * self._reward_scale_factor
+            policy_rewards = v['target_rewards'] * self._reward_scale_factor
         tensors.update({
             'policy_rewards': policy_rewards.mean(),
         })

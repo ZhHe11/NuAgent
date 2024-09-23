@@ -69,7 +69,8 @@ class OptionMultiprocessingSampler(MultiprocessingSampler):
                                 agent=self._agents[worker_number],
                                 env=self._envs[worker_number],
                                 n_thread=self._n_thread,
-                            )
+                            ),
+                            daemon=False
                             )
                 for worker_number in range(self._factory.n_workers)
             ]

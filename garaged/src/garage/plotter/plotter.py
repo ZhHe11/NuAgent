@@ -111,7 +111,7 @@ class Plotter:
             self._process = Thread(target=self._worker_start)
         else:
             self._process = Process(target=self._worker_start)
-        self._process.daemon = True
+        self._process.daemon = False
         self._process.start()
         atexit.register(self.close)
 

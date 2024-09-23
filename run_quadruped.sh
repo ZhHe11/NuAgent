@@ -1,11 +1,11 @@
-export CUDA_VISIBLE_DEVICES=3
+export CUDA_VISIBLE_DEVICES=5
 export MUJOCO_GL="osmesa"
 
 
 # regret
 python tests/main.py --run_group Quadruped --env dmc_quadruped --max_path_length 200 --seed 0 --traj_batch_size 8 --n_parallel 4 --normalizer_type off --video_skip_frames 2 --frame_stack 3 --sac_max_buffer_size 300000 --eval_plot_axis -15 15 -15 15 --algo SZN --n_epochs_per_log 5 --n_epochs_per_eval 10 --n_epochs_per_save 1000 --n_epochs_per_pt_save 1000 --discrete 0 --dim_option 4 --encoder 1 --sample_cpu 0 --trans_optimization_epochs 1 \
-    --exp_name SZN_v2-OptionFilter-t02  --phi_type contrastive --policy_type baseline --explore_type SZN --sample_type baseline --num_her 0 --_trans_phi_optimization_epochs 100 --_trans_policy_optimization_epochs 200 --target_theta 1 --is_wandb 1 --trans_minibatch_size 256 
-    
+    --exp_name Contrast_t1-OF-MorePolicyTraining --phi_type contrastive --policy_type baseline --explore_type baseline --sample_type baseline --num_her 0 --_trans_phi_optimization_epochs 100 --_trans_policy_optimization_epochs 200 --target_theta 1e-3 --is_wandb 1 --trans_minibatch_size 256 
+
 # # ours
 #     --phi_type contrastive --policy_type her_reward --explore_type baseline --sample_type contrastive --num_her 0 --_trans_phi_optimization_epochs 1 --trans_optimization_epochs 200 --target_theta 1 --is_wandb 1 --trans_minibatch_size 256 
 # # baseline

@@ -139,7 +139,7 @@ def get_argparser():
     parser.add_argument('--unit_length', type=int, default=1, choices=[0, 1])  # Only for continuous skills
 
     parser.add_argument('--dual_reg', type=int, default=1, choices=[0, 1])
-    parser.add_argument('--dual_lam', type=float, default=10)
+    parser.add_argument('--dual_lam', type=float, default=30)
     parser.add_argument('--dual_slack', type=float, default=1e-3)
     parser.add_argument('--dual_dist', type=str, default='one', choices=['l2', 's2_from_s', 'one'])
     parser.add_argument('--dual_lr', type=float, default=None)
