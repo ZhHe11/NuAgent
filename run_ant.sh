@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=6
+export CUDA_VISIBLE_DEVICES=7
 export MUJOCO_GL="osmesa"
 
 

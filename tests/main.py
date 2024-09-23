@@ -139,7 +139,7 @@ def get_argparser():
     parser.add_argument('--unit_length', type=int, default=1, choices=[0, 1])  # Only for continuous skills
 
     parser.add_argument('--dual_reg', type=int, default=1, choices=[0, 1])
-    parser.add_argument('--dual_lam', type=float, default=30)
+    parser.add_argument('--dual_lam', type=float, default=10)
     parser.add_argument('--dual_slack', type=float, default=1e-3)
     parser.add_argument('--dual_dist', type=str, default='one', choices=['l2', 's2_from_s', 'one'])
     parser.add_argument('--dual_lr', type=float, default=None)
@@ -154,8 +154,10 @@ def get_argparser():
     parser.add_argument('--is_wandb', type=int, default=0)
     
     parser.add_argument('--_trans_phi_optimization_epochs', type=int, default=1)
+    parser.add_argument('--_trans_policy_optimization_epochs', type=int, default=1)
     parser.add_argument('--_trans_online_sample_epochs', type=int, default=1)
     parser.add_argument('--target_theta', type=float, default=1.)
+    
     
     return parser
 
@@ -566,6 +568,7 @@ def run(ctxt=None):
         space_predictor=space_predictor,
         num_her=args.num_her,
         _trans_phi_optimization_epochs=args._trans_phi_optimization_epochs,
+        _trans_policy_optimization_epochs=args._trans_policy_optimization_epochs,
         _trans_online_sample_epochs=args._trans_online_sample_epochs,
         target_theta=args.target_theta,
     )

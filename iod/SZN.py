@@ -32,6 +32,8 @@ from torch.distributions import Normal
 import time
 from iod.GradCLipper import GradClipper
 
+from iod.BufferDataset import BufferDataset
+from torch.utils.data import DataLoader
 
 
 class SZN(IOD):
@@ -66,6 +68,7 @@ class SZN(IOD):
             goal_sample_network=None,
             space_predictor=None,
             _trans_phi_optimization_epochs=1,
+            _trans_policy_optimization_epochs=1,
             target_theta=1,
 
             SampleZNetwork=None,
@@ -161,8 +164,12 @@ class SZN(IOD):
         self.grad_clip = GradClipper(clip_type='clip_norm', threshold=2, norm_type=2)
         
         self.last_return = None
+        self.input_token = self.init_obs + 0 * torch.randn_like(self.init_obs).to(self.device)
         
+    
+    
         
+    
     @property
     def policy(self):
         return {
@@ -469,16 +476,17 @@ class SZN(IOD):
                     delta_SR = SupportReturn - self.last_return
                     # update SZN 
                     for t in range(3):
-                        dist_z = self.SampleZPolicy(self.init_obs)
+                        dist_z = self.SampleZPolicy(self.input_token)
                         z_logp = dist_z.log_prob(self.last_z)
+                        # z_logp = torch.clamp(z_logp, min=torch.log(torch.tensor(1e-8)).to(self.device))
                         self.SampleZPolicy_optim.zero_grad()      
-                        delta_SR_norm = (delta_SR - delta_SR.mean()) / (delta_SR.std() + 1e-6)
+                        delta_SR_norm = (delta_SR - delta_SR.mean()) / (delta_SR.std() + 1e-8)
                         loss_SZP = (-z_logp * delta_SR_norm.detach()).mean()
                         loss_SZP.backward()
                         self.grad_clip.apply(self.SampleZPolicy.parameters())
                         self.SampleZPolicy_optim.step()  
                     # sample z
-                    self.last_z = self.vec_norm(self.SampleZPolicy(self.init_obs).sample().detach())
+                    self.last_z = self.vec_norm(self.SampleZPolicy(self.input_token).sample().detach())
                     # reset last_return
                     self.last_return = None
                     
@@ -531,17 +539,17 @@ class SZN(IOD):
         
         for i in range(self._trans_optimization_epochs):
             tensors = {}
+            dataset = BufferDataset(self.replay_buffer._buffer, len=self.replay_buffer.n_transitions_stored)
+            dataloader = DataLoader(dataset, batch_size=self._trans_minibatch_size, shuffle=True, num_workers=0, pin_memory=True)
+            
             for j in range(self._trans_phi_optimization_epochs):
                 if self.replay_buffer is None:              
                     v = self._get_mini_tensors(epoch_data)
                 else:
                     v = self._sample_replay_buffer()
                 self._optimize_te(tensors, v)
-            for j in range(self._trans_phi_optimization_epochs):
-                if self.replay_buffer is None:              
-                    v = self._get_mini_tensors(epoch_data)
-                else:
-                    v = self._sample_replay_buffer()
+                
+            for j in range(self._trans_policy_optimization_epochs):
                 with torch.no_grad():
                     self._update_rewards(tensors, v)
                 self._optimize_op(tensors, v)
@@ -739,16 +747,29 @@ class SZN(IOD):
         
         if self.method["phi"] in ['contrastive', 'phi_g']:
             vec_phi_s_s_next = v['option_s_s_next']
-            alpha = 0.5
+            alpha = 0
+            t = 0.2
             options = v['goal_options']
-            matrix = (vec_phi_s_s_next.unsqueeze(0) * options.unsqueeze(1)).sum(dim=-1)
-            # log softmax
-            t = 0.1
+            
+            # contrastive
+            matrix = (vec_phi_s_s_next.unsqueeze(1) * options.unsqueeze(0)).sum(dim=-1)
+            # 过滤掉相似的option
+            option_sim = (options.unsqueeze(1) * options.unsqueeze(0)).sum(dim=-1)
+            mask = torch.where(option_sim>0.9, 0, 1)
+            mask = torch.eye(mask.shape[0]).to(self.device) + mask
+            matrix = matrix * mask
+            
             matrix = matrix / t
             label = torch.arange(matrix.shape[0]).to(self.device)
             new_reward1 = - F.cross_entropy(matrix, label)
             new_reward2 = - F.cross_entropy(matrix.T, label)
             rewards = (1-alpha) * (new_reward1 + new_reward2) + alpha * v['sample_reward']
+            
+            # no contrastive; but phi_g
+            # new_reward1 = (vec_phi_s_s_next * options).sum(dim=-1)
+            # new_reward2 = new_reward1
+            # rewards = new_reward1
+            
             tensors.update({
                 'next_z_reward': rewards.mean(),
                 'new_reward1': new_reward1.mean(),
@@ -848,7 +869,7 @@ class SZN(IOD):
             obs=processed_cat_obs,
             actions=v['actions'],   
             next_obs=next_processed_cat_obs,
-            dones=v['dones'],
+            dones=v['dones'].squeeze(-1),
             rewards=policy_rewards,
             policy=self.option_policy,
             qf1=self.qf1,
@@ -1121,12 +1142,12 @@ class SZN(IOD):
         #     'dim_option': self.dim_option,
         #     'goal_sample_network': self.goal_sample_network,
         # }, file_name)
-        file_name = path + 'SampleZNetwork.pt'
-        torch.save({
-            'discrete': self.discrete,
-            'dim_option': self.dim_option,
-            'goal_sample_network': self.SampleZNetwork,
-        }, file_name)
+        # file_name = path + 'SampleZNetwork.pt'
+        # torch.save({
+        #     'discrete': self.discrete,
+        #     'dim_option': self.dim_option,
+        #     'goal_sample_network': self.SampleZNetwork,
+        # }, file_name)
         file_name = path + 'SampleZPolicy.pt'
         torch.save({
             'discrete': self.discrete,

@@ -30,7 +30,7 @@ class PathBufferEx:
             self._pixel_dim = np.prod(pixel_shape)
         else:
             self._pixel_dim = None
-        self._pixel_keys = ['obs', 'next_obs']
+        self._pixel_keys = ['obs', 'next_obs', 'sub_goal', 's_0']
 
     def add_path(self, path):
         """Add a path to the buffer.

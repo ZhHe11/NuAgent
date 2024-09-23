@@ -365,11 +365,14 @@ class IOD(RLAlgorithm):
             index = np.arange(0, traj_len)
 
             ## use sub_goal from path; if not exist, use the last one as subgoal;
-            if 'sub_goal' in path['agent_infos']:
-                data['sub_goal'].append(path["agent_infos"]["sub_goal"])
-            else:
-                data['sub_goal'].append(np.tile(path['observations'][-1], (traj_len, 1)))
+            # if 'sub_goal' in path['agent_infos']:
+            #     data['sub_goal'].append(path["agent_infos"]["sub_goal"])
+            # else:
+            #     data['sub_goal'].append(np.tile(path['observations'][-1], (traj_len, 1)))
+            data['sub_goal'].append(np.tile(path['observations'][-1], (traj_len, 1)))
             data['s_0'].append(np.tile(path['observations'][0], (traj_len, 1)))
+            # data['sub_goal'].append(traj_len - 1 - index)
+            # data['s_0'].append(-index)
 
             if 'phi_sub_goal' in path['agent_infos']:
                 data['phi_sub_goal'].append(path["agent_infos"]["phi_sub_goal"])
