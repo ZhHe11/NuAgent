@@ -101,7 +101,8 @@ class METRA_bl(IOD):
         }
         self.policy_for_agent = AgentWrapper(policies=policy_for_agent) 
         
-        
+    def vec_norm(self, vec):
+        return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
 
     @property
     def policy(self):
@@ -109,62 +110,12 @@ class METRA_bl(IOD):
             'option_policy': self.policy_for_agent,
         }
 
-    @torch.no_grad()
-    def get_TS(self, s, s_next, Support, is_norm=True):
-        '''
-        s = [batch, dim]
-        a = [batch, dim]
-        batch_regret = [batch]
-        '''
-        # s = s.reshape(s.shape[0]*s.shape[1], s.shape[-1])   # [batch*seq, dim]
-        # s_next = s_next.reshape(s_next.shape[0]*s_next.shape[1], s_next.shape[-1])  # [batch*seq, dim]
-        phi_s = self.traj_encoder(s).mean
-        phi_s_next = self.traj_encoder(s_next).mean
-        TS = torch.zeros(self.dim_option).to(self.device)
-        for i in range(self.dim_option):
-            TS[i] = ((phi_s_next - phi_s) * Support[i].unsqueeze(0)).sum(dim=-1).mean()    # [batch*seq, 1]
-        TS_mean = TS.mean()
-        if is_norm:
-            TS = (TS - TS.mean()) / (TS.std() + 1e-8)
-
-        return TS, TS_mean
-
-
     def _get_concat_obs(self, obs, option):
         return get_torch_concat_obs(obs, option)
 
     def _get_train_trajectories_kwargs(self, runner):
         if self.discrete:
             extras = self._generate_option_extras(np.eye(self.dim_option)[np.random.randint(0, self.dim_option, runner._train_args.batch_size)])
-            
-            # # explore type
-            # explore_type = 'baseline'
-            # if explore_type == 'table' and self.epoch_data is not None:
-            #     import random
-            #     import torch.nn.functional as F
-
-            #     std = 0.1
-            #     alpha = 0.1
-            #     if self.last_w is None:
-            #         self.Support_tensor = torch.eye(self.dim_option).to(self.device)
-            #         Weight_important = torch.ones(self.dim_option).to(self.device) / self.dim_option
-            #         self.last_TS = torch.zeros(self.dim_option).to(self.device)
-                
-            #     v = self.epoch_data
-            #     TS, TS_mean = self.get_TS(s=v['obs'], s_next=v['next_obs'], Support=self.Support_tensor, is_norm=False)
-            #     Weight_important = torch.clip(F.softmax(TS - self.last_TS, dim=-1), min= 1/(2*self.dim_option))
-            #     Weight_important = Weight_important / Weight_important.sum()
-                
-            #     w = Weight_important.cpu().numpy()
-            #     Sample_z = random.choices(self.Support_tensor.cpu().numpy(), weights=w, k=self.num_random_trajectories)
-            #     Sample_z_array = np.array(Sample_z)
-            #     Sample_z_array = Sample_z_array + std * np.random.randn(Sample_z_array.shape[0], Sample_z_array.shape[1])
-
-            #     Sample_z_array = Sample_z_array / np.linalg.norm(Sample_z_array, axis=-1, keepdims=True)
-            #     extras = self._generate_option_extras(Sample_z_array)
-            #     print('Weight_important:', w)
-            
-            #     self.last_TS = self.last_TS + alpha * (TS - self.last_TS)
             
         else:
             random_options = np.random.randn(runner._train_args.batch_size, self.dim_option)
@@ -288,9 +239,24 @@ class METRA_bl(IOD):
                 masks = (v['options'] - v['options'].mean(dim=1, keepdim=True)) * self.dim_option / (self.dim_option - 1 if self.dim_option != 1 else 1)
                 rewards = (target_z * masks).sum(dim=1)
             else:
-                inner = (target_z * v['options']).sum(dim=1)
-                rewards = inner
-
+                ## 对比学习phi_g
+                # zhanghe begin 20240924
+                phi_g = self.traj_encoder(v['sub_goal']).mean
+                phi_s0 = self.traj_encoder(v['s_0']).mean
+                v['options'] = self.vec_norm(phi_g - phi_s0)
+                v['next_options'] = v['options']
+                new_reward1 = (target_z * v['options']).sum(dim=-1)
+                option_sim = (v['options'].unsqueeze(1) * v['options'].unsqueeze(0)).sum(dim=-1)    
+                mask1 = torch.where(option_sim>0.99, 0, 1)
+                option_sim = option_sim * mask1
+                new_reward2 = option_sim.sum(dim=-1) / ((mask1).sum(dim=-1) + 1e-6)
+                weight = 1 / self.max_path_length
+                rewards = new_reward1 - weight * new_reward2
+                # zhanghe end
+                
+                ## baseline
+                # inner = (target_z * v['options']).sum(dim=1)
+                # rewards = inner
             # For dual objectives
             v.update({
                 'cur_z': cur_z,
@@ -384,8 +350,8 @@ class METRA_bl(IOD):
         })
 
     def _update_loss_qf(self, tensors, v):
-        processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), v['options'])
-        next_processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['next_obs']), v['next_options'])
+        processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), v['options'].detach())
+        next_processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['next_obs']), v['next_options'].detach())
 
         sac_utils.update_loss_qf(
             self, tensors, v,
