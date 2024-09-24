@@ -162,7 +162,7 @@ class SZN(IOD):
         self.SZN_optim = optim.SGD(self.SampleZNetwork.parameters(), lr=1e-4)
         self.SampleZPolicy = SampleZPolicy.to(self.device)
         self.SampleZPolicy_optim = optim.SGD(self.SampleZPolicy.parameters(), lr=1e-4)
-        self.grad_clip = GradClipper(clip_type='clip_norm', threshold=2, norm_type=2)
+        self.grad_clip = GradClipper(clip_type='clip_norm', threshold=5, norm_type=2)
         
         self.last_return = None
         self.input_token = self.init_obs + 0 * torch.randn_like(self.init_obs).to(self.device)
@@ -350,6 +350,7 @@ class SZN(IOD):
                     cur_list = data[key][i]
                     if cur_list.ndim == 1:
                         cur_list = cur_list[..., np.newaxis]
+                    # cur_list = torch.tensor(cur_list)
                     path[key] = cur_list
                 self.replay_buffer.add_path(path)
 
@@ -544,23 +545,23 @@ class SZN(IOD):
             # dict_buffer = copy.deepcopy(self.replay_buffer._buffer)
             # dict_len = copy.deepcopy(self.replay_buffer.n_transitions_stored)
             dataset = BufferDataset(self.replay_buffer._buffer, len=self.replay_buffer.n_transitions_stored)
-            dataloader = DataLoader(dataset, batch_size=256, shuffle=True, num_workers=4, multiprocessing_context='fork', pin_memory=True)
+            dataloader = DataLoader(dataset, batch_size=256, shuffle=True, num_workers=4, multiprocessing_context='fork', pin_memory=True, prefetch_factor=2)
             
             # time1 = time.time()     
             for epoch_i, v in enumerate(dataloader):
-                # time2 = time.time()
-                v = {key: value.to(self.device) for key, value in v.items()}
                 if epoch_i > self._trans_phi_optimization_epochs:
                     break
+                # time2 = time.time()
+                v = {key: value.type(torch.float32).to(self.device) for key, value in v.items()}
                 self._optimize_te(tensors, v)
                 # print("##1._optimize_te: ", time.time() - time2)    # 0.04s
             # time2 = time.time()                                     # 8-14s
             # print("#1._optimize_te: ", time2 - time1)
-            for epoch_i, v in enumerate(dataloader):
-                # time3 = time.time()
-                v = {key: value.to(self.device) for key, value in v.items()}
-                if epoch_i > self._trans_policy_optimization_epochs:
-                    break
+            # for epoch_i, v in enumerate(dataloader):
+            #     # time3 = time.time()
+            #     v = {key: value.type(torch.float32).to(self.device) for key, value in v.items()}
+                # if epoch_i > self._trans_policy_optimization_epochs:
+                #     break
                 with torch.no_grad():
                     self._update_rewards(tensors, v)
                 self._optimize_op(tensors, v)   
@@ -759,7 +760,7 @@ class SZN(IOD):
             'PureRewardStd': rewards.std(),             # baseline reward;
         })
         v['rewards'] = rewards                          # 是baseline的reward; 具体用到的reward之后再根据self.method计算；
-        v['target_rewards'] = rewards,
+        v['target_rewards'] = rewards
 
     
     '''
@@ -797,21 +798,30 @@ class SZN(IOD):
             # rewards = (1-alpha) * (new_reward1 + new_reward2) + alpha * v['sample_reward']
             
             
-            # contrastive 2
-            # 不用softmax
-            matrix = (vec_phi_s_s_next.unsqueeze(1) * options.unsqueeze(0)).sum(dim=-1)
-            # 过滤掉相似的option
+            # contrastive v3
+            new_reward1 = (vec_phi_s_s_next * options).sum(dim=-1)
             option_sim = (options.unsqueeze(1) * options.unsqueeze(0)).sum(dim=-1)    
-            mask = torch.where(option_sim>0.9, 0, 1)
-            # mask = torch.eye(mask.shape[0]).to(self.device) + mask
-            Mask_eye = torch.eye(mask.shape[0]).to(self.device)
-            matrix = matrix * Mask_eye + option_sim * mask
+            mask1 = torch.where(option_sim>0.99, 0, 1)
+            mask2 = torch.where(option_sim<0.5, 0, 1)
+            option_sim = option_sim * mask1 * mask2
+            new_reward2 = option_sim.sum(dim=-1) / ((mask1 * mask2).sum(dim=-1) + 1e-6)
+            weight = 1 / self.max_path_length
+            rewards = new_reward1 - weight * new_reward2
             
-            matrix = matrix / t
-            label = torch.arange(matrix.shape[0]).to(self.device)
-            new_reward1 = - F.cross_entropy(matrix, label)
-            new_reward2 = - F.cross_entropy(matrix.T, label)
-            rewards = (1-alpha) * (new_reward1 + new_reward2) + alpha * v['sample_reward']
+            # contrastive v2
+            # matrix = (vec_phi_s_s_next.unsqueeze(1) * options.unsqueeze(0)).sum(dim=-1)
+            # # 过滤掉相似的option
+            # option_sim = (options.unsqueeze(1) * options.unsqueeze(0)).sum(dim=-1)    
+            # mask = torch.where(option_sim>0.9, 0, 1)
+            # # mask = torch.eye(mask.shape[0]).to(self.device) + mask
+            # Mask_eye = torch.eye(mask.shape[0]).to(self.device)
+            # matrix = matrix * Mask_eye + option_sim * mask
+            
+            # matrix = matrix / t
+            # label = torch.arange(matrix.shape[0]).to(self.device)
+            # new_reward1 = - F.cross_entropy(matrix, label)
+            # new_reward2 = - F.cross_entropy(matrix.T, label)
+            # rewards = (1-alpha) * (new_reward1 + new_reward2) + alpha * v['sample_reward']
             
             
             # no contrastive; but phi_g

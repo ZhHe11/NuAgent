@@ -46,6 +46,7 @@ class METRA_bl(IOD):
             goal_sample_network=None,
             space_predictor=None,
             _trans_phi_optimization_epochs=1,
+            _trans_policy_optimization_epochs=1,
             target_theta=1,
 
             **kwargs,
@@ -95,7 +96,7 @@ class METRA_bl(IOD):
         '''
         policy_for_agent = {
             "default_policy": self.option_policy,
-            # "traj_encoder": self.traj_encoder,
+            "traj_encoder": self.traj_encoder,
             # "target_traj_encoder": self.target_traj_encoder,
         }
         self.policy_for_agent = AgentWrapper(policies=policy_for_agent) 
@@ -200,7 +201,8 @@ class METRA_bl(IOD):
         for key, value in samples.items():
             if value.shape[1] == 1 and 'option' not in key:
                 value = np.squeeze(value, axis=1)
-            data[key] = torch.from_numpy(value).float().to(self.device)
+            # data[key] = torch.from_numpy(value).float().to(self.device)
+            data[key] = value.float().to(self.device) 
         return data
 
     def _train_once_inner(self, path_data):

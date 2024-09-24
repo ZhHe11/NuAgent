@@ -299,7 +299,7 @@ class IOD(RLAlgorithm):
                 print(filepath)
                 plt.savefig(filepath) 
                 wandb.log(({"train_Maze_traj": wandb.Image(filepath)}))
-            else:
+            elif 'phi_s' in trajectories[0]['agent_infos'].keys():
                 All_Repr_obs_list = []
                 All_Goal_obs_list = []
                 for i in range(len(trajectories)):

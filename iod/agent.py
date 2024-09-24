@@ -11,6 +11,8 @@ class AgentWrapper(object):
     def __init__(self, policies):
         for k, v in policies.items():
             setattr(self, k, v)
+        if 'target_traj_encoder' not in policies:
+            self.target_traj_encoder = copy.deepcopy(policies['traj_encoder'])
 
     def vec_norm(self, vec):
         return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)

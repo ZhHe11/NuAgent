@@ -36,6 +36,7 @@ from garage.experiment.deterministic import set_seed
 from garage.torch.distributions import TanhNormal
 
 from garagei.replay_buffer.path_buffer_ex import PathBufferEx
+from garagei.replay_buffer.path_buffer_tensor import PathBufferTensor
 from garagei.experiment.option_local_runner import OptionLocalRunner
 from garagei.envs.consistent_normalized_env import consistent_normalize
 from garagei.sampler.option_multiprocessing_sampler import OptionMultiprocessingSampler
@@ -489,7 +490,10 @@ def run(ctxt=None):
             ]),
         })
 
-    replay_buffer = PathBufferEx(capacity_in_transitions=int(args.sac_max_buffer_size), pixel_shape=pixel_shape)
+    # if args.algo == 'metra_bl':
+    #     replay_buffer = PathBufferEx(capacity_in_transitions=int(args.sac_max_buffer_size), pixel_shape=pixel_shape)
+    # else:
+    replay_buffer = PathBufferTensor(capacity_in_transitions=int(args.sac_max_buffer_size), pixel_shape=pixel_shape)
 
     if args.algo in ['metra', 'dads', 'causer', 'metra_bl', 'SZN']:
         qf1 = ContinuousMLPQFunctionEx(
