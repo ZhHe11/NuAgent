@@ -250,8 +250,8 @@ class DMCGymWrapper(core.Env):
 
         coords = []
         for traj in trajectories:
-            traj1 = traj['env_infos']['coordinates'][:, :coord_dim]
-            traj2 = traj['env_infos']['next_coordinates'][-1:, :coord_dim]
+            traj1 = np.array(traj['env_infos']['coordinates'])[:, :coord_dim]
+            traj2 = np.array(traj['env_infos']['next_coordinates'])[-1:, :coord_dim]
             coords.append(traj1)
             coords.append(traj2)
         coords = np.concatenate(coords, axis=0)

@@ -257,15 +257,9 @@ class IOD(RLAlgorithm):
         plot training traj
         '''
         if (runner.step_itr + 2) % self.n_epochs_per_log == 0 and wandb.run is not None:
-            # if "phi_s" in trajectories[0]['agent_infos'].keys() and "phi_sub_goal" in trajectories[0]['agent_infos'].keys():
-            #     Pepr_viz = True
-            #     PhiGoal_viz = False     # 暂时不想看phi_g
-            # else:
-            #     Pepr_viz = False
-            #     PhiGoal_viz = False
-            Pepr_viz = True
+            Pepr_viz = False
             PhiGoal_viz = False
-            Z_viz = True
+            Z_viz = False
             if self.env_name == 'ant_maze':
                 fig, ax = plt.subplots()
                 env = runner._env

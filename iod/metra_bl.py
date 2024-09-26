@@ -239,24 +239,24 @@ class METRA_bl(IOD):
                 masks = (v['options'] - v['options'].mean(dim=1, keepdim=True)) * self.dim_option / (self.dim_option - 1 if self.dim_option != 1 else 1)
                 rewards = (target_z * masks).sum(dim=1)
             else:
-                ## 对比学习phi_g
-                # zhanghe begin 20240924
-                phi_g = self.traj_encoder(v['sub_goal']).mean
-                phi_s0 = self.traj_encoder(v['s_0']).mean
-                v['options'] = self.vec_norm(phi_g - phi_s0)
-                v['next_options'] = v['options']
-                new_reward1 = (target_z * v['options']).sum(dim=-1)
-                option_sim = (v['options'].unsqueeze(1) * v['options'].unsqueeze(0)).sum(dim=-1)    
-                mask1 = torch.where(option_sim>0.99, 0, 1)
-                option_sim = option_sim * mask1
-                new_reward2 = option_sim.sum(dim=-1) / ((mask1).sum(dim=-1) + 1e-6)
-                weight = 1 / self.max_path_length
-                rewards = new_reward1 - weight * new_reward2
-                # zhanghe end
+                # ## 对比学习phi_g
+                # # zhanghe begin 20240924
+                # phi_g = self.traj_encoder(v['sub_goal']).mean
+                # phi_s0 = self.traj_encoder(v['s_0']).mean
+                # v['options'] = self.vec_norm(phi_g - phi_s0)
+                # v['next_options'] = v['options']
+                # new_reward1 = (target_z * v['options']).sum(dim=-1)
+                # option_sim = (v['options'].unsqueeze(1) * v['options'].unsqueeze(0)).sum(dim=-1)    
+                # mask1 = torch.where(option_sim>0.99, 0, 1)
+                # option_sim = option_sim * mask1
+                # new_reward2 = option_sim.sum(dim=-1) / ((mask1).sum(dim=-1) + 1e-6)
+                # weight = 1 / self.max_path_length
+                # rewards = new_reward1 - weight * new_reward2
+                # # zhanghe end
                 
                 ## baseline
-                # inner = (target_z * v['options']).sum(dim=1)
-                # rewards = inner
+                inner = (target_z * v['options']).sum(dim=1)
+                rewards = inner
             # For dual objectives
             v.update({
                 'cur_z': cur_z,

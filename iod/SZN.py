@@ -162,13 +162,10 @@ class SZN(IOD):
         self.SZN_optim = optim.SGD(self.SampleZNetwork.parameters(), lr=1e-4)
         self.SampleZPolicy = SampleZPolicy.to(self.device)
         self.SampleZPolicy_optim = optim.SGD(self.SampleZPolicy.parameters(), lr=1e-4)
-        self.grad_clip = GradClipper(clip_type='clip_norm', threshold=5, norm_type=2)
+        self.grad_clip = GradClipper(clip_type='clip_norm', threshold=3, norm_type=2)
         
         self.last_return = None
-        self.input_token = self.init_obs + 0 * torch.randn_like(self.init_obs).to(self.device)
-        
-    
-    
+        self.input_token = 0 * self.init_obs + 1 * torch.randn_like(self.init_obs).to(self.device)
         
     
     @property
@@ -183,7 +180,7 @@ class SZN(IOD):
     def _get_concat_obs(self, obs, option):
         return get_torch_concat_obs(obs, option)
 
-    def _clip_phi_g(self, goal, lower_value=-300, upper_value=300):
+    def _clip_action(self, goal, lower_value=-300, upper_value=300):
         epsilon = 1e-6
         dim = goal.shape[-1]
         lower = lower_value * torch.ones(dim).to(self.device) + epsilon
@@ -393,6 +390,33 @@ class SZN(IOD):
                     
         return SupportReturn, SupportReturn_mean
     
+    
+    @torch.no_grad()
+    def get_Regret(self, option, state, num_samples=10):
+        batch = option.shape[0]
+        # [s0, z]
+        processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(state), option.float())                            # [b,dim_s+dim_z]
+        
+        # dist of pi(a|[s0, z])
+        dist, info = self.option_policy(processed_cat_obs)    # [b, dim]
+        actions = dist.sample((num_samples,))          # [b, n, dim]
+        log_probs = dist.log_prob(actions).squeeze(-1)  # [b, n]
+        
+        
+        processed_cat_obs_flatten = processed_cat_obs.repeat(1, num_samples).view(batch * num_samples, -1)      # [b*n, dim_s+z]
+        actions_flatten = actions.view(batch * num_samples, -1)     # [b*n, dim_a]
+        q_values = torch.min(self.target_qf1(processed_cat_obs_flatten, actions_flatten), self.target_qf2(processed_cat_obs_flatten, actions_flatten))      # [b*n, dim_1]
+        
+        values = q_values - self.alpha * log_probs.view(batch*num_samples, -1)      # [b*n, 1]
+        values = values.view(batch, num_samples, -1)        # [b, n, 1]
+        
+        logsum = torch.logsumexp(values, dim=1, keepdim=True)     # [b, 1, 1]
+        weights = torch.exp(values - logsum)        # [b, n, 1]
+        
+        E_V = torch.sum(weights * values, dim=1) / torch.sum(weights, dim=1)
+
+        return E_V.squeeze(-1)
+    
     '''
     【0】 计算online时的option；
     '''
@@ -467,8 +491,10 @@ class SZN(IOD):
             
             elif self.method['explore'] == 'SZN' and self.epoch_final is not None:
 
-                SupportReturn, SR_mean = self.get_CV(s=self.epoch_final['obs'][:,:-1], s_next=self.epoch_final['obs'][:,1:], Support=self.epoch_final['options'][:,:-1], is_norm=False)
-                
+                # SupportReturn, SR_mean = self.get_CV(s=self.epoch_final['obs'][:,:-1], s_next=self.epoch_final['obs'][:,1:], Support=self.vec_norm(self.last_z), is_norm=False)
+                options = self.vec_norm(self.last_z)
+                SupportReturn = self.get_Regret(option=options, state=self.init_obs)
+                      
                 if self.last_return is None:
                     # 如果没有计算last_return，则说明，此时是第一次采集、第一次训练；保持last_z再采集一次进行评估；
                     self.last_return = SupportReturn
@@ -480,7 +506,6 @@ class SZN(IOD):
                     for t in range(3):
                         dist_z = self.SampleZPolicy(self.input_token)
                         z_logp = dist_z.log_prob(self.last_z)
-                        # z_logp = torch.clamp(z_logp, min=torch.log(torch.tensor(1e-8)).to(self.device))
                         self.SampleZPolicy_optim.zero_grad()      
                         delta_SR_norm = (delta_SR - delta_SR.mean()) / (delta_SR.std() + 1e-8)
                         loss_SZP = (-z_logp * delta_SR_norm.detach()).mean()
@@ -488,7 +513,9 @@ class SZN(IOD):
                         self.grad_clip.apply(self.SampleZPolicy.parameters())
                         self.SampleZPolicy_optim.step()  
                     # sample z
-                    self.last_z = self.vec_norm(self.SampleZPolicy(self.input_token).sample().detach())
+                    new_z = self.SampleZPolicy(self.input_token).sample().detach()
+                    sim_iteration = (self.vec_norm(new_z)*self.vec_norm(self.last_z)).sum(dim=-1)
+                    self.last_z = new_z 
                     # reset last_return
                     self.last_return = None
                     
@@ -497,13 +524,13 @@ class SZN(IOD):
                             "SZN/loss_SZP": loss_SZP,
                             "SZN/delta_SR": delta_SR.mean(),
                             "SZN/delta_SR_std": delta_SR.std(),
-                            "SZN/delta_SR_norm": delta_SR_norm.mean(),
                             "SZN/logp": z_logp.mean(),
                             "SZN/SR": SupportReturn.mean(),
+                            "SZN/sim_iteration": sim_iteration.mean(),
                             "epoch": runner.step_itr,
                         })
                 
-                np_z = self.last_z.cpu().numpy()
+                np_z = self.vec_norm(self.last_z).cpu().numpy()
                 print("Sample Z: ", np_z)
                 extras = self._generate_option_extras(np_z)                
 
@@ -536,55 +563,18 @@ class SZN(IOD):
     def _train_components(self, epoch_data):
         if self.replay_buffer is not None and self.replay_buffer.n_transitions_stored < self.min_buffer_size:
             return {}
-        if self.UpdateSGN and self.cold_start == 0:
-            return {}
-        
-        for i in range(self._trans_optimization_epochs):
-            tensors = {}
-            # 尝试使用DateLoader加速图像数据的读取；
-            # dict_buffer = copy.deepcopy(self.replay_buffer._buffer)
-            # dict_len = copy.deepcopy(self.replay_buffer.n_transitions_stored)
-            dataset = BufferDataset(self.replay_buffer._buffer, len=self.replay_buffer.n_transitions_stored)
-            dataloader = DataLoader(dataset, batch_size=256, shuffle=True, num_workers=4, multiprocessing_context='fork', pin_memory=True, prefetch_factor=2)
+        tensors = {}
+        dataset = BufferDataset(self.replay_buffer._buffer, len=self.replay_buffer.n_transitions_stored)
+        dataloader = DataLoader(dataset, batch_size=self._trans_minibatch_size, shuffle=True, num_workers=2, multiprocessing_context='fork')
+        for epoch_i, v in enumerate(dataloader):
+            if epoch_i > self._trans_optimization_epochs:
+                break
+            v = {key: value.type(torch.float32).to(self.device) for key, value in v.items()}
+            self._optimize_te(tensors, v)
+            with torch.no_grad():
+                self._update_rewards(tensors, v)
+            self._optimize_op(tensors, v)   
             
-            # time1 = time.time()     
-            for epoch_i, v in enumerate(dataloader):
-                if epoch_i > self._trans_phi_optimization_epochs:
-                    break
-                # time2 = time.time()
-                v = {key: value.type(torch.float32).to(self.device) for key, value in v.items()}
-                self._optimize_te(tensors, v)
-                # print("##1._optimize_te: ", time.time() - time2)    # 0.04s
-            # time2 = time.time()                                     # 8-14s
-            # print("#1._optimize_te: ", time2 - time1)
-            # for epoch_i, v in enumerate(dataloader):
-            #     # time3 = time.time()
-            #     v = {key: value.type(torch.float32).to(self.device) for key, value in v.items()}
-                # if epoch_i > self._trans_policy_optimization_epochs:
-                #     break
-                with torch.no_grad():
-                    self._update_rewards(tensors, v)
-                self._optimize_op(tensors, v)   
-                # print('##2._optimize_op: ', time.time() - time3)    # 0.06s        
-            # print('#2 _optimize_op: ', time.time() - time2)         # 8-16s
-
-            # # 原方法；
-            # for j in range(self._trans_phi_optimization_epochs):
-            #     if self.replay_buffer is None:              
-            #         v = self._get_mini_tensors(epoch_data)
-            #     else:
-            #         v = self._sample_replay_buffer()
-            #     self._optimize_te(tensors, v)
-                
-            # for j in range(self._trans_policy_optimization_epochs):
-            #     if self.replay_buffer is None:              
-            #         v = self._get_mini_tensors(epoch_data)
-            #     else:
-            #         v = self._sample_replay_buffer()
-            #     with torch.no_grad():
-            #         self._update_rewards(tensors, v)
-            #     self._optimize_op(tensors, v)
-                
         return tensors
 
     '''
@@ -737,6 +727,32 @@ class SZN(IOD):
                 'target_rewards': target_rewards,
             })
             return
+    
+        elif self.method["phi"] in ['contrastive_v3']:
+            option_s_s_next = next_z - cur_z
+            phi_g = self.traj_encoder(v['sub_goal']).mean
+            phi_s0 = self.traj_encoder(v['s_0']).mean
+            v['options'] = self.vec_norm(phi_g - phi_s0)
+            v['next_options'] = v['options']
+            new_reward1 = (option_s_s_next * v['options']).sum(dim=-1)
+            option_sim = (v['options'].unsqueeze(1) * v['options'].unsqueeze(0)).sum(dim=-1)                
+            option_sim = torch.clamp(option_sim, 0, 1)
+            new_reward2 = option_sim.mean(dim=-1)
+            weight = 0.1
+            rewards = new_reward1 - weight * new_reward2    
+            v.update({
+                'cur_z': cur_z,
+                'next_z': next_z,
+                'rewards': rewards,
+                'policy_rewards': rewards,
+            })
+            tensors.update({
+                'reward1': new_reward1.mean(),
+                'reward2': new_reward2.mean(),
+                'PureRewardMean': rewards.mean(),     
+                'PureRewardStd': rewards.std(),           
+            })
+            return
         
         else: 
             option_s_s_next = next_z - cur_z
@@ -756,11 +772,11 @@ class SZN(IOD):
             inner = (option_s_s_next * option).sum(dim=1)
             rewards = inner
         tensors.update({
-            'PureRewardMean': rewards.mean(),           # baseline reward;
-            'PureRewardStd': rewards.std(),             # baseline reward;
+            'PureRewardMean': rewards.mean(),  
+            'PureRewardStd': rewards.std(),       
         })
-        v['rewards'] = rewards                          # 是baseline的reward; 具体用到的reward之后再根据self.method计算；
-        v['target_rewards'] = rewards
+        v['rewards'] = rewards                  
+        v['policy_rewards'] = rewards
 
     
     '''
@@ -907,21 +923,19 @@ class SZN(IOD):
     【2.1】计算qf的reward
     '''
     def _update_loss_qf(self, tensors, v):
-        if self.method["policy"] in ['phi_g']:
+        if self.method["policy"] in ['target_option']:
             option = v['target_options']
             next_option = v['target_next_options']
-            policy_rewards = v['target_rewards'] * self._reward_scale_factor
         else:
             option = v['options']
             next_option = v['next_options']
-            policy_rewards = v['target_rewards'] * self._reward_scale_factor
+        policy_rewards = v['policy_rewards'] * self._reward_scale_factor
         tensors.update({
             'policy_rewards': policy_rewards.mean(),
         })
-            
+
         processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), option.float())
         next_processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['next_obs']), next_option.float())
-        
         
         sac_utils.update_loss_qf(
             self, tensors, v,
@@ -1195,22 +1209,11 @@ class SZN(IOD):
             'dim_option': self.dim_option,
             'target_traj_encoder': self.target_traj_encoder,
         }, file_name)
-        # file_name = path + 'sample_goal_network.pt'
-        # torch.save({
-        #     'discrete': self.discrete,
-        #     'dim_option': self.dim_option,
-        #     'goal_sample_network': self.goal_sample_network,
-        # }, file_name)
-        # file_name = path + 'SampleZNetwork.pt'
-        # torch.save({
-        #     'discrete': self.discrete,
-        #     'dim_option': self.dim_option,
-        #     'goal_sample_network': self.SampleZNetwork,
-        # }, file_name)
         file_name = path + 'SampleZPolicy.pt'
         torch.save({
             'discrete': self.discrete,
             'dim_option': self.dim_option,
+            'input_token': self.input_token,
             'goal_sample_network': self.SampleZPolicy,
         }, file_name)
         
@@ -1240,6 +1243,8 @@ class SZN(IOD):
             wandb.log(eval_option_metrics)
              
     def eval_metra(self, runner):
+        num_eval_traj = 8
+        
         if self.discrete:
             eye_options = np.eye(self.dim_option)
             random_options = []
@@ -1259,10 +1264,14 @@ class SZN(IOD):
                 random_option_colors.extend([cm.get_cmap(cmap)(colors[i])[:3]])
             random_option_colors = np.array(random_option_colors)
         else:
-            random_options = np.random.randn(self.num_random_trajectories, self.dim_option)
+            # if self.method['explore'] == 'SZN':
+            #     random_options = self.vec_norm(self.SampleZPolicy(self.input_token[:num_eval_traj]).sample().detach()).cpu().numpy()
+            # else: 
+            random_options = np.random.randn(num_eval_traj, self.dim_option)
             if self.unit_length:
                 random_options = random_options / np.linalg.norm(random_options, axis=1, keepdims=True)
             random_option_colors = get_option_colors(random_options * 4)
+        
         random_trajectories = self._get_trajectories(
             runner,
             sampler_key='option_policy',
@@ -1321,7 +1330,10 @@ class SZN(IOD):
                         video_options.append([radius * np.cos(angle * np.pi / 4), radius * np.sin(angle * np.pi / 4)])
                     video_options = np.array(video_options)
                 else:
-                    video_options = np.random.randn(9, self.dim_option)
+                    if self.method['explore'] == 'SZN':
+                        video_options = self.vec_norm(self.SampleZPolicy(self.input_token[:9]).sample().detach()).cpu().numpy()
+                    else: 
+                        video_options = np.random.randn(9, self.dim_option)
                     if self.unit_length:
                         video_options = video_options / np.linalg.norm(video_options, axis=1, keepdims=True)
                 video_options = video_options.repeat(self.num_video_repeats, axis=0)
@@ -1338,7 +1350,10 @@ class SZN(IOD):
 
         eval_option_metrics.update(runner._env.calc_eval_metrics(random_trajectories, is_option_trajectories=True))
         if wandb.run is not None:
-            eval_option_metrics.update({'epoch': runner.step_itr})
+            eval_option_metrics.update({
+                'epoch': runner.step_itr,
+                'Steps': runner.step_itr * self.num_random_trajectories * self.max_path_length,
+                })
             wandb.log(eval_option_metrics)
 
                 
