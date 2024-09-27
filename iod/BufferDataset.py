@@ -13,7 +13,7 @@ class BufferDataset(Dataset):
         epoch_data = {}
         for i in range(len(keys)):
             key = keys[i]
-            if key in ['obs', 'next_obs', 'sub_goal', 's_0']:
+            if key in ['obs', 'next_obs', 'sub_goal', 's_0'] and 'obs_pixel' in self.data.keys():
                 key_ = key + '_pixel'
                 epoch_data[key] = self.data[key_][index]
             # elif key in ['s_0', 'sub_goal']:
