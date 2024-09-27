@@ -166,6 +166,9 @@ class SZN(IOD):
         
         self.last_return = None
         self.input_token = 0 * self.init_obs + 1 * torch.randn_like(self.init_obs).to(self.device)
+        self.z_sample = None
+        self.hold_z_times = 0
+        self.hold_z_epoch = 10
         
     
     @property
@@ -391,7 +394,6 @@ class SZN(IOD):
                     
         return SupportReturn, SupportReturn_mean
     
-    
     @torch.no_grad()
     def get_Regret(self, option, state, num_samples=10):
         batch = option.shape[0]
@@ -496,15 +498,29 @@ class SZN(IOD):
                     z_logp = dist_z.log_prob(self.last_z)
                     self.SampleZPolicy_optim.zero_grad()      
                     delta_SR_norm = (delta_SR - delta_SR.mean()) / (delta_SR.std() + 1e-8)
-                    loss_SZP = (-z_logp * delta_SR_norm.detach()).mean()
+                    # Contrastive norm
+                    t = 1
+                    weight = 1
+                    new_z = dist_z.sample()
+                    matrix = (self.vec_norm(new_z).unsqueeze(1) * self.vec_norm(new_z).unsqueeze(0)).sum(dim=-1)
+                    sim_batch = (matrix * (1-torch.eye(matrix.shape[0]).to(self.device))).mean(dim=-1)
+                    loss_norm = weight * sim_batch
+                    # Loss SZP
+                    loss_SZP = (-z_logp * delta_SR_norm.detach() + loss_norm).mean()
                     loss_SZP.backward()
                     self.grad_clip.apply(self.SampleZPolicy.parameters())
-                    self.SampleZPolicy_optim.step()  
-                # sample z
+                    self.SampleZPolicy_optim.step()
+
                 new_z = self.SampleZPolicy(self.input_token).sample().detach()
                 sim_iteration = (self.vec_norm(new_z)*self.vec_norm(self.last_z)).sum(dim=-1)
-                self.last_z = new_z 
                 
+                if self.hold_z_times > self.hold_z_epoch:
+                    sim_z_sample = (self.vec_norm(new_z)*self.vec_norm(self.last_z)).sum(dim=-1)
+                    self.last_z = new_z 
+                    self.hold_z_times = 0
+                else:
+                    self.hold_z_times += 1
+                    sim_z_sample = torch.ones_like(sim_iteration)
                 if wandb.run is not None:
                     wandb.log({
                         "SZN/loss_SZP": loss_SZP,
@@ -512,7 +528,9 @@ class SZN(IOD):
                         "SZN/delta_SR_std": delta_SR.std(),
                         "SZN/logp": z_logp.mean(),
                         "SZN/SR": SupportReturn.mean(),
-                        "SZN/sim_iteration": sim_iteration.mean(),
+                        "SZN/sim_output": sim_iteration.mean(),
+                        "SZN/sim_z_sample": sim_z_sample.mean(),
+                        "SZN/loss_norm": loss_norm.mean(),
                         "epoch": runner.step_itr,
                     })
             

@@ -1,14 +1,76 @@
-import sys
+#!/usr/bin/env python3
+import tempfile
+
+import dowel_wrapper
+
+assert dowel_wrapper is not None
+import dowel
+
+import wandb
+
+import argparse
+import datetime
+import functools
 import os
-os.environ["MUJOCO_GL"] = "osmesa"
+import sys
+import platform
+import torch.multiprocessing as mp
+
+
+if 'mac' in platform.platform():
+    pass
+else:
+    os.environ['MUJOCO_GL'] = 'egl'
+    if 'SLURM_STEP_GPUS' in os.environ:
+        os.environ['EGL_DEVICE_ID'] = os.environ['SLURM_STEP_GPUS']
+
+# import better_exceptions
+import numpy as np
+
+# better_exceptions.hook()
+
+import torch
+
+from garage import wrap_experiment
+from garage.experiment.deterministic import set_seed
+from garage.torch.distributions import TanhNormal
+
+from garagei.replay_buffer.path_buffer_ex import PathBufferEx
+from garagei.replay_buffer.path_buffer_tensor import PathBufferTensor
+from garagei.experiment.option_local_runner import OptionLocalRunner
 from garagei.envs.consistent_normalized_env import consistent_normalize
+from garagei.sampler.option_multiprocessing_sampler import OptionMultiprocessingSampler
+from garagei.torch.modules.with_encoder import WithEncoder, Encoder
+from garagei.torch.modules.gaussian_mlp_module_ex import GaussianMLPTwoHeadedModuleEx, GaussianMLPIndependentStdModuleEx, GaussianMLPModuleEx, XY_GaussianMLPIndependentStdModuleEx, vector_GaussianMLPIndependentStdModuleEx
+from garagei.torch.modules.parameter_module import ParameterModule
+from garagei.torch.policies.policy_ex import PolicyEx
+from garagei.torch.q_functions.continuous_mlp_q_function_ex import ContinuousMLPQFunctionEx
+from garagei.torch.optimizers.optimizer_group_wrapper import OptimizerGroupWrapper
+from garagei.torch.utils import xavier_normal_ex
+from iod.metra import METRA
+from iod.metra_bl import METRA_bl
+from iod.causer import CAUSER
+from iod.dads import DADS
+from iod.SZN import SZN
+
 from iod.utils import get_normalizer_preset
+
+from tests.make_env import make_env
+import copy
+
+import torch.nn as nn
+import torch.nn.init as init
+
+EXP_DIR = 'exp'
+if os.environ.get('START_METHOD') is not None:
+    START_METHOD = os.environ['START_METHOD']
+else:
+    START_METHOD = 'spawn'
 
 import numpy as np
 import matplotlib.pyplot as plt
 import imageio
 
-import lexa.d4rl as d4rl
 import torch
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
@@ -27,14 +89,23 @@ env = FrameStackWrapper(env, 3)
 env = consistent_normalize(env, normalize_obs=False)
 
 
-
-
+def sim_vec(SZN, token):
+    b = 0
+    for i in SZN(token).mean:
+        i = vec_norm(i)
+        a = [(i*vec_norm(j)).sum(dim=-1) for j in SZN(token).mean]
+        print(torch.tensor(a).mean())
+        b += torch.tensor(a).mean()
+    print('sim_vec_mean', b/SZN(token).mean.shape[0])
+    
 # funtions
 def vec_norm(vec):
     return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
     
 # 加载模型
-path = "/data/zh/project12_Metra/METRA/exp/Quadruped/Contrastive_Phig-TB16-SZNMETRA/exp/Quadruped/Contrastive_v3-bs1024sd000_1727096456_dmc_quadruped_SZN/plots/TrajPlot_RandomZ_20.pngsd000_1727187065_dmc_quadruped_SZN"
+path = "/mnt/nfs2/zhanghe/project001/METRA/exp/Quadruped/Regret_holdepoch10sd000_1727406586_dmc_quadruped_SZN"
+
+# path = "/mnt/nfs2/zhanghe/project001/METRA/exp/Quadruped/Regret_holdepoch10-wo_normsd000_1727410540_dmc_quadruped_SZN"
 path = path + '/'
 load_option_policy_base = torch.load(path + "wandb/latest-run/filesoption_policy.pt")
 load_traj_encoder_base = torch.load(path + "wandb/latest-run/filestaregt_traj_encoder.pt")
@@ -42,23 +113,26 @@ load_SampleZNetwork = torch.load(path + 'wandb/latest-run/filesSampleZPolicy.pt'
 policy = load_option_policy_base['policy']
 traj_encoder = load_traj_encoder_base['target_traj_encoder']
 SZN = load_SampleZNetwork['goal_sample_network']
-
+token = load_SampleZNetwork['input_token']
 # settings：
 max_path_length = 200
 option_dim = load_option_policy_base['dim_option']
 # path = '/data/zh/project12_Metra/METRA/tests/videos/local_test/'
 Given_g = False
 PhiPlot = True
-LoadNpy = True
+LoadNpy = False
 
-
+# 查看SZN输出z的相似度；
+sim_vec(SZN, token)
+exit()
+    
 # 初始化
 obs = env.reset()
 obs_tensor = torch.tensor(obs, dtype=torch.float).unsqueeze(0).to('cuda')
 Trajs = []
 device = 'cuda'
 num_task = 8
-eval_times = 8
+eval_times = 16
 init_obs = torch.tensor(obs).unsqueeze(0).expand(eval_times, -1).to(device)
 
 
@@ -81,9 +155,9 @@ else:
     # support_options = torch.eye(option_dim).to(device)
     ## 使用SZN：
     # input_token = torch.randn_like(init_obs).to(device)
-    # support_options = vec_norm(SZN(input_token).mean)
+    support_options = SZN(token).sample()
     ## 使用随机初始化
-    support_options = vec_norm(torch.randn(eval_times, option_dim).to(device))
+    # support_options = vec_norm(torch.randn(eval_times, option_dim).to(device))
 
 def interact_with_env():
     # interact with env
@@ -189,6 +263,7 @@ if __name__ == '__main__':
         Trajs = interact_with_env()
         load_npy_path = None
     
+
     if PhiPlot:
         plot_phi_traj(Trajs, load_npy_path, type='TSNE')
         

@@ -24,10 +24,10 @@ else:
     if 'SLURM_STEP_GPUS' in os.environ:
         os.environ['EGL_DEVICE_ID'] = os.environ['SLURM_STEP_GPUS']
 
-import better_exceptions
+# import better_exceptions
 import numpy as np
 
-better_exceptions.hook()
+# better_exceptions.hook()
 
 import torch
 
