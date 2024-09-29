@@ -19,10 +19,16 @@ class TanhNormal(torch.distributions.Distribution):
     """ # noqa: 501
 
     def __init__(self, loc, scale):
-        self._normal = Independent(Normal(loc, scale), 1)
-        super().__init__(batch_shape=self._normal.batch_shape,
-                         event_shape=self._normal.event_shape,
+        self._loc = loc
+        self._scale = scale
+        _normal = Independent(Normal(loc, scale), 1)
+        super().__init__(batch_shape=_normal.batch_shape,
+                         event_shape=_normal.event_shape,
                          validate_args=False)
+
+    @property
+    def _normal(self):
+        return Independent(Normal(self._loc, torch.clamp(self._scale, 1e-3)), 1)
 
     def log_prob(self, value, pre_tanh_value=None, epsilon=1e-6):
         """The log likelihood of a sample on the this Tanh Distribution.
@@ -53,6 +59,7 @@ class TanhNormal(torch.distributions.Distribution):
         if pre_tanh_value is None:
             # Fix in order to TanhNormal.log_prob(1.0) != inf
             pre_tanh_value = torch.log((1 + epsilon + value) / (1 + epsilon - value)) / 2
+
         norm_lp = self._normal.log_prob(pre_tanh_value)
         ret = (norm_lp - torch.sum(
             torch.log(self._clip_but_pass_gradient((1. - value**2)) + epsilon),
