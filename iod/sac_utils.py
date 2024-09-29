@@ -7,12 +7,13 @@ def _clip_actions(algo, actions):
     lower = torch.from_numpy(algo._env_spec.action_space.low).to(algo.device) + epsilon
     upper = torch.from_numpy(algo._env_spec.action_space.high).to(algo.device) - epsilon
 
-    clip_up = (actions > upper).float()
-    clip_down = (actions < lower).float()
-    with torch.no_grad():
-        clip = ((upper - actions) * clip_up + (lower - actions) * clip_down)
+    # clip_up = (actions > upper).float()
+    # clip_down = (actions < lower).float()
+    # with torch.no_grad():
+    #     clip = ((upper - actions) * clip_up + (lower - actions) * clip_down)
+    actions = torch.clamp(actions, lower, upper)
 
-    return actions + clip
+    return actions#  + clip
 
 
 def update_loss_qf(

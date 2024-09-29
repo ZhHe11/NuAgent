@@ -103,7 +103,7 @@ def vec_norm(vec):
     return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
     
 # 加载模型
-path = "/mnt/nfs2/zhanghe/project001/METRA/exp/Quadruped/Regret_holdepoch10sd000_1727406586_dmc_quadruped_SZN"
+path = "/mnt/nfs2/zhanghe/project001/METRA/exp/Quadruped/R-dist_sample_z-wo_norm-path50sd000_1727588796_dmc_quadruped_SZN"
 
 # path = "/mnt/nfs2/zhanghe/project001/METRA/exp/Quadruped/Regret_holdepoch10-wo_normsd000_1727410540_dmc_quadruped_SZN"
 path = path + '/'
@@ -115,7 +115,7 @@ traj_encoder = load_traj_encoder_base['target_traj_encoder']
 SZN = load_SampleZNetwork['goal_sample_network']
 token = load_SampleZNetwork['input_token']
 # settings：
-max_path_length = 200
+max_path_length = 50
 option_dim = load_option_policy_base['dim_option']
 # path = '/data/zh/project12_Metra/METRA/tests/videos/local_test/'
 Given_g = False
@@ -124,7 +124,6 @@ LoadNpy = False
 
 # 查看SZN输出z的相似度；
 sim_vec(SZN, token)
-exit()
     
 # 初始化
 obs = env.reset()
@@ -155,9 +154,9 @@ else:
     # support_options = torch.eye(option_dim).to(device)
     ## 使用SZN：
     # input_token = torch.randn_like(init_obs).to(device)
-    support_options = SZN(token).sample()
+    # support_options = SZN(token).sample()
     ## 使用随机初始化
-    # support_options = vec_norm(torch.randn(eval_times, option_dim).to(device))
+    support_options = vec_norm(torch.randn(eval_times, option_dim).to(device))
 
 def interact_with_env():
     # interact with env
@@ -186,7 +185,7 @@ def interact_with_env():
             if Given_g:
                 Traj.append(phi_g)
             else:
-                Traj.append(support_option)
+                Traj.append((phi_s_0 + max_path_length * support_option))
         # 每一条轨迹
         for t in trange(max_path_length):
             # policy inference:
@@ -199,6 +198,7 @@ def interact_with_env():
                 option = support_option
             obs_option = torch.cat((obs_tensor, option), -1).float()
             action_tensor = policy(obs_option)[1]['mean']
+            # print(policy(obs_option)[0].log_prob(action_tensor))
             action = action_tensor[0].detach().cpu().numpy()
             # iteration:
             obs, reward, _, info = env.step(action)
@@ -257,6 +257,7 @@ def plot_phi_traj(Trajs, load_npy_path, type='PCA'):
 
 
 if __name__ == '__main__':
+    LoadNpy = False
     if LoadNpy:
         load_npy_path = path + 'Trajs.npy'
     else:
@@ -265,7 +266,7 @@ if __name__ == '__main__':
     
 
     if PhiPlot:
-        plot_phi_traj(Trajs, load_npy_path, type='TSNE')
+        plot_phi_traj(Trajs, load_npy_path, type='PCA')
         
     print('done')
 

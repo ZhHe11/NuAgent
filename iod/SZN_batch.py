@@ -493,7 +493,7 @@ class SZN(IOD):
                 
                 delta_SR = SupportReturn - self.last_return
                 # update SZN 
-                for t in range(5):
+                for t in range(3):
                     dist_z = self.SampleZPolicy(self.input_token)
                     z_logp = dist_z.log_prob(self.last_z)
                     self.SampleZPolicy_optim.zero_grad()      
@@ -510,26 +510,20 @@ class SZN(IOD):
                 new_z = self.SampleZPolicy(self.input_token).sample().detach()
                 sim_iteration = (self.vec_norm(new_z)*self.vec_norm(self.last_z)).sum(dim=-1)
                 
-                
-                ## if hold z:
-                # if self.hold_z_times > self.hold_z_epoch:
-                #     sim_z_sample = (self.vec_norm(new_z)*self.vec_norm(self.last_z)).sum(dim=-1)
-                #     self.last_z = new_z 
-                #     self.last_z_dist = self.SampleZPolicy(self.input_token)
-                #     self.hold_z_times = 0
-                # else:
-                #     self.hold_z_times += 1
-                #     if self.last_z_dist is None:
-                #         self.last_z_dist = self.SampleZPolicy(self.input_token)
-                #     self.last_z = self.self.last_z_dist.sample().detach()
-                #     sim_z_sample = torch.ones_like(sim_iteration)
-                ## else:
-                self.last_z = new_z
+                if self.hold_z_times > self.hold_z_epoch:
+                    sim_z_sample = (self.vec_norm(new_z)*self.vec_norm(self.last_z)).sum(dim=-1)
+                    self.last_z = new_z 
+                    self.last_z_dist = self.SampleZPolicy(self.input_token)
+                    self.hold_z_times = 0
+                else:
+                    self.hold_z_times += 1
+                    self.last_z = self.last_z_dist.sample().detach()
+                    sim_z_sample = torch.ones_like(sim_iteration)
                 
                 def sim_vec(new_z):
                     b = 0
                     for i in new_z:
-                        a = [(self.vec_norm(i)*self.vec_norm(j)).sum(dim=-1) for j in new_z]
+                        a = [(vec_norm(i)*vec_norm(j)).sum(dim=-1) for j in new_z]
                         b += torch.tensor(a).mean()
                     return b/new_z.shape[0]          
 
@@ -541,7 +535,7 @@ class SZN(IOD):
                         "SZN/logp": z_logp.mean(),
                         "SZN/SR": SupportReturn.mean(),
                         "SZN/sim_output": sim_iteration.mean(),
-                        # "SZN/sim_z_sample": sim_z_sample.mean(),
+                        "SZN/sim_z_sample": sim_z_sample.mean(),
                         "SZN/sim_batch": sim_vec(new_z),
                         # "SZN/loss_norm": loss_norm.mean(),
                         "epoch": runner.step_itr,
@@ -591,6 +585,14 @@ class SZN(IOD):
             with torch.no_grad():
                 self._update_rewards(tensors, v)
             self._optimize_op(tensors, v)   
+        for epoch_i, v in enumerate(dataloader):
+            if epoch_i > self._trans_optimization_epochs:
+                break
+            v = {key: value.type(torch.float32).to(self.device) for key, value in v.items()}
+                
+            
+        
+            
             
         return tensors
 
