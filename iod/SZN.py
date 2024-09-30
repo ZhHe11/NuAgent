@@ -493,7 +493,7 @@ class SZN(IOD):
                 
                 delta_SR = SupportReturn - self.last_return
                 NegWeight = 1 
-                PosWeight = 1
+                PosWeight = 2
                 delta_SR = torch.where(delta_SR<0, delta_SR*NegWeight, delta_SR*PosWeight)
                 # update SZN 
                 for t in range(5):
