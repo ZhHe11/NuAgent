@@ -103,7 +103,7 @@ def vec_norm(vec):
     return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
     
 # 加载模型
-path = "/mnt/nfs2/zhanghe/project001/METRA/exp/Quadruped/SZN-NegWeight2-path50sd000_1727665582_dmc_quadruped_SZN"
+path = "/mnt/nfs2/zhanghe/project001/METRA/exp/Quadruped/SZN-TrainBatch-deepcopyQf-path50sd000_1727682096_dmc_quadruped_SZN"
 
 # path = "/mnt/nfs2/zhanghe/project001/METRA/exp/Quadruped/Regret_holdepoch10-wo_normsd000_1727410540_dmc_quadruped_SZN"
 path = path + '/'
@@ -121,7 +121,6 @@ option_dim = load_option_policy_base['dim_option']
 Given_g = False
 PhiPlot = True
 LoadNpy = False
-
 # 查看SZN输出z的相似度；
 sim_vec(SZN, token)
     
@@ -153,10 +152,10 @@ else:
     # eval_times = support_options.shape[0]
     # support_options = torch.eye(option_dim).to(device)
     ## 使用SZN：
-    # input_token = torch.randn_like(init_obs).to(device)
-    # support_options = SZN(token).sample()
+    input_token = torch.randn_like(init_obs).to(device)
+    support_options = SZN(token).sample()
     ## 使用随机初始化
-    support_options = vec_norm(torch.randn(eval_times, option_dim).to(device))
+    # support_options = vec_norm(torch.randn(eval_times, option_dim).to(device))
 
 def interact_with_env():
     # interact with env
