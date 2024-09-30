@@ -103,7 +103,7 @@ def vec_norm(vec):
     return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
     
 # 加载模型
-path = "/mnt/nfs2/zhanghe/project001/METRA/exp/Quadruped/R-dist_sample_z-wo_norm-path50sd000_1727588796_dmc_quadruped_SZN"
+path = "/mnt/nfs2/zhanghe/project001/METRA/exp/Quadruped/SZN-NegWeight2-path50sd000_1727665582_dmc_quadruped_SZN"
 
 # path = "/mnt/nfs2/zhanghe/project001/METRA/exp/Quadruped/Regret_holdepoch10-wo_normsd000_1727410540_dmc_quadruped_SZN"
 path = path + '/'

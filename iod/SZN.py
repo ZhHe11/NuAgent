@@ -492,6 +492,9 @@ class SZN(IOD):
                 SupportReturn = self.get_Regret(option=self.vec_norm(self.last_z), state=self.init_obs)
                 
                 delta_SR = SupportReturn - self.last_return
+                NegWeight = 1 
+                PosWeight = 1
+                delta_SR = torch.where(delta_SR<0, delta_SR*NegWeight, delta_SR*PosWeight)
                 # update SZN 
                 for t in range(5):
                     dist_z = self.SampleZPolicy(self.input_token)

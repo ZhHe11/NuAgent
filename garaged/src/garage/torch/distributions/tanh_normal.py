@@ -28,7 +28,8 @@ class TanhNormal(torch.distributions.Distribution):
 
     @property
     def _normal(self):
-        return Independent(Normal(self._loc, torch.clamp(self._scale, 1e-3)), 1)
+        # return Independent(Normal(self._loc, torch.clamp(self._scale, 1e-3)), 1)
+        return Independent(Normal(self._loc, self._scale), 1)
 
     def log_prob(self, value, pre_tanh_value=None, epsilon=1e-6):
         """The log likelihood of a sample on the this Tanh Distribution.
