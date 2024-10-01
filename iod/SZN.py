@@ -153,10 +153,8 @@ class SZN(IOD):
         self.last_return = None
         self.input_token = 0 * self.init_obs + 1 * torch.randn_like(self.init_obs).to(self.device)
         self.z_sample = None
-        self.hold_z_times = 0
-        self.hold_z_epoch = 10
         
-        self.update_token_repeat = 16
+        self.update_token_repeat = 8
         self.s0 = self.init_obs.repeat(self.update_token_repeat, 1)
         
     
@@ -184,71 +182,6 @@ class SZN(IOD):
             clip = ((upper - goal) * clip_up + (lower - goal) * clip_down)
 
         return goal + clip
-
-    @torch.no_grad()
-    def get_return(self, traj, g=None, phi_g=None):
-        if phi_g == None:
-            phi_g = self.target_traj_encoder(g)
-        R = 0
-        discount = 0.99
-        s = traj[:-1]
-        s_next = traj[1:]
-        phi_s = self.target_traj_encoder(s).mean
-        phi_s_next = self.target_traj_encoder(s_next).mean
-        # reward = (self.vec_norm(phi_s_next - phi_s) * self.vec_norm(phi_g - phi_s)).sum(dim=-1)
-        # for r in reward[::-1]:
-        #     R = discount * R + r
-        
-        # is_achieved
-        distance = torch.norm(phi_g - phi_s_next[-1], dim=-1)
-        distance_score =  torch.exp(1-distance)
-        R += distance_score
-        
-        # # scale:
-        # R = R / 300
-        return R
-    
-    @torch.no_grad()
-    def get_R(self, phi_s_f, phi_g, sample_batch):
-        train_max_count = 20
-        Network_Update = torch.zeros((sample_batch)).to(self.device)
-        Sample_Update = torch.zeros((sample_batch)).to(self.device)
-        Network_R_std = torch.zeros((sample_batch)).to(self.device)
-        if self.Network_None_Update_count == None:
-            self.Network_None_Update_count = torch.zeros((sample_batch), dtype=int).to(self.device)
-            self.Network_R = torch.zeros((sample_batch, train_max_count)).to(self.device)
-        R = torch.zeros(sample_batch).to(self.device)
-        phi_g_sf_distance_score =  1 / (1 + torch.norm(phi_g - phi_s_f, dim=-1).detach())
-        # 对于每条数据独立判E定和更新；
-        for i in range(sample_batch):
-            R[i] = phi_g_sf_distance_score[i]
-                
-            self.Network_R[i][self.Network_None_Update_count[i]] = R[i]
-            if self.Network_None_Update_count[i] > 0:
-                if self.Network_None_Update_count[i] <= 5:
-                    Network_R_std[i] = torch.std(self.Network_R[i][:self.Network_None_Update_count[i]+1])
-                else:
-                    Network_R_std[i] = torch.std(self.Network_R[i][self.Network_None_Update_count[i]-5 : self.Network_None_Update_count[i]+1 ])
-            else:
-                Network_R_std[i] = R[i]
-            self.Network_None_Update_count[i] = self.Network_None_Update_count[i] + 1
-                
-            # 判定是否需要更新目标；
-            if R[i] >= (0.1): 
-                # 说明学会了，要更新网络，向更远的方向；
-                Network_Update[i] = 1       # 1 是学会了
-                Sample_Update[i] = 1        # 要更新phi_g
-                self.Network_None_Update_count[i] = 0
-                self.Network_R[i] = torch.zeros_like(self.Network_R[i])
-            elif (Network_R_std[i] < 0.05 and self.Network_None_Update_count[i] > 2) or self.Network_None_Update_count[i] >= 5:
-                # 说明学不会，不更新网路，但更新phi_g;
-                # 我试试反向更新；我想让网络的mean有变化；
-                Network_Update[i] = -1      # 是没学会；
-                Sample_Update[i] = 1        # 要更新phi_g
-                self.Network_None_Update_count[i] = 0
-                self.Network_R[i] = torch.zeros_like(self.Network_R[i])
-                
-        return Network_Update, Sample_Update, R
 
     def AsymmetricLoss(self, value, alpha_pos=1, alpha_neg=-0.1):
         mask = torch.where(value>0, 1, 0)
@@ -354,31 +287,31 @@ class SZN(IOD):
                 random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
             
             if self.method['explore'] == 'SZN' and self.epoch_final is not None:
-                def sim_vec(new_z):
-                    b = 0
-                    for i in new_z:
-                        a = [(self.vec_norm(i)*self.vec_norm(j)).sum(dim=-1) for j in new_z]
-                        b += torch.tensor(a).mean()
-                    return b/new_z.shape[0]   
-                ## update SZN multi times;
-                # calculate value_after_epoch then get regret:
-                V_after_epoch = self.get_Value(option=self.vec_norm(self.z_output_flatten), state=self.s0, qf=[self.qf1, self.qf2], policy=self.option_policy, num_samples=5)
-                Regret = V_after_epoch - self.V_before_epoch
-                Regret_norm = Regret
+                # def sim_vec(new_z):
+                #     b = 0
+                #     for i in new_z:
+                #         a = [(self.vec_norm(i)*self.vec_norm(j)).sum(dim=-1) for j in new_z]
+                #         b += torch.tensor(a).mean()
+                #     return b/new_z.shape[0]   
+                # ## update SZN multi times;
+                # # calculate value_after_epoch then get regret:
+                # V_after_epoch = self.get_Value(option=self.vec_norm(self.z_output_flatten), state=self.s0, qf=[self.qf1, self.qf2], policy=self.option_policy, num_samples=5)
+                # Regret = V_after_epoch - self.V_before_epoch
+                # Regret_norm = Regret
                 
-                for t in range(10):
-                    # calculate logp using updated network:
-                    dist_z = self.SampleZPolicy(self.input_token)           # [num_traj, dist]
-                    z_logp = dist_z.log_prob(self.z_output.detach()).view(self.num_random_trajectories*self.update_token_repeat, -1)                        
-                    # sim_batch
-                    new_z = dist_z.sample()                                 # [num_traj, dim_z]
-                    sim_batch = sim_vec(new_z)
-                    # loss:
-                    self.SampleZPolicy_optim.zero_grad()
-                    loss_SZP = (-z_logp * Regret.detach()).mean() + sim_batch
-                    loss_SZP.backward()
-                    self.grad_clip.apply(self.SampleZPolicy.parameters())
-                    self.SampleZPolicy_optim.step()
+                # for t in range(10):
+                #     # calculate logp using updated network:
+                #     dist_z = self.SampleZPolicy(self.input_token)           # [num_traj, dist]
+                #     z_logp = dist_z.log_prob(self.z_output.detach()).view(self.num_random_trajectories*self.update_token_repeat, -1)                        
+                #     # sim_batch
+                #     new_z = dist_z.mean                                 # [num_traj, dim_z]
+                #     sim_batch = sim_vec(new_z)
+                #     # loss:
+                #     self.SampleZPolicy_optim.zero_grad()
+                #     loss_SZP = (-z_logp * Regret.detach()).mean() + sim_batch
+                #     loss_SZP.backward()
+                #     self.grad_clip.apply(self.SampleZPolicy.parameters())
+                #     self.SampleZPolicy_optim.step()
                     
                 new_z = self.SampleZPolicy(self.input_token).sample().detach()
                 sim_iteration = (self.vec_norm(new_z)*self.vec_norm(self.last_z)).sum(dim=-1)
@@ -387,19 +320,20 @@ class SZN(IOD):
                 
                 if wandb.run is not None:
                     wandb.log({
-                        "SZN/loss_SZP": loss_SZP,
-                        "SZN/Regret_mean": Regret.mean(),
-                        "SZN/Regret_std": Regret.std(),
-                        "SZN/logp": z_logp.mean(),
-                        "SZN/V_after_epoch": V_after_epoch.mean(),
+                        # "SZN/loss_SZP": loss_SZP,
+                        # "SZN/Regret_mean": Regret.mean(),
+                        # "SZN/Regret_std": Regret.std(),
+                        # "SZN/logp": z_logp.mean(),
+                        # "SZN/V_after_epoch": V_after_epoch.mean(),
                         "SZN/sim_output": sim_iteration.mean(),
-                        "SZN/sim_batch": sim_vec(new_z),
+                        "SZN/sim_batch": sim_batch,
                         "epoch": runner.step_itr,
                     })
             
                 np_z = self.vec_norm(self.last_z).cpu().numpy()
                 print("Sample Z: ", np_z)
-                extras = self._generate_option_extras(np_z)                
+                extras = self._generate_option_extras(np_z)        
+                        
 
             else: 
                 self.last_z = torch.tensor(random_options, dtype=torch.float32).to(self.device)
@@ -494,18 +428,7 @@ class SZN(IOD):
         )
 
         sac_utils.update_targets(self)
-    
-    @torch.no_grad()
-    def gen_z(self, sub_goal, obs, device="cpu", ret_emb: bool = False):
-        traj_encoder = self.target_traj_encoder.to(device)
-        goal_z = traj_encoder(sub_goal).mean
-        target_cur_z = traj_encoder(obs).mean
 
-        z = self.vec_norm(goal_z - target_cur_z)
-        if ret_emb:
-            return z, target_cur_z, goal_z
-        else:
-            return z
 
     '''
     【3】更新reward；更新option；更新phi_s；

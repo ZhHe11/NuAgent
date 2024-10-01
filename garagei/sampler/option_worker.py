@@ -133,6 +133,11 @@ class OptionWorker(DefaultWorker):
                     #     target_cur_z = self.agent.gen_phi_s(torch.tensor(self._prev_obs), device="cpu")
                     #     self._agent_infos['phi_s'].append(target_cur_z)
                     
+                    # if 'token' in self._cur_extras[self._cur_extra_idx].keys():
+                    #     token = self._cur_extras[self._cur_extra_idx]['token']
+                    #     self._agent_infos['token'].append(token)
+                    
+                    
                 agent_input = get_np_concat_obs(
                     self._prev_obs, cur_extra,
                 )

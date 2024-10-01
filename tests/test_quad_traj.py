@@ -3,7 +3,7 @@ import matplotlib.image as mpimg
 
 
 
-path_baseline = "/mnt/nfs2/zhanghe/project001/METRA/exp/Quadruped/baseline-path50sd000_1727681266_dmc_quadruped_SZN"
+path_baseline = "/mnt/nfs2/zhanghe/project001/METRA/exp/Quadruped/SZN-TrainBatch-V-path50sd000_1727699504_dmc_quadruped_SZN"
 path_ours = "/mnt/nfs2/zhanghe/project001/METRA/exp/Quadruped/R-dist_sample_z-wo_norm-path50sd000_1727588796_dmc_quadruped_SZN"
 
 for i in range(10000):

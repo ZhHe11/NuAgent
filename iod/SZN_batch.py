@@ -36,7 +36,7 @@ from iod.BufferDataset import BufferDataset
 from torch.utils.data import DataLoader
 
 
-class SZN(IOD):
+class SZN_batch(IOD):
     def __init__(
             self,
             *,
@@ -80,10 +80,10 @@ class SZN(IOD):
 
         self.qf1 = qf1.to(self.device)
         self.qf2 = qf2.to(self.device)
-
+        
         self.target_qf1 = copy.deepcopy(self.qf1)
         self.target_qf2 = copy.deepcopy(self.qf2)
-
+        
         self.log_alpha = log_alpha.to(self.device)
 
         self.param_modules.update(
@@ -136,23 +136,9 @@ class SZN(IOD):
         
         self.MaxLenPhi = 0
         
-        # for psro:
+        # for SZN:
         self.init_obs = torch.tensor(init_obs).unsqueeze(0).expand(self.num_random_trajectories, -1).to(self.device)
-        self.exp_z = None   
-        self.goal_sample_network = goal_sample_network.to(self.device)
-        self.space_predictor = space_predictor.to(self.device)
-        self.goal_sample_optim = None
-        self.last_phi_g = None
-        self.last_phi_g_dist = None
         self.epoch_final = None
-        self.Network_None_Update_count = None
-        self.sample_wait_count = 0
-        self.exp_theta_dist = None
-        self.UpdateSGN = 0
-        self.cold_start = 1
-        self.acc_buffer = torch.zeros(self.num_random_trajectories).to(self.device)
-        self.acc = torch.ones(self.num_random_trajectories).to(self.device)
-        self.space_predictor_optim = None
         self._trans_phi_optimization_epochs = _trans_phi_optimization_epochs
         self._trans_policy_optimization_epochs = _trans_policy_optimization_epochs
         self.target_theta = target_theta
@@ -165,10 +151,14 @@ class SZN(IOD):
         self.grad_clip = GradClipper(clip_type='clip_norm', threshold=3, norm_type=2)
         
         self.last_return = None
-        self.input_token = 0 * self.init_obs + 1 * torch.randn_like(self.init_obs).to(self.device)
+        # self.input_token = 0 * self.init_obs + 1 * torch.randn_like(self.init_obs).to(self.device)
+        # self.input_token = torch.randn_like(self.init_obs).to(self.device)
+        self.input_token = torch.randn(self.num_random_trajectories, 1).to(self.device)
         self.z_sample = None
-        self.hold_z_times = 0
-        self.hold_z_epoch = 10
+        
+        self.update_token_repeat = 8
+        # self.s0 = torch.tensor(init_obs).unsqueeze(0).expand(self._trans_minibatch_size, -1).to(self.device)
+        self.s0 = torch.tensor(init_obs).unsqueeze(0).to(self.device)
         
     
     @property
@@ -196,116 +186,6 @@ class SZN(IOD):
 
         return goal + clip
 
-    @torch.no_grad()
-    def get_return(self, traj, g=None, phi_g=None):
-        if phi_g == None:
-            phi_g = self.target_traj_encoder(g)
-        R = 0
-        discount = 0.99
-        s = traj[:-1]
-        s_next = traj[1:]
-        phi_s = self.target_traj_encoder(s).mean
-        phi_s_next = self.target_traj_encoder(s_next).mean
-        # reward = (self.vec_norm(phi_s_next - phi_s) * self.vec_norm(phi_g - phi_s)).sum(dim=-1)
-        # for r in reward[::-1]:
-        #     R = discount * R + r
-        
-        # is_achieved
-        distance = torch.norm(phi_g - phi_s_next[-1], dim=-1)
-        distance_score =  torch.exp(1-distance)
-        R += distance_score
-        
-        # # scale:
-        # R = R / 300
-        return R
-    
-    @torch.no_grad()
-    def get_regret(self, s, a, s_next, a_next, g=None, phi_g=None, is_norm=True):
-        '''
-        s = [batch, seq, dim]
-        a = [batch, seq, dim]
-        batch_regret = [batch]
-        '''
-        batch_regret = []
-        for i in range(s.shape[0]):
-            discount = 0.99
-            epoch_traj_s = s[i]
-            epoch_traj_a = a[i]
-            epoch_traj_s_next = s_next[i]
-            epoch_traj_a_next = a_next[i]
-            
-            phi_s = self.target_traj_encoder(epoch_traj_s).mean
-            phi_s_next = self.target_traj_encoder(epoch_traj_s_next).mean
-            
-            option = self.vec_norm(phi_g[i] - phi_s)
-            next_option = self.vec_norm(phi_g[i] - phi_s_next)
-            
-            processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(epoch_traj_s), option.float())
-            next_processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(epoch_traj_s_next), next_option.float())
-            
-            q = torch.min(
-                self.qf1(processed_cat_obs, epoch_traj_a).flatten(),
-                self.qf2(processed_cat_obs, epoch_traj_a).flatten(),
-            )
-            q_next = torch.min(
-                self.qf1(next_processed_cat_obs, epoch_traj_a_next).flatten(),
-                self.qf2(next_processed_cat_obs, epoch_traj_a_next).flatten(),
-            )
-            
-            r = (self.vec_norm(phi_s_next - phi_s) * self.vec_norm(phi_g[i] - phi_s)).sum(dim=-1)
-        
-            regret = torch.abs(r + discount * q_next - q).sum()
-            batch_regret.append(regret)
-        
-        batch_regret = torch.tensor(batch_regret).to(self.device)
-        batch_regret_mean = batch_regret.mean() / self.max_path_length
-        if is_norm:
-            batch_regret = (batch_regret - batch_regret.mean()) / (batch_regret.std() + 1e-8)
-        
-        return batch_regret, batch_regret_mean
-    
-    @torch.no_grad()
-    def get_R(self, phi_s_f, phi_g, sample_batch):
-        train_max_count = 20
-        Network_Update = torch.zeros((sample_batch)).to(self.device)
-        Sample_Update = torch.zeros((sample_batch)).to(self.device)
-        Network_R_std = torch.zeros((sample_batch)).to(self.device)
-        if self.Network_None_Update_count == None:
-            self.Network_None_Update_count = torch.zeros((sample_batch), dtype=int).to(self.device)
-            self.Network_R = torch.zeros((sample_batch, train_max_count)).to(self.device)
-        R = torch.zeros(sample_batch).to(self.device)
-        phi_g_sf_distance_score =  1 / (1 + torch.norm(phi_g - phi_s_f, dim=-1).detach())
-        # 对于每条数据独立判E定和更新；
-        for i in range(sample_batch):
-            R[i] = phi_g_sf_distance_score[i]
-                
-            self.Network_R[i][self.Network_None_Update_count[i]] = R[i]
-            if self.Network_None_Update_count[i] > 0:
-                if self.Network_None_Update_count[i] <= 5:
-                    Network_R_std[i] = torch.std(self.Network_R[i][:self.Network_None_Update_count[i]+1])
-                else:
-                    Network_R_std[i] = torch.std(self.Network_R[i][self.Network_None_Update_count[i]-5 : self.Network_None_Update_count[i]+1 ])
-            else:
-                Network_R_std[i] = R[i]
-            self.Network_None_Update_count[i] = self.Network_None_Update_count[i] + 1
-                
-            # 判定是否需要更新目标；
-            if R[i] >= (0.1): 
-                # 说明学会了，要更新网络，向更远的方向；
-                Network_Update[i] = 1       # 1 是学会了
-                Sample_Update[i] = 1        # 要更新phi_g
-                self.Network_None_Update_count[i] = 0
-                self.Network_R[i] = torch.zeros_like(self.Network_R[i])
-            elif (Network_R_std[i] < 0.05 and self.Network_None_Update_count[i] > 2) or self.Network_None_Update_count[i] >= 5:
-                # 说明学不会，不更新网路，但更新phi_g;
-                # 我试试反向更新；我想让网络的mean有变化；
-                Network_Update[i] = -1      # 是没学会；
-                Sample_Update[i] = 1        # 要更新phi_g
-                self.Network_None_Update_count[i] = 0
-                self.Network_R[i] = torch.zeros_like(self.Network_R[i])
-                
-        return Network_Update, Sample_Update, R
-
     def AsymmetricLoss(self, value, alpha_pos=1, alpha_neg=-0.1):
         mask = torch.where(value>0, 1, 0)
         loss = alpha_pos * mask * value + alpha_neg * (1-mask) * value
@@ -328,18 +208,27 @@ class SZN(IOD):
                 dones = np.concatenate(value, axis=0)
             epoch_data[key] = torch.tensor(np.concatenate(value, axis=0), dtype=torch.float32, device=self.device)
             # for explore_type != baseline
-            if key in ['obs', 'actions', 'options'] :
-                traj_key_dim = value[0].shape[-1]
-                epoch_key_final = torch.zeros((num_sample_batch, self.max_path_length, traj_key_dim), dtype=torch.float32, device=self.device)
-                for i in range(num_sample_batch):
-                    traj_shape = value[(num_her+1) * i].shape
-                    epoch_key_final[i][:traj_shape[0]] = torch.tensor(value[(num_her+1) * i], dtype=torch.float32, device=self.device)
-                    if traj_shape[0] < self.max_path_length:
-                        epoch_key_final[i][traj_shape[0]:] = torch.tensor(value[(num_her+1) * i][-1], dtype=torch.float32, device=self.device)
-                epoch_final[key] = epoch_key_final
+            # if key in ['obs', 'actions', 'options'] :
+            #     traj_key_dim = value[0].shape[-1]
+            #     epoch_key_final = torch.zeros((num_sample_batch, self.max_path_length, traj_key_dim), dtype=torch.float32, device=self.device)
+            #     for i in range(num_sample_batch):
+            #         traj_shape = value[(num_her+1) * i].shape
+            #         epoch_key_final[i][:traj_shape[0]] = torch.tensor(value[(num_her+1) * i], dtype=torch.float32, device=self.device)
+            #         if traj_shape[0] < self.max_path_length:
+            #             epoch_key_final[i][traj_shape[0]:] = torch.tensor(value[(num_her+1) * i][-1], dtype=torch.float32, device=self.device)
+            #     epoch_final[key] = epoch_key_final
         
         self.epoch_final = epoch_final
-        self.last_return = self.get_Regret(option=self.vec_norm(self.last_z), state=self.init_obs)
+
+        # #[for regret]: 1.sample z; 2.calculate V_before_epoch;
+        # #[try] generate more epoch_data to train SZP
+        # traj_batch = self.num_random_trajectories           
+
+        # dist_z = self.SampleZPolicy(self.input_token)       # [traj_batch, dist]  
+        # self.z_output = dist_z.sample((self.update_token_repeat,))      # [traj_batch, train_token_batch, dim_z]
+        # self.z_output_flatten = self.z_output.view(traj_batch*self.update_token_repeat, -1)      # [traj_batch*train_token_batch, dim_z]
+        # self.V_before_epoch = self.get_Value(option=self.vec_norm(self.z_output_flatten), state=self.s0, qf=[self.qf1, self.qf2], policy=self.option_policy, num_samples=5)     # [traj_batch*train_token_batch, dim_z]
+        
         return epoch_data
 
     def _update_replay_buffer(self, data):
@@ -370,45 +259,17 @@ class SZN(IOD):
         return data
 
     @torch.no_grad()
-    def get_CV(self, s, s_next, Support, is_norm=False):
-        '''
-        s = [batch, seq, dim]
-        a = [batch, seq, dim]
-        Support = [batch, seq, dim]
-        batch_regret = [batch]
-        '''
-        Batch_size = s.shape[0]
-        SupportReturn = torch.zeros(Batch_size).to(self.device)
-        for batch_i in range(Batch_size):
-            phi_s = self.target_traj_encoder(s[batch_i]).mean
-            phi_s_next = self.target_traj_encoder(s_next[batch_i]).mean
-            option = Support[batch_i]
-            
-            Return = ((phi_s_next - phi_s) * option).sum(dim=-1)       # [seq, 1]
-            discount = (self.discount ** torch.arange(Return.shape[0])).to(self.device)      # [seq]
-            SupportReturn[batch_i] = (Return * discount).sum(dim=0)   # [1]
-
-        SupportReturn_mean = SupportReturn.mean()
-        if is_norm:
-            SupportReturn = (SupportReturn - SupportReturn.mean()) / (SupportReturn.std() + 1e-8)
-                    
-        return SupportReturn, SupportReturn_mean
-    
-    @torch.no_grad()
-    def get_Regret(self, option, state, num_samples=10):
+    def get_Value(self, option, state, qf, policy, num_samples=5):
         batch = option.shape[0]
-        # [s0, z]
-        processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(state), option.float())                            # [b,dim_s+dim_z]
+        processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(state), option.float())    # [b,dim_s+dim_z]
         
-        # dist of pi(a|[s0, z])
-        dist, info = self.option_policy(processed_cat_obs)    # [b, dim]
+        dist, info = policy(processed_cat_obs)    # [b, dim]
         actions = dist.sample((num_samples,))          # [b, n, dim]
         log_probs = dist.log_prob(actions).squeeze(-1)  # [b, n]
         
-        
         processed_cat_obs_flatten = processed_cat_obs.repeat(1, num_samples).view(batch * num_samples, -1)      # [b*n, dim_s+z]
         actions_flatten = actions.view(batch * num_samples, -1)     # [b*n, dim_a]
-        q_values = torch.min(self.target_qf1(processed_cat_obs_flatten, actions_flatten), self.target_qf2(processed_cat_obs_flatten, actions_flatten))      # [b*n, dim_1]
+        q_values = torch.min(qf[0](processed_cat_obs_flatten, actions_flatten), qf[1](processed_cat_obs_flatten, actions_flatten))      # [b*n, dim_1]
         
         values = q_values - self.alpha * log_probs.view(batch*num_samples, -1)      # [b*n, 1]
         values = values.view(batch, num_samples, -1)        # [b, n, 1]
@@ -428,128 +289,36 @@ class SZN(IOD):
             if self.unit_length:
                 random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
             
-            if self.method['explore'] == 'theta' and self.epoch_final is not None:
-                sample_batch = self.epoch_final['obs'].shape[0]
-                final_state = self.epoch_final['obs'][:,-1]
-                with torch.no_grad():
-                    phi_s_0 = self.target_traj_encoder(self.init_obs).mean
-                    phi_s_f = self.target_traj_encoder(final_state).mean
-                s_f_theta = self.vec_norm(phi_s_f - phi_s_0)
-            
-                if self.goal_sample_optim is None:
-                    self.goal_sample_optim = optim.SGD(self.goal_sample_network.parameters(), lr=self.dim_option * 1e-2)
-                    self.last_phi_g = phi_s_f    
-                    
-                # 用s_f_theta更新GSN网络
-                s_f_L = torch.norm(phi_s_f - phi_s_0, dim=-1) 
-                theta_L = self.goal_sample_network(s_f_theta)
-                theta_L_mean = self._clip_phi_g(theta_L.mean, lower_value=-self.max_path_length, upper_value=self.max_path_length)
-                theta_L_stddev = theta_L.stddev
-                # calculate R
-                Network_Update, Sample_Update, R = self.get_R(phi_s_f=phi_s_f, phi_g=self.last_phi_g, sample_batch=sample_batch)
-                # 更新网络
-                # 对于mean的更新：
-                loss_mean = torch.abs(Network_Update) * self.AsymmetricLoss(s_f_L - theta_L_mean.squeeze(-1),alpha_neg=-0.1, alpha_pos=1)
-                # 对于分布的更新；
-                loss_std = self.AsymmetricLoss(-Network_Update * 1 * theta_L_stddev.squeeze(-1), alpha_neg=1, alpha_pos=0.01)
-                loss = (loss_mean + loss_std).mean()
-                self.goal_sample_optim.zero_grad()
-                loss.backward()
-                self.goal_sample_optim.step()
-                    
-                # 推理，获取新的phi_g
-                with torch.no_grad():
-                    # random:
-                    randn_exp_theta = self.vec_norm(torch.randn_like(self.last_phi_g)).to(self.device)
-                    theta_L = self.goal_sample_network(randn_exp_theta)
-                    theta_L_mean = self._clip_phi_g(theta_L.mean)
-                    theta_L_stddev = theta_L.stddev
-                        
-                # 更新新的phi_g
-                next_phi_g = phi_s_0 + (theta_L_mean + torch.rand_like(theta_L_stddev) * theta_L_stddev) * randn_exp_theta
-                # 软更新；
-                self.last_phi_g = Sample_Update.unsqueeze(-1) * next_phi_g + (1 - Sample_Update.unsqueeze(-1)) * self.last_phi_g
-
-                np_phi_g = self.last_phi_g.detach().cpu().numpy()
-                extras = self._generate_option_extras(random_options, phi_sub_goal=np_phi_g)  
-
-                if wandb.run is not None:
-                    wandb.log({
-                            "theta/loss_mean": loss_mean.detach().mean(),
-                            "theta/loss_std": loss_std.detach().mean(),
-                            "theta/loss": loss.detach(),
-                            }) 
-                    Mean = theta_L_mean
-                    Stddev = theta_L_stddev
-                    for i in range(sample_batch):    
-                        wandb.log({
-                                    "theta/mean-" + str(i): float(Mean[i][0].cpu()),
-                                    "theta/std-" + str(i): float(Stddev[i][0].cpu()),
-                                    "theta/R-" + str(i): float(R[i].cpu()),
-                                    })
-            
-            elif self.method['explore'] == 'SZN' and self.epoch_final is not None:
-                SupportReturn = self.get_Regret(option=self.vec_norm(self.last_z), state=self.init_obs)
-                
-                delta_SR = SupportReturn - self.last_return
-                # update SZN 
-                for t in range(3):
-                    dist_z = self.SampleZPolicy(self.input_token)
-                    z_logp = dist_z.log_prob(self.last_z)
-                    self.SampleZPolicy_optim.zero_grad()      
-                    # delta_SR_norm = (delta_SR - delta_SR.mean()) / (delta_SR.std() + 1e-8)
-                    # Contrastive norm
-                    # t = 1
-                    # weight = 0.5
-                    # Loss SZP
-                    loss_SZP = (-z_logp * delta_SR.detach()).mean()
-                    loss_SZP.backward()
-                    self.grad_clip.apply(self.SampleZPolicy.parameters())
-                    self.SampleZPolicy_optim.step()
-
-                new_z = self.SampleZPolicy(self.input_token).sample().detach()
-                sim_iteration = (self.vec_norm(new_z)*self.vec_norm(self.last_z)).sum(dim=-1)
-                
-                if self.hold_z_times > self.hold_z_epoch:
-                    sim_z_sample = (self.vec_norm(new_z)*self.vec_norm(self.last_z)).sum(dim=-1)
-                    self.last_z = new_z 
-                    self.last_z_dist = self.SampleZPolicy(self.input_token)
-                    self.hold_z_times = 0
-                else:
-                    self.hold_z_times += 1
-                    self.last_z = self.last_z_dist.sample().detach()
-                    sim_z_sample = torch.ones_like(sim_iteration)
-                
+            if self.method['explore'] == 'SZN' and self.epoch_final is not None:
                 def sim_vec(new_z):
                     b = 0
                     for i in new_z:
-                        a = [(vec_norm(i)*vec_norm(j)).sum(dim=-1) for j in new_z]
+                        a = [(self.vec_norm(i)*self.vec_norm(j)).sum(dim=-1) for j in new_z]
                         b += torch.tensor(a).mean()
-                    return b/new_z.shape[0]          
-
+                    return b/new_z.shape[0]   
+                    
+                new_z = self.SampleZPolicy(self.input_token).sample().detach()
+                sim_iteration = (self.vec_norm(new_z)*self.vec_norm(self.last_z)).sum(dim=-1)
+                self.last_z = new_z
+                sim_batch = sim_vec(new_z)
+                
                 if wandb.run is not None:
                     wandb.log({
-                        "SZN/loss_SZP": loss_SZP,
-                        "SZN/delta_SR": delta_SR.mean(),
-                        "SZN/delta_SR_std": delta_SR.std(),
-                        "SZN/logp": z_logp.mean(),
-                        "SZN/SR": SupportReturn.mean(),
+                        # "SZN/loss_SZP": loss_SZP,
+                        # "SZN/Regret_mean": Regret.mean(),
+                        # "SZN/Regret_std": Regret.std(),
+                        # "SZN/logp": z_logp.mean(),
+                        # "SZN/V_after_epoch": V_after_epoch.mean(),
                         "SZN/sim_output": sim_iteration.mean(),
-                        "SZN/sim_z_sample": sim_z_sample.mean(),
-                        "SZN/sim_batch": sim_vec(new_z),
-                        # "SZN/loss_norm": loss_norm.mean(),
+                        "SZN/sim_batch": sim_batch,
                         "epoch": runner.step_itr,
                     })
             
                 np_z = self.vec_norm(self.last_z).cpu().numpy()
+                token = self.input_token.cpu().numpy()
                 print("Sample Z: ", np_z)
-                extras = self._generate_option_extras(np_z)                
-
-            elif self.method['explore'] == 'phi_g' and self.epoch_final is not None:
-                self.last_z = self.target_traj_encoder(self.init_obs).mean + self.max_path_length * torch.randn_like(self.last_z)
-                np_z = self.last_z.detach().cpu().numpy()
-                extras = self._generate_option_extras(random_options, phi_sub_goal=np_z)
-            
+                extras = self._generate_option_extras(np_z, token=token)        
+                        
             else: 
                 self.last_z = torch.tensor(random_options, dtype=torch.float32).to(self.device)
                 extras = self._generate_option_extras(random_options)      # 变成字典的形式；
@@ -581,18 +350,48 @@ class SZN(IOD):
             if epoch_i > self._trans_optimization_epochs:
                 break
             v = {key: value.type(torch.float32).to(self.device) for key, value in v.items()}
+            # 0. calculate V_k-1：
+            v['V_before_iter'] = self.get_Value(option=v['options'], state=self.s0.expand(v['options'].shape[0], -1), qf=[self.qf1, self.qf2], policy=self.option_policy, num_samples=5)
+            # 1. update phi：
             self._optimize_te(tensors, v)
+            # 2. update policy:
             with torch.no_grad():
                 self._update_rewards(tensors, v)
             self._optimize_op(tensors, v)   
-        for epoch_i, v in enumerate(dataloader):
-            if epoch_i > self._trans_optimization_epochs:
-                break
-            v = {key: value.type(torch.float32).to(self.device) for key, value in v.items()}
+            # 3. update SZN:
+            def _optimize_SZN(tensors, v):
+                ## calculate value_after_epoch then get regret:
+                v['V_after_iter'] = self.get_Value(option=v['options'], state=self.s0.expand(v['options'].shape[0], -1), qf=[self.qf1, self.qf2], policy=self.option_policy, num_samples=5)
+                Regret = v['V_after_iter'] - v['V_before_iter']
                 
-            
-        
-            
+                ## calculate logp using updated network:
+                dist_z = self.SampleZPolicy(v['token'])           # [num_traj, dist]
+                z_logp = dist_z.log_prob(v['options'])                       
+                ## loss:
+                self.SampleZPolicy_optim.zero_grad()
+                loss_SZP = (-z_logp * Regret.detach()).mean()
+                loss_SZP.backward()
+                self.grad_clip.apply(self.SampleZPolicy.parameters())
+                self.SampleZPolicy_optim.step()
+                
+                if wandb.run is not None:
+                    wandb.log({
+                        "SZN_batch/loss_SZP": loss_SZP,
+                        "SZN_batch/Regret_mean": Regret.mean(),
+                        "SZN_batch/Regret_std": Regret.std(),
+                        "SZN_batch/logp": z_logp.mean(),
+                        "SZN_batch/V_after_iter": v['V_after_iter'].mean(),
+                    })
+                    
+                tensors.update({
+                    'loss_SZP': loss_SZP,
+                    'Regret_mean': Regret.mean(),
+                    'Regret_std': Regret.std(),
+                    'logp': z_logp.mean(),     
+                    'V_after_iter': v['V_after_iter'].mean(),           
+                })
+                
+            _optimize_SZN(tensors, v)
             
         return tensors
 
@@ -651,18 +450,7 @@ class SZN(IOD):
         )
 
         sac_utils.update_targets(self)
-    
-    @torch.no_grad()
-    def gen_z(self, sub_goal, obs, device="cpu", ret_emb: bool = False):
-        traj_encoder = self.target_traj_encoder.to(device)
-        goal_z = traj_encoder(sub_goal).mean
-        target_cur_z = traj_encoder(obs).mean
 
-        z = self.vec_norm(goal_z - target_cur_z)
-        if ret_emb:
-            return z, target_cur_z, goal_z
-        else:
-            return z
 
     '''
     【3】更新reward；更新option；更新phi_s；
