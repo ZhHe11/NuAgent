@@ -166,4 +166,4 @@ tests/videos
 d4rl
 *.pth
 *.pt
-
+.*
