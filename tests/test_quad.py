@@ -91,9 +91,9 @@ env = consistent_normalize(env, normalize_obs=False)
 
 def sim_vec(SZN, token):
     b = 0
-    for i in SZN(token).mean:
+    for i in SZN(token).sample():
         i = vec_norm(i)
-        a = [(i*vec_norm(j)).sum(dim=-1) for j in SZN(token).mean]
+        a = [(i*vec_norm(j)).sum(dim=-1) for j in SZN(token).sample()]
         print(torch.tensor(a).mean())
         b += torch.tensor(a).mean()
     print('sim_vec_mean', b/SZN(token).mean.shape[0])
@@ -103,7 +103,7 @@ def vec_norm(vec):
     return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
     
 # 加载模型
-path = "/mnt/nfs2/zhanghe/project001/METRA/exp/Quadruped/SZN-TrainBatch-deepcopyQf-path50sd000_1727682096_dmc_quadruped_SZN"
+path = "/mnt/nfs2/zhanghe/project001/METRA/exp/Quadruped/SZN-TrainBatch_256_50-V_loss_sim_batch01-path50sd000_1727772298_dmc_quadruped_SZN"
 
 # path = "/mnt/nfs2/zhanghe/project001/METRA/exp/Quadruped/Regret_holdepoch10-wo_normsd000_1727410540_dmc_quadruped_SZN"
 path = path + '/'
@@ -152,10 +152,10 @@ else:
     # eval_times = support_options.shape[0]
     # support_options = torch.eye(option_dim).to(device)
     ## 使用SZN：
-    input_token = torch.randn_like(init_obs).to(device)
-    support_options = SZN(token).sample()
+    # input_token = torch.randn_like(init_obs).to(device)
+    # support_options = SZN(token).sample()
     ## 使用随机初始化
-    # support_options = vec_norm(torch.randn(eval_times, option_dim).to(device))
+    support_options = vec_norm(torch.randn(eval_times, option_dim).to(device))
 
 def interact_with_env():
     # interact with env

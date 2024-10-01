@@ -156,7 +156,8 @@ class SZN(IOD):
         self.hold_z_times = 0
         self.hold_z_epoch = 10
         
-        self.update_token_repeat = 8
+        self.update_token_repeat = 16
+        self.s0 = self.init_obs.repeat(self.update_token_repeat, 1)
         
     
     @property
@@ -284,13 +285,12 @@ class SZN(IOD):
         self.epoch_final = epoch_final
 
         #[for regret]: 1.sample z; 2.calculate V_before_epoch;
+        #[try] generate more epoch_data to train SZP
         traj_batch = self.num_random_trajectories           
 
         dist_z = self.SampleZPolicy(self.input_token)       # [traj_batch, dist]  
         self.z_output = dist_z.sample((self.update_token_repeat,))      # [traj_batch, train_token_batch, dim_z]
         self.z_output_flatten = self.z_output.view(traj_batch*self.update_token_repeat, -1)      # [traj_batch*train_token_batch, dim_z]
-
-        self.s0 = self.init_obs.repeat(self.update_token_repeat, 1)
         self.V_before_epoch = self.get_Value(option=self.vec_norm(self.z_output_flatten), state=self.s0, qf=[self.qf1, self.qf2], policy=self.option_policy, num_samples=5)     # [traj_batch*train_token_batch, dim_z]
         
         return epoch_data
@@ -354,34 +354,37 @@ class SZN(IOD):
                 random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
             
             if self.method['explore'] == 'SZN' and self.epoch_final is not None:
+                def sim_vec(new_z):
+                    b = 0
+                    for i in new_z:
+                        a = [(self.vec_norm(i)*self.vec_norm(j)).sum(dim=-1) for j in new_z]
+                        b += torch.tensor(a).mean()
+                    return b/new_z.shape[0]   
                 ## update SZN multi times;
                 # calculate value_after_epoch then get regret:
                 V_after_epoch = self.get_Value(option=self.vec_norm(self.z_output_flatten), state=self.s0, qf=[self.qf1, self.qf2], policy=self.option_policy, num_samples=5)
-                Regret = V_after_epoch - self.V_before_epoch 
+                Regret = V_after_epoch - self.V_before_epoch
+                Regret_norm = Regret
                 
-                for t in range(5):
+                for t in range(10):
                     # calculate logp using updated network:
-                    dist_z = self.SampleZPolicy(self.input_token)
-                    z_logp = dist_z.log_prob(self.z_output.detach()).view(self.num_random_trajectories*self.update_token_repeat, -1)
+                    dist_z = self.SampleZPolicy(self.input_token)           # [num_traj, dist]
+                    z_logp = dist_z.log_prob(self.z_output.detach()).view(self.num_random_trajectories*self.update_token_repeat, -1)                        
+                    # sim_batch
+                    new_z = dist_z.sample()                                 # [num_traj, dim_z]
+                    sim_batch = sim_vec(new_z)
                     # loss:
                     self.SampleZPolicy_optim.zero_grad()
-                    loss_SZP = (-z_logp * Regret.detach()).mean()
+                    loss_SZP = (-z_logp * Regret.detach()).mean() + sim_batch
                     loss_SZP.backward()
                     self.grad_clip.apply(self.SampleZPolicy.parameters())
                     self.SampleZPolicy_optim.step()
                     
                 new_z = self.SampleZPolicy(self.input_token).sample().detach()
                 sim_iteration = (self.vec_norm(new_z)*self.vec_norm(self.last_z)).sum(dim=-1)
-                
                 self.last_z = new_z
+                sim_batch = sim_vec(new_z)
                 
-                def sim_vec(new_z):
-                    b = 0
-                    for i in new_z:
-                        a = [(self.vec_norm(i)*self.vec_norm(j)).sum(dim=-1) for j in new_z]
-                        b += torch.tensor(a).mean()
-                    return b/new_z.shape[0]          
-
                 if wandb.run is not None:
                     wandb.log({
                         "SZN/loss_SZP": loss_SZP,
