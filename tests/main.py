@@ -53,6 +53,7 @@ from iod.causer import CAUSER
 from iod.dads import DADS
 from iod.SZN import SZN
 from iod.SZN_batch import SZN_batch
+from iod.SZN_Z import SZN_Z
 
 from iod.utils import get_normalizer_preset
 
@@ -114,7 +115,7 @@ def get_argparser():
 
     parser.add_argument('--alpha', type=float, default=0.01)
 
-    parser.add_argument('--algo', type=str, default='metra', choices=['metra', 'dads', 'causer', 'metra_bl', 'SZN', 'SZN_batch'])
+    parser.add_argument('--algo', type=str, default='metra', choices=['metra', 'dads', 'causer', 'metra_bl', 'SZN', 'SZN_batch', 'SZN_Z'])
 
     parser.add_argument('--sac_tau', type=float, default=5e-3)
     parser.add_argument('--sac_lr_q', type=float, default=None)
@@ -407,7 +408,7 @@ def run(ctxt=None):
         hidden_sizes=master_dims,
         hidden_nonlinearity=nonlinearity or torch.relu,
         w_init=torch.nn.init.xavier_uniform_,
-        input_dim=1,
+        input_dim=args.traj_batch_size,
         output_dim=args.dim_option,
         init_std=1.,
         min_std=1e-2,
@@ -496,7 +497,7 @@ def run(ctxt=None):
     # else:
     replay_buffer = PathBufferTensor(capacity_in_transitions=int(args.sac_max_buffer_size), pixel_shape=pixel_shape)
 
-    if args.algo in ['metra', 'dads', 'causer', 'metra_bl', 'SZN', 'SZN_batch']:
+    if args.algo in ['metra', 'dads', 'causer', 'metra_bl', 'SZN', 'SZN_batch', 'SZN_Z']:
         qf1 = ContinuousMLPQFunctionEx(
             obs_dim=policy_q_input_dim,
             action_dim=action_dim,
@@ -633,7 +634,15 @@ def run(ctxt=None):
             SampleZPolicy=SampleZPolicy,
             **skill_common_args,
         ) 
-            
+    
+    elif args.algo == 'SZN_Z':
+        algo = SZN_Z(
+            **algo_kwargs,
+            SampleZNetwork=SampleZNetwork,
+            SampleZPolicy=SampleZPolicy,
+            **skill_common_args,
+        ) 
+     
     
     elif args.algo == 'dads':
         algo = DADS(

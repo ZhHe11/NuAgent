@@ -2,7 +2,10 @@ export CUDA_VISIBLE_DEVICES=6
 export MUJOCO_GL="osmesa"
 
 # baseline
-python tests/main.py --run_group kitchen --exp_name k-bl --env kitchen --max_path_length 50 --seed 0 --traj_batch_size 8 --n_parallel 4 --normalizer_type off --num_video_repeats 1 --frame_stack 3 --sac_max_buffer_size 100000 --sac_lr_a -1 --trans_optimization_epochs 100 --n_epochs_per_log 2 --n_epochs_per_eval 10 --n_epochs_per_save 1000 --n_epochs_per_pt_save 1000 --discrete 0 --dim_option 2 --encoder 1 --sample_cpu 0 --is_wandb 1 \
+python tests/main.py --run_group kitchen  --env kitchen --max_path_length 50 --seed 0 --traj_batch_size 8 --n_parallel 4 --normalizer_type off --num_video_repeats 1 --frame_stack 3 --sac_max_buffer_size 100000 --sac_lr_a -1 --trans_optimization_epochs 100 --n_epochs_per_log 2 --n_epochs_per_eval 10 --n_epochs_per_save 1000 --n_epochs_per_pt_save 1000 --discrete 0 --dim_option 2 --encoder 1 --sample_cpu 0 --is_wandb 1 \
+    --algo SZN_Z --exp_name SZN_Z-norm-token0-path50 --phi_type baseline --policy_type baseline --explore_type SZN --sample_type baseline --num_her 0 --trans_optimization_epochs 100 --target_theta 1 --is_wandb 1 --trans_minibatch_size 256 
+
+
     --algo SZN --phi_type contrastive --policy_type baseline --explore_type SZN --sample_type baseline --num_her 0 --_trans_phi_optimization_epochs 1 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 
 
 # ours
