@@ -630,7 +630,7 @@ class SZN_Z(IOD):
             mask = torch.eye(matrix.shape[0]).to(self.device)
             new_reward2 = torch.diag(matrix) 
             new_reward3 = - ((matrix * (1-mask)).mean(dim=-1) + (matrix.T * (1-mask)).mean(dim=-1)) / 2
-            weight = 0.1
+            weight = 1 / (2 * self.max_path_length)
             rewards = new_reward1 + weight * (new_reward2 + new_reward3)
             v.update({
                 'cur_z': cur_z,
