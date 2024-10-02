@@ -365,11 +365,11 @@ class SZN_batch(IOD):
                 Regret = v['V_after_iter'] - v['V_before_iter']
                 
                 ## calculate logp using updated network:
-                dist_z = self.SampleZPolicy(v['token'])           # [num_traj, dist]
+                dist_z = self.SampleZPolicy(v['token'])     # [num_traj, dist]
                 z_logp = dist_z.log_prob(v['options'])                       
                 ## loss:
                 self.SampleZPolicy_optim.zero_grad()
-                loss_SZP = (-z_logp * Regret.detach()).mean()
+                loss_SZP = (-z_logp * 50 * Regret.detach()).mean()
                 loss_SZP.backward()
                 self.grad_clip.apply(self.SampleZPolicy.parameters())
                 self.SampleZPolicy_optim.step()

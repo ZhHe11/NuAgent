@@ -97,13 +97,13 @@ def sim_vec(SZN, token):
         print(torch.tensor(a).mean())
         b += torch.tensor(a).mean()
     print('sim_vec_mean', b/SZN(token).mean.shape[0])
-    
+
 # funtions
 def vec_norm(vec):
     return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
     
 # 加载模型
-path = "/mnt/nfs2/zhanghe/project001/METRA/exp/Quadruped/SZN-TrainBatch_256_50-V_loss_sim_batch01-path50sd000_1727772298_dmc_quadruped_SZN"
+path = "/mnt/nfs2/zhanghe/project001/METRA/exp/Quadruped/SZN_batch-path50sd000_1727799888_dmc_quadruped_SZN_batch"
 
 # path = "/mnt/nfs2/zhanghe/project001/METRA/exp/Quadruped/Regret_holdepoch10-wo_normsd000_1727410540_dmc_quadruped_SZN"
 path = path + '/'

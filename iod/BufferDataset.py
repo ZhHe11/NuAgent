@@ -16,6 +16,8 @@ class BufferDataset(Dataset):
             if key in ['obs', 'next_obs', 'sub_goal', 's_0'] and 'obs_pixel' in self.data.keys():
                 key_ = key + '_pixel'
                 epoch_data[key] = self.data[key_][index]
+            elif key not in self.data.keys():
+                continue
             # elif key in ['s_0', 'sub_goal']:
             #     relative_index = self.data[key][index][0]
             #     epoch_data[key] = torch.tensor(self.data['obs_pixel'][index + relative_index], dtype=torch.float32)

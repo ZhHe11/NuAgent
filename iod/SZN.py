@@ -151,7 +151,7 @@ class SZN(IOD):
         self.grad_clip = GradClipper(clip_type='clip_norm', threshold=3, norm_type=2)
         
         self.last_return = None
-        self.input_token = 0 * self.init_obs + 1 * torch.randn_like(self.init_obs).to(self.device)
+        self.input_token = torch.randn(self.num_random_trajectories, 1).to(self.device)
         self.z_sample = None
         
         self.update_token_repeat = 8
@@ -287,31 +287,31 @@ class SZN(IOD):
                 random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
             
             if self.method['explore'] == 'SZN' and self.epoch_final is not None:
-                # def sim_vec(new_z):
-                #     b = 0
-                #     for i in new_z:
-                #         a = [(self.vec_norm(i)*self.vec_norm(j)).sum(dim=-1) for j in new_z]
-                #         b += torch.tensor(a).mean()
-                #     return b/new_z.shape[0]   
-                # ## update SZN multi times;
-                # # calculate value_after_epoch then get regret:
-                # V_after_epoch = self.get_Value(option=self.vec_norm(self.z_output_flatten), state=self.s0, qf=[self.qf1, self.qf2], policy=self.option_policy, num_samples=5)
-                # Regret = V_after_epoch - self.V_before_epoch
-                # Regret_norm = Regret
+                def sim_vec(new_z):
+                    b = 0
+                    for i in new_z:
+                        a = [(self.vec_norm(i)*self.vec_norm(j)).sum(dim=-1) for j in new_z]
+                        b += torch.tensor(a).mean()
+                    return b/new_z.shape[0]   
+                ## update SZN multi times;
+                # calculate value_after_epoch then get regret:
+                V_after_epoch = self.get_Value(option=self.vec_norm(self.z_output_flatten), state=self.s0, qf=[self.qf1, self.qf2], policy=self.option_policy, num_samples=5)
+                Regret = V_after_epoch - self.V_before_epoch
+                Regret_norm = Regret
                 
-                # for t in range(10):
-                #     # calculate logp using updated network:
-                #     dist_z = self.SampleZPolicy(self.input_token)           # [num_traj, dist]
-                #     z_logp = dist_z.log_prob(self.z_output.detach()).view(self.num_random_trajectories*self.update_token_repeat, -1)                        
-                #     # sim_batch
-                #     new_z = dist_z.mean                                 # [num_traj, dim_z]
-                #     sim_batch = sim_vec(new_z)
-                #     # loss:
-                #     self.SampleZPolicy_optim.zero_grad()
-                #     loss_SZP = (-z_logp * Regret.detach()).mean() + sim_batch
-                #     loss_SZP.backward()
-                #     self.grad_clip.apply(self.SampleZPolicy.parameters())
-                #     self.SampleZPolicy_optim.step()
+                for t in range(20):
+                    # calculate logp using updated network:
+                    dist_z = self.SampleZPolicy(self.input_token)           # [num_traj, dist]
+                    z_logp = dist_z.log_prob(self.z_output.detach()).view(self.num_random_trajectories*self.update_token_repeat, -1)                        
+                    # sim_batch
+                    new_z = dist_z.mean # [num_traj, dim_z]
+                    sim_batch = sim_vec(new_z)
+                    # loss:
+                    self.SampleZPolicy_optim.zero_grad()
+                    loss_SZP = (-z_logp * Regret.detach()).mean() + sim_batch
+                    loss_SZP.backward()
+                    self.grad_clip.apply(self.SampleZPolicy.parameters())
+                    self.SampleZPolicy_optim.step()
                     
                 new_z = self.SampleZPolicy(self.input_token).sample().detach()
                 sim_iteration = (self.vec_norm(new_z)*self.vec_norm(self.last_z)).sum(dim=-1)
@@ -320,11 +320,11 @@ class SZN(IOD):
                 
                 if wandb.run is not None:
                     wandb.log({
-                        # "SZN/loss_SZP": loss_SZP,
-                        # "SZN/Regret_mean": Regret.mean(),
-                        # "SZN/Regret_std": Regret.std(),
-                        # "SZN/logp": z_logp.mean(),
-                        # "SZN/V_after_epoch": V_after_epoch.mean(),
+                        "SZN/loss_SZP": loss_SZP,
+                        "SZN/Regret_mean": Regret.mean(),
+                        "SZN/Regret_std": Regret.std(),
+                        "SZN/logp": z_logp.mean(),
+                        "SZN/V_after_epoch": V_after_epoch.mean(),
                         "SZN/sim_output": sim_iteration.mean(),
                         "SZN/sim_batch": sim_batch,
                         "epoch": runner.step_itr,
