@@ -103,7 +103,7 @@ def vec_norm(vec):
     return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
     
 # 加载模型
-path = "/mnt/nfs2/zhanghe/project001/METRA/exp/Quadruped/SZN_batch-path50sd000_1727799888_dmc_quadruped_SZN_batch"
+path = "/data/zh/project12_Metra/METRA/exp/Quadruped/SZN_Z-tokenEye-debug_view-noADV-path50sd000_1728032871_dmc_quadruped_SZN_Z"
 
 # path = "/mnt/nfs2/zhanghe/project001/METRA/exp/Quadruped/Regret_holdepoch10-wo_normsd000_1727410540_dmc_quadruped_SZN"
 path = path + '/'
@@ -130,7 +130,7 @@ obs_tensor = torch.tensor(obs, dtype=torch.float).unsqueeze(0).to('cuda')
 Trajs = []
 device = 'cuda'
 num_task = 8
-eval_times = 16
+eval_times = 8
 init_obs = torch.tensor(obs).unsqueeze(0).expand(eval_times, -1).to(device)
 
 
