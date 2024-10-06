@@ -3,8 +3,8 @@ import matplotlib.image as mpimg
 
 
 
-path_baseline = "/mnt/nfs2/zhanghe/project001/METRA/exp/Quadruped/baseline-path50sd000_1727681266_dmc_quadruped_SZN"
-path_ours = "/mnt/nfs2/zhanghe/project001/METRA/exp/Quadruped/SZN_batch-path50sd000_1727799888_dmc_quadruped_SZN_batch"
+path_baseline = "/data/zh/project12_Metra/METRA/exp/Quadruped/baseline-path50sd000_1727525819_dmc_quadruped_SZN"
+path_ours = "/data/zh/project12_Metra/METRA/exp/Quadruped/SZN_Z-tokenEye-debug_view-path50sd000_1728032197_dmc_quadruped_SZN_Z"
 
 for i in range(10000):
     id = i * 20
@@ -18,6 +18,8 @@ for i in range(10000):
     plt.subplot(1, 2, 1)  # 1行2列的第1个位置
     plt.imshow(img_baseline)
     plt.title('Baseline')
+    # 横坐标label
+    plt.xlabel('Epoch' + str(id))
     plt.axis('off')  # 不显示坐标轴
 
     # 显示第二张图像
@@ -25,6 +27,7 @@ for i in range(10000):
     plt.imshow(img_ours)
     plt.title('Ours')
     plt.axis('off')  # 不显示坐标轴
+    plt.xlabel('Epoch' + str(id))
 
     # 显示图形
     plt.savefig('tmp.png', dpi=300)

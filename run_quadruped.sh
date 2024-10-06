@@ -4,7 +4,7 @@ export MUJOCO_GL="osmesa"
 
 # regret
 python tests/main.py --run_group Quadruped --env dmc_quadruped --max_path_length 50 --seed 0 --traj_batch_size 16 --n_parallel 2 --normalizer_type off --video_skip_frames 2 --frame_stack 3 --sac_max_buffer_size 300000 --eval_plot_axis -15 15 -15 15 --n_epochs_per_log 10 --n_epochs_per_eval 20 --n_epochs_per_save 1000 --n_epochs_per_pt_save 1000 --discrete 0 --dim_option 4 --encoder 1 --sample_cpu 0 \
-    --algo SZN_Z --exp_name SZN_Z-tokenEye-Contrast_w001-path50 --phi_type contrastive_v3 --policy_type baseline --explore_type SZN --sample_type baseline --num_her 0 --trans_optimization_epochs 50 --target_theta 1 --is_wandb 1 --trans_minibatch_size 256 
+    --algo SZN_Z --exp_name SZN_Z-SGD-Adv-logpVecZ-path50 --phi_type baseline --policy_type baseline --explore_type SZN --sample_type baseline --num_her 0 --trans_optimization_epochs 50 --target_theta 1 --is_wandb 1 --trans_minibatch_size 256 
 
 
 
