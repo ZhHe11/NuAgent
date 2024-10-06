@@ -160,6 +160,7 @@ class SZN_Z(IOD):
         # self.SampleZNetwork = SampleZNetwork.to(self.device)
         # self.SZN_optim = optim.SGD(self.SampleZNetwork.parameters(), lr=1e-4)
         self.SampleZPolicy = SampleZPolicy.to(self.device)
+        # self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=1e-3, weight_decay=1e-3, betas=(0.5, 0.9))
         self.SampleZPolicy_optim = optim.SGD(self.SampleZPolicy.parameters(), lr=1e-3)
         self.grad_clip = GradClipper(clip_type='clip_norm', threshold=3, norm_type=2)
         
@@ -320,6 +321,12 @@ class SZN_Z(IOD):
                 random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
             
             if self.method['explore'] == 'SZN' and self.epoch_final is not None:
+                def sim_vec(new_z):
+                    b = 0
+                    for i in new_z:
+                        a = [(self.vec_norm(i)*self.vec_norm(j)).sum(dim=-1) for j in new_z]
+                        b += torch.tensor(a).mean()
+                    return b/new_z.shape[0]          
                 SupportReturn = self.get_Regret(option=self.vec_norm(self.last_z), state=self.init_obs)
                 delta_SR = SupportReturn - self.last_return
                 
@@ -335,14 +342,16 @@ class SZN_Z(IOD):
                 
                 Ez_R = get_Ez_Regret()
                 Adv = (R_z - Ez_R) / Ez_R
-            
+                
                 # update SZN 
                 for t in range(1):
                     dist_z = self.SampleZPolicy(self.input_token)
-                    z_logp = dist_z.log_prob(self.last_z)
+                    z_logp = dist_z.log_prob(self.vec_norm(self.last_z))
                     self.SampleZPolicy_optim.zero_grad()      
                     # Loss SZP
-                    loss_SZP = (-z_logp * Adv.detach()).mean()
+                    new_z = dist_z.mean
+                    l_norm = sim_vec(new_z)
+                    loss_SZP = (-z_logp * Adv.detach()).mean() + 0 * l_norm
                     loss_SZP.backward()
                     self.grad_clip.apply(self.SampleZPolicy.parameters())
                     self.SampleZPolicy_optim.step()
@@ -352,12 +361,7 @@ class SZN_Z(IOD):
                 
                 self.last_z = new_z
                 
-                def sim_vec(new_z):
-                    b = 0
-                    for i in new_z:
-                        a = [(self.vec_norm(i)*self.vec_norm(j)).sum(dim=-1) for j in new_z]
-                        b += torch.tensor(a).mean()
-                    return b/new_z.shape[0]          
+
 
                 if wandb.run is not None:
                     wandb.log({
