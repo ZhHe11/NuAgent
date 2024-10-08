@@ -614,6 +614,39 @@ class SZN_Z(IOD):
             })
             return
         
+        elif self.method["phi"] in ['contrastive_v5']:
+            # similar loss
+            z_sample = v['options']
+            option_s_s_next = next_z - cur_z
+            new_reward1 = (option_s_s_next * v['options']).sum(dim=-1)
+            # contrstive loss
+            t = 0.1 
+            weight = 1
+            matrix = (self.vec_norm(option_s_s_next).unsqueeze(1) * z_sample.unsqueeze(0)).sum(dim=-1)
+            label = torch.arange(matrix.shape[0]).to(self.device)
+            matrix = matrix / t
+            label = torch.arange(matrix.shape[0]).to(self.device)
+            new_reward2 = - F.cross_entropy(matrix, label)
+            new_reward3 = - F.cross_entropy(matrix.T, label)            
+            # total loss
+            rewards = new_reward1 + weight * (new_reward2 + new_reward3)
+            v.update({
+                'cur_z': cur_z,
+                'next_z': next_z,
+                'rewards': rewards,
+                'policy_rewards': new_reward1,
+            })
+            tensors.update({
+                'reward1': new_reward1.mean(),
+                'reward2': new_reward2.mean(),
+                'reward3': new_reward3.mean(),
+                'PureRewardMean': rewards.mean(),     
+                'PureRewardStd': rewards.std(),           
+            })
+            return 
+        
+        
+        
         else: 
             option_s_s_next = next_z - cur_z
             option = v['options']
