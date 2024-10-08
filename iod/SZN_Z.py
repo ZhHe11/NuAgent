@@ -586,29 +586,38 @@ class SZN_Z(IOD):
             option_s_s_next = next_z - cur_z
             phi_g = self.traj_encoder(v['sub_goal']).mean
             phi_s0 = self.traj_encoder(v['s_0']).mean
-            v['options'] = self.vec_norm(phi_g - phi_s0)
-            v['next_options'] = v['options']
-            new_reward1 = (option_s_s_next * v['options']).sum(dim=-1)
-            # option_sim = (v['options'].unsqueeze(1) * v['options'].unsqueeze(0)).sum(dim=-1) 
-            # option_sim = torch.clamp(option_sim, 0, 1)
-            # new_reward2 = option_sim.mean(dim=-1)       
-            matrix = (v['options'].unsqueeze(1) * z_sample.unsqueeze(0)).sum(dim=-1)
-            # label = torch.arange(matrix.shape[0]).to(self.device)
-            mask = torch.eye(matrix.shape[0]).to(self.device)
-            new_reward2 = torch.diag(matrix) 
-            new_reward3 = - ((matrix * (1-mask)).mean(dim=-1) + (matrix.T * (1-mask)).mean(dim=-1)) / 2
-            weight = 1 / (2 * self.max_path_length)
-            rewards = new_reward1 + weight * (new_reward2 + new_reward3)
+            z_g_s0 = self.vec_norm(phi_g - phi_s0)
+            ## core objective
+            new_reward1 = (option_s_s_next * z_g_s0).sum(dim=-1)
+            ## for z_sample to get different online data
+            reward_zsample = (z_g_s0 * z_sample).sum(dim=-1)
+            
+            ## neg smaple
+            option_sim = (z_g_s0.unsqueeze(1) * z_g_s0.unsqueeze(0)).sum(dim=-1)
+            # mask itself and decay
+            mask = torch.eye(option_sim.shape[0]).to(self.device)
+            option_sim = option_sim * (1 - mask) 
+            decay_k = 3
+            option_sim = torch.exp(decay_k * (option_sim - 1)).detach() * option_sim
+            new_reward2 = -option_sim.mean(dim=-1)  
+
+            ## add together
+            weight_zsample = 1
+            weight_neg = 1 / self.max_path_length
+            rewards =  new_reward1 + weight_neg * weight_zsample * reward_zsample + weight_neg * (new_reward2)
+            
             v.update({
-                'cur_z': cur_z,
-                'next_z': next_z,
-                'rewards': rewards,
-                'policy_rewards': new_reward1,
+                'cur_z': cur_z, 
+                'next_z': next_z, 
+                'rewards': rewards, 
+                'policy_rewards': new_reward1,  
+                'g_options': z_g_s0, 
+                'g_next_options': z_g_s0, 
             })
             tensors.update({
                 'reward1': new_reward1.mean(),
                 'reward2': new_reward2.mean(),
-                'reward3': new_reward3.mean(),
+                # 'reward3': new_reward3.mean(),
                 'PureRewardMean': rewards.mean(),     
                 'PureRewardStd': rewards.std(),           
             })
@@ -620,19 +629,21 @@ class SZN_Z(IOD):
             option_s_s_next = next_z - cur_z
             new_reward1 = (option_s_s_next * v['options']).sum(dim=-1)
             # contrstive loss
-            t = 1 
-            weight = 1
-            # 去重
+            # t = 10 
+            weight = 0.1
             matrix = (self.vec_norm(option_s_s_next).unsqueeze(1) * z_sample.unsqueeze(0)).sum(dim=-1)
-            mask = torch.where((z_sample.unsqueeze(1)*z_sample.unsqueeze(0)).sum(dim=-1)>1-1e-3, 0, 1).to(self.device) * torch.where((self.vec_norm(option_s_s_next).unsqueeze(1)*self.vec_norm(option_s_s_next).unsqueeze(0)).sum(dim=-1)>1-1e-3, 0, 1).to(self.device) + torch.eye(z_sample.shape[0]).to(self.device)
+            # 加一个判断，如果g-与g特别接近，就用mask掉；
+            dist_theta = 1e-3
+            distance_pos_neg = torch.norm(z_sample.unsqueeze(0) - z_sample.unsqueeze(1), p=2, dim=-1)
+            mask = torch.where( distance_pos_neg < dist_theta , 0, 1)
             matrix = matrix * mask
-            label = torch.arange(matrix.shape[0]).to(self.device)
-            matrix = matrix / t
-            label = torch.arange(matrix.shape[0]).to(self.device)
-            new_reward2 = - F.cross_entropy(matrix, label)
-            new_reward3 = - F.cross_entropy(matrix.T, label)            
+            # clamp
+            matrix = torch.clamp(matrix, 0.5)
+            inner_neg = matrix.mean(dim=1)
+            new_reward2 = - inner_neg
+            
             # total loss
-            rewards = (1-weight) * new_reward1 + weight * (new_reward2 + new_reward3)
+            rewards = 1 * new_reward1 + weight * (new_reward2)
             v.update({
                 'cur_z': cur_z,
                 'next_z': next_z,
@@ -642,14 +653,13 @@ class SZN_Z(IOD):
             tensors.update({
                 'reward1': new_reward1.mean(),
                 'reward2': new_reward2.mean(),
-                'reward3': new_reward3.mean(),
+                # 'reward3': new_reward3.mean(),
                 'PureRewardMean': rewards.mean(),     
                 'PureRewardStd': rewards.std(),           
             })
             return 
         
-        
-        
+
         else: 
             option_s_s_next = next_z - cur_z
             option = v['options']
@@ -819,12 +829,13 @@ class SZN_Z(IOD):
     【2.1】计算qf的reward
     '''
     def _update_loss_qf(self, tensors, v):
-        if self.method["policy"] in ['target_option']:
-            option = v['target_options']
-            next_option = v['target_next_options']
+        if self.method["phi"] in ['contrastive_v3']:
+            option = v['g_options']
+            next_option = v['g_next_options']
         else:
             option = v['options']
             next_option = v['next_options']
+            
         policy_rewards = v['policy_rewards'] * self._reward_scale_factor
         tensors.update({
             'policy_rewards': policy_rewards.mean(),
@@ -858,8 +869,8 @@ class SZN_Z(IOD):
     【2.2】计算policy的loss；
     '''
     def _update_loss_op(self, tensors, v):
-        if self.method["policy"] in ['phi_g']:
-            option = v['target_options'].detach()
+        if self.method["phi"] in ['contrastive_v3']:
+            option = v['g_options'].detach()
         else:
             option = v['options'].detach()
         processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), option)
