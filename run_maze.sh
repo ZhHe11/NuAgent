@@ -1,9 +1,9 @@
-export CUDA_VISIBLE_DEVICES=7
+export CUDA_VISIBLE_DEVICES=0
 export MUJOCO_GL="osmesa"
 
 # regret
-python tests/main.py --run_group Maze --exp_name theta-dim2-std_nofreeze --env ant_maze --max_path_length 300 --seed 0 --traj_batch_size 8 --n_parallel 4 --normalizer_type off --sac_max_buffer_size 300000 --algo metra --trans_optimization_epochs 50 --n_epochs_per_log 100 --n_epochs_per_eval 100 --n_epochs_per_save 1000 --n_epochs_per_pt_save 1000 --discrete 0 --dim_option 2 --sac_scale_reward 1 --trans_minibatch_size 1024 --is_wandb 0 --phi_type contrastive --policy_type her_reward --explore_type theta --sample_type contrastive --num_her 0 --_trans_phi_optimization_epochs 1 --target_theta 1e-3 --is_wandb 1
-
+python tests/main.py --run_group Maze --env ant_maze --max_path_length 100 --seed 0 --traj_batch_size 8 --n_parallel 1 --normalizer_type off --sac_max_buffer_size 300000  --n_epochs_per_log 10 --n_epochs_per_eval 50 --n_epochs_per_save 100 --n_epochs_per_pt_save 100 --discrete 0 --dim_option 2 --sac_scale_reward 1 \
+    --algo SZN_Z --exp_name SZN_Z_l_vec --phi_type baseline --policy_type baseline --explore_type SZN --sample_type baseline --num_her 0 --trans_optimization_epochs 50 --target_theta 1 --is_wandb 1 --trans_minibatch_size 256 
 
 # baseline
 # python tests/main.py --run_group Debug --env ant --max_path_length 200 --seed 0 --traj_batch_size 8 --n_parallel 1 --normalizer_type preset --eval_plot_axis -50 50 -50 50 --trans_optimization_epochs 50 --n_epochs_per_log 100 --n_epochs_per_eval 1000 --n_epochs_per_save 10000 --sac_max_buffer_size 1000000 --algo metra --discrete 0 --dim_option 2

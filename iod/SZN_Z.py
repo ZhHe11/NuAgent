@@ -346,12 +346,18 @@ class SZN_Z(IOD):
                 # update SZN 
                 for t in range(1):
                     dist_z = self.SampleZPolicy(self.input_token)
-                    z_logp = dist_z.log_prob(self.vec_norm(self.last_z))
+                    z_logp = dist_z.log_prob(self.last_z)
                     self.SampleZPolicy_optim.zero_grad()      
                     # Loss SZP
+                    # Loss batch norm
                     new_z = dist_z.mean
                     l_norm = sim_vec(new_z)
-                    loss_SZP = (-z_logp * Adv.detach()).mean() + 0 * l_norm
+                    # Loss output vector
+                    Value = delta_SR.detach() * (torch.log(R_z.detach() + 1) + 1) 
+                    Value = (Value - Value.mean()) / (Value.std() + 1e-8)
+                    
+                    l_vector = (torch.norm(new_z, p=2, dim=-1) - 1) ** 2
+                    loss_SZP = (-z_logp * Value).mean() + 0 * l_norm + 1 * l_vector.mean()
                     loss_SZP.backward()
                     self.grad_clip.apply(self.SampleZPolicy.parameters())
                     self.SampleZPolicy_optim.step()
@@ -360,7 +366,6 @@ class SZN_Z(IOD):
                 sim_iteration = (self.vec_norm(new_z)*self.vec_norm(self.last_z)).sum(dim=-1)
                 
                 self.last_z = new_z
-                
 
 
                 if wandb.run is not None:
@@ -374,6 +379,7 @@ class SZN_Z(IOD):
                         "SZN/sim_batch": sim_vec(new_z),
                         "SZN/dist_mean": dist_z.mean.mean(),
                         "SZN/dist_std": dist_z.stddev.mean(),
+                        "SZN/loss_vector": l_vector.mean(),
                         "epoch": runner.step_itr,
                     })
             
@@ -591,7 +597,7 @@ class SZN_Z(IOD):
             mask = torch.eye(matrix.shape[0]).to(self.device)
             new_reward2 = torch.diag(matrix) 
             new_reward3 = - ((matrix * (1-mask)).mean(dim=-1) + (matrix.T * (1-mask)).mean(dim=-1)) / 2
-            weight = 0.1
+            weight = 1 / (2 * self.max_path_length)
             rewards = new_reward1 + weight * (new_reward2 + new_reward3)
             v.update({
                 'cur_z': cur_z,
