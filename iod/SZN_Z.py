@@ -300,7 +300,7 @@ class SZN_Z(IOD):
         
         processed_cat_obs_flatten = processed_cat_obs.repeat(1, num_samples).view(batch * num_samples, -1)      # [n*b, dim_s+z]
         actions_flatten = actions.view(batch * num_samples, -1)     # [n*b, dim_a]
-        q_values = torch.min(self.target_qf1(processed_cat_obs_flatten, actions_flatten), self.target_qf2(processed_cat_obs_flatten, actions_flatten))      # [n*b, dim_1]
+        q_values = torch.min(self.qf1(processed_cat_obs_flatten, actions_flatten), self.qf2(processed_cat_obs_flatten, actions_flatten))      # [n*b, dim_1]
         
         values = q_values - self.alpha * log_probs.view(batch*num_samples, -1)      # [n*b, 1]
         values = values.view(num_samples, batch, -1)        # [n, b, 1]
