@@ -620,16 +620,19 @@ class SZN_Z(IOD):
             option_s_s_next = next_z - cur_z
             new_reward1 = (option_s_s_next * v['options']).sum(dim=-1)
             # contrstive loss
-            t = 0.1 
+            t = 1 
             weight = 1
+            # 去重
             matrix = (self.vec_norm(option_s_s_next).unsqueeze(1) * z_sample.unsqueeze(0)).sum(dim=-1)
+            mask = torch.where((z_sample.unsqueeze(1)*z_sample.unsqueeze(0)).sum(dim=-1)>1-1e-3, 0, 1).to(self.device) * torch.where((self.vec_norm(option_s_s_next).unsqueeze(1)*self.vec_norm(option_s_s_next).unsqueeze(0)).sum(dim=-1)>1-1e-3, 0, 1).to(self.device) + torch.eye(z_sample.shape[0]).to(self.device)
+            matrix = matrix * mask
             label = torch.arange(matrix.shape[0]).to(self.device)
             matrix = matrix / t
             label = torch.arange(matrix.shape[0]).to(self.device)
             new_reward2 = - F.cross_entropy(matrix, label)
             new_reward3 = - F.cross_entropy(matrix.T, label)            
             # total loss
-            rewards = new_reward1 + weight * (new_reward2 + new_reward3)
+            rewards = (1-weight) * new_reward1 + weight * (new_reward2 + new_reward3)
             v.update({
                 'cur_z': cur_z,
                 'next_z': next_z,
