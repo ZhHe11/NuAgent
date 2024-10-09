@@ -610,7 +610,7 @@ class SZN_Z(IOD):
                 'cur_z': cur_z, 
                 'next_z': next_z, 
                 'rewards': rewards, 
-                'policy_rewards': new_reward1,  
+                'policy_rewards': rewards,  
                 'g_options': z_g_s0, 
                 'g_next_options': z_g_s0, 
             })
