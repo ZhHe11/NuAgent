@@ -161,7 +161,7 @@ class SZN_Z(IOD):
         # self.SZN_optim = optim.SGD(self.SampleZNetwork.parameters(), lr=1e-4)
         self.SampleZPolicy = SampleZPolicy.to(self.device)
         # self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=1e-3, weight_decay=1e-3, betas=(0.5, 0.9))
-        self.SampleZPolicy_optim = optim.SGD(self.SampleZPolicy.parameters(), lr=1e-3)
+        self.SampleZPolicy_optim = optim.SGD(self.SampleZPolicy.parameters(), lr=1e-2)
         self.grad_clip = GradClipper(clip_type='clip_norm', threshold=3, norm_type=2)
         
         self.last_return = None
@@ -350,14 +350,16 @@ class SZN_Z(IOD):
                     self.SampleZPolicy_optim.zero_grad()      
                     # Loss SZP
                     # Loss batch norm
-                    new_z = dist_z.mean
-                    l_norm = sim_vec(new_z)
+                    # new_z = dist_z.mean
+                    # l_norm = sim_vec(new_z)
+                    # l_vector = (torch.norm(new_z, p=2, dim=-1) - 1) ** 2
                     # Loss output vector
-                    Value = delta_SR.detach() * (torch.log(R_z.detach() + 1) + 1) 
-                    Value = (Value - Value.mean()) / (Value.std() + 1e-8)
+                    # Value = delta_SR.detach() * (torch.log(R_z.detach() + 1) + 1) 、
+                    Value = delta_SR.detach()
+                    # Value = (Value - Value.mean()) / (Value.std() + 1e-8)
                     
-                    l_vector = (torch.norm(new_z, p=2, dim=-1) - 1) ** 2
-                    loss_SZP = (-z_logp * Value).mean() + 0 * l_norm + 1 * l_vector.mean()
+                    w = 0.01
+                    loss_SZP = (-z_logp * Value - w * dist_z.entropy()).mean()
                     loss_SZP.backward()
                     self.grad_clip.apply(self.SampleZPolicy.parameters())
                     self.SampleZPolicy_optim.step()
@@ -376,10 +378,7 @@ class SZN_Z(IOD):
                         "SZN/logp": z_logp.mean(),
                         "SZN/SR": SupportReturn.mean(),
                         "SZN/sim_output": sim_iteration.mean(),
-                        "SZN/sim_batch": sim_vec(new_z),
-                        "SZN/dist_mean": dist_z.mean.mean(),
-                        "SZN/dist_std": dist_z.stddev.mean(),
-                        "SZN/loss_vector": l_vector.mean(),
+                        "SZN/entropy": dist_z.entropy().mean(),
                         "epoch": runner.step_itr,
                     })
             
@@ -1072,6 +1071,7 @@ class SZN_Z(IOD):
             wandb.log(  
                         {
                             "epoch": runner.step_itr,
+                            "SampleSteps": runner.step_itr * self.max_path_length * self.num_random_trajectories,
                             "test/All_GtReturn": All_GtReturn_array.mean(),
                             "test/FinallDistance": FinallDistance,
                             "test/FinallDistSum": FinallDistSum,
