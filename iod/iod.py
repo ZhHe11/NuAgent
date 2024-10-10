@@ -216,8 +216,8 @@ class IOD(RLAlgorithm):
                         },
                     )
                 # save model
-                if runner.step_itr % 20 == 0:
-                    self._save_pt()
+                if runner.step_itr % 1000 == 0:
+                    self._save_pt(runner.step_itr)
                 runner.step_itr += 1
 
         return last_return

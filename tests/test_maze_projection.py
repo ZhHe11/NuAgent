@@ -17,6 +17,9 @@ from tqdm import trange, tqdm
 
 # save the traj. as fig
 def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_PCA=False, is_goal=True):
+    if len(All_Goal_obs_list) == 0:
+        is_goal = False
+    
     Repr_obs_array = np.array(All_Repr_obs_list[0])
     if is_goal:
         All_Goal_obs_array = np.array(All_Goal_obs_list[0])
@@ -54,6 +57,11 @@ def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_P
 def vec_norm(vec):
     return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
 
+def Psi(phi_x, phi_x0, k=20, max_path_length=100):
+    return 2 * (torch.sigmoid(k * (phi_x - phi_x0) / max_path_length) - 0.5)
+            
+def norm(x, keepdim=False):
+    return torch.norm(x, p=2, dim=-1, keepdim=keepdim)
 
 def gen_z(sub_goal, obs, traj_encoder, device="cpu", ret_emb: bool = False):
     goal_z = traj_encoder(sub_goal).mean
@@ -67,8 +75,8 @@ def gen_z(sub_goal, obs, traj_encoder, device="cpu", ret_emb: bool = False):
 
 ## load model
 # baseline 
-policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/cos-Exp5-updatesd000_1728556976_ant_maze_SZN_Z/wandb/latest-run/filesoption_policy.pt"
-traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/cos-Exp5-updatesd000_1728556976_ant_maze_SZN_Z/wandb/latest-run/filestaregt_traj_encoder.pt"
+policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/P-Exp1sd000_1728568045_ant_maze_SZN_P/option_policy500.pt"
+traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/P-Exp1sd000_1728568045_ant_maze_SZN_P/traj_encoder500.pt"
 SZN_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/SZN-Exp4sd000_1728446621_ant_maze_SZN_Z/wandb/latest-run/filesSampleZPolicy.pt"
 
 # policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/SZN-Exp4sd000_1728446621_ant_maze_SZN_Z/option_policy3000.pt"
@@ -110,7 +118,7 @@ device = 'cuda'
 model_name = policy_path.split('/')[-4]
 path = './test/' + model_name
 dim_option = 2
-type = 'random_z'
+type = 'viz_psi_space'
 
 
 FinallDistanceList = []
@@ -256,6 +264,46 @@ def viz_SZN_dist(num_sample=10):
         plt.close()
         print(mu_x, mu_y, sigma_x, sigma_y)
     
+    
+def viz_psi_space(num_eval=10):
+    with torch.no_grad(): 
+        options = np.random.randn(num_eval, dim_option)
+        for i in trange(len(options)):
+            obs = env.reset()
+            option = torch.tensor(options[i]).unsqueeze(0).to(device)
+            option = vec_norm(option)       # 可以不vec
+            obs = torch.tensor(obs).unsqueeze(0).to(device).float()
+            phi_obs_ = agent_traj_encoder(obs).mean
+            phi_x0 = phi_obs_
+            Repr_obs_list = []
+            Repr_goal_list = []
+            traj_list = {}
+            traj_list["observation"] = []
+            traj_list["info"] = []
+            for t in range(max_path_length):
+                
+                phi_obs_ = agent_traj_encoder(obs).mean
+                obs_option = torch.cat((obs, option), -1).float()
+                psi_obs = Psi(phi_obs_, phi_x0, max_path_length=max_path_length)
+                # for viz
+                Repr_obs_list.append(psi_obs.cpu().numpy()[0])
+                Repr_goal_list.append(option.numpy()[0])
+
+                # get actions from policy
+                action, agent_info = agent_policy.get_action(obs_option)
+                # interact with the env
+                obs, reward, dones, info = env.step(action)
+                # for recording traj.2
+                traj_list["observation"].append(obs)
+                info['x'], info['y'] = env.env.get_xy()
+                traj_list["info"].append(info)
+                # calculate the repr phi
+                obs = torch.tensor(obs).unsqueeze(0).to(device).float()
+                
+            All_Repr_obs_list.append(Repr_obs_list)
+            All_Goal_obs_list.append(Repr_goal_list)
+            All_trajs_list.append(traj_list)
+    
 
 if __name__ == '__main__':
     # exe:
@@ -275,7 +323,7 @@ if __name__ == '__main__':
         plt.savefig(filepath) 
         print(filepath)
         # plot: repr_traj.
-        PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=False)
+        PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=True)
         print('Repr_Space_traj saved')
 
 
@@ -296,4 +344,6 @@ if __name__ == '__main__':
         viz_SZN_dist()
         
         
+    elif type == 'viz_psi_space':
+        viz_psi_space()
 

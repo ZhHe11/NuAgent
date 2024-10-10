@@ -36,7 +36,7 @@ from iod.BufferDataset import BufferDataset
 from torch.utils.data import DataLoader
 
 
-class SZN_Z(IOD):
+class SZN_P(IOD):
     def __init__(
             self,
             *,
@@ -381,11 +381,13 @@ class SZN_Z(IOD):
                 np_z = self.vec_norm(self.last_z).cpu().numpy()
                 print("Sample Z: ", np_z)
                 extras = self._generate_option_extras(np_z)                
-
-            elif self.method['explore'] == 'phi_g' and self.epoch_final is not None:
-                self.last_z = self.target_traj_encoder(self.init_obs).mean + self.max_path_length * torch.randn_like(self.last_z)
-                np_z = self.last_z.detach().cpu().numpy()
-                extras = self._generate_option_extras(random_options, phi_sub_goal=np_z)
+            
+            
+            elif self.method['explore'] == 'uniform' and self.epoch_final is not None:
+                # w/o unit_length
+                random_options = np.random.randn(runner._train_args.batch_size, self.dim_option)
+                print(random_options)
+                extras = self._generate_option_extras(random_options)
             
             else: 
                 self.last_z = torch.tensor(random_options, dtype=torch.float32).to(self.device)
@@ -492,6 +494,26 @@ class SZN_Z(IOD):
             return z, target_cur_z, goal_z
         else:
             return z
+        
+        
+    @torch.no_grad()
+    def gen_psi_z(self, sub_goal, obs, obs_0, device="cpu", ret_emb: bool = False):
+        traj_encoder = self.target_traj_encoder.to(device)
+        goal_z = traj_encoder(sub_goal).mean
+        target_cur_z = traj_encoder(obs).mean
+        z_0 = traj_encoder(obs_0).mean
+        
+        z = self.Psi(goal_z, z_0)
+        
+        if ret_emb:
+            return z, target_cur_z, goal_z
+        else:
+            return z
+        
+    
+    def Psi(self, phi_x, phi_x0, k=2):
+        return 2 * (torch.sigmoid(k * (phi_x - phi_x0) / self.max_path_length) - 0.5)
+    
 
     '''
     【3】更新reward；更新option；更新phi_s；
@@ -501,147 +523,32 @@ class SZN_Z(IOD):
         next_obs = v['next_obs']
         cur_z = self.traj_encoder(obs).mean
         next_z = self.traj_encoder(next_obs).mean
-
-        if self.method["policy"] in ['reward3']:
-            s_f = v['sub_goal']
-            s_0 = v['s_0']
-            z_s_f = self.traj_encoder(s_f).mean
-            z_s_0 = self.traj_encoder(s_0).mean
-            # z_sample -> additional reward
-            z_sample = v['options']
-            option_g_s0 = z_s_f - z_s_0.detach()
-            sample_reward = (option_g_s0 * z_sample).sum(dim=-1)
-            # s_f - s -> policy option
-            # option = self.vec_norm(z_s_f - cur_z)
-            option_s_s_next = next_z - cur_z
-            # next_options = self.vec_norm(z_s_f - next_z)
-            # (s_next - s) * (option - s_next) -> reward
-            rewards = (option_s_s_next * z_sample).sum(dim=-1)
-            v.update({
-                'cur_z': cur_z,
-                'next_z': next_z,
-                'options': z_sample,
-                'option_s_s_next': option_s_s_next,
-                'next_options': v['next_options'],
-                'sample_reward': sample_reward,
-                'rewards': rewards,
-            })
-            return
         
-        if self.method["phi"] in ['contrastive']:
-            s_0 = v['s_0']
-            z_s_0 = self.traj_encoder(s_0).mean
-            if self.method["explore"] in ['phi_g']:
-                z_s_f = v['phi_sub_goal']
-                target_z_s_f = v['phi_sub_goal']
-            else:
-                s_f = v['sub_goal']
-                z_s_f = self.traj_encoder(s_f).mean
-                target_z_s_f = self.target_traj_encoder(s_f).mean
-            
-            # target_z_s_0 = self.target_traj_encoder(s_0).mean         
-            target_cur_z = self.target_traj_encoder(obs).mean
-            target_next_z = self.target_traj_encoder(next_obs).mean
-            option_s_s_next = next_z - cur_z
-            
-            # 计算(s_next - s) * (g - s_0) -> reward
-            goal_options = self.vec_norm(z_s_f - z_s_0)
-            rewards_goal = (option_s_s_next * goal_options).sum(dim=-1)
-            
-            # original reward
-            rewards = (option_s_s_next * v['options']).sum(dim=-1)
-                        
-            # z_sample -> sample reward (let z_sample = g - s_0) 
-            z_sample = v['options']
-            sample_reward = (option_s_s_next * z_sample).sum(dim=-1)
-            
-            # s_f - s -> policy option
-            target_options = self.vec_norm(target_z_s_f - target_cur_z)
-            target_next_options = self.vec_norm(target_z_s_f - target_next_z)
-            target_rewards = ((target_next_z - target_cur_z) * z_sample).sum(dim=-1)
-            
-            v.update({
-                'cur_z': cur_z,
-                'next_z': next_z,
-                'option_s_s_next': option_s_s_next,
-                'goal_options': goal_options,
-                'sample_options': z_sample,
-                'sample_reward': sample_reward,
-                'rewards': rewards,
-                'rewards_goal': rewards_goal,
-                # target
-                'target_options': target_options,
-                'target_next_options': target_next_options,
-                'target_rewards': target_rewards,
-            })
-            return
-    
-        elif self.method["phi"] in ['contrastive_v3']:
-            z_sample = v['options']
-            option_s_s_next = next_z - cur_z
-            phi_g = self.traj_encoder(v['sub_goal']).mean
-            phi_s0 = self.traj_encoder(v['s_0']).mean
-            z_g_s0 = self.vec_norm(phi_g - phi_s0)
-            ## core objective
-            new_reward1 = (option_s_s_next * z_g_s0).sum(dim=-1)
-            ## for z_sample to get different online data
-            reward_zsample = (z_g_s0 * z_sample).sum(dim=-1)
-            
-            ## neg smaple
-            option_sim = (z_g_s0.unsqueeze(1) * z_g_s0.unsqueeze(0)).sum(dim=-1)
-            # mask itself and decay
-            mask = torch.eye(option_sim.shape[0]).to(self.device)
-            option_sim = option_sim * (1 - mask) 
-            decay_k = 3
-            option_sim = decay_k * torch.exp(decay_k * (option_sim - 1)).detach() * option_sim
-            new_reward2 = -option_sim.mean(dim=-1)  
+        if self.method["phi"] in ['Projection']:
 
-            ## add together
-            weight_zsample = 1
-            weight_neg = 1 / self.max_path_length
-            rewards =  new_reward1 + weight_neg * weight_zsample * reward_zsample + weight_neg * (new_reward2)
+            def norm(x, keepdim=False):
+                return torch.norm(x, p=2, dim=-1, keepdim=keepdim)            
             
-            v.update({
-                'cur_z': cur_z, 
-                'next_z': next_z, 
-                'rewards': rewards, 
-                'policy_rewards': rewards,  
-                'g_options': z_g_s0, 
-                'g_next_options': z_g_s0, 
-            })
-            tensors.update({
-                'reward1': new_reward1.mean(),
-                'reward2': new_reward2.mean(),
-                # 'reward3': new_reward3.mean(),
-                'PureRewardMean': rewards.mean(),     
-                'PureRewardStd': rewards.std(),           
-            })
-            return
-        
-        elif self.method["phi"] in ['contrastive_v5']:
-            # similar loss
-            z_sample = v['options']
-            option_s_s_next = next_z - cur_z
-            new_reward1 = (option_s_s_next * v['options']).sum(dim=-1)
-            # contrstive loss
-            # t = 10 
-            weight = 0.1
-            matrix = (self.vec_norm(option_s_s_next).unsqueeze(1) * z_sample.unsqueeze(0)).sum(dim=-1)
-            # 加一个判断，如果g-与g特别接近，就用mask掉；
-            dist_theta = 1e-4
-            distance_pos_neg = torch.norm(z_sample.unsqueeze(0) - z_sample.unsqueeze(1), p=2, dim=-1)
-            mask = torch.where( distance_pos_neg < dist_theta , 0, 1)
-            matrix = matrix * mask
-            # clamp
-            # matrix = torch.clamp(matrix, 0.5)
-            # inner_neg = matrix.mean(dim=1)
-            new_reward2 = - inner_neg
-            decay_k = 2
-            matrix = torch.exp(decay_k * (matrix - 1)).detach() * matrix
-            new_reward2 = -matrix.mean(dim=-1)  
+            phi_s_0 = self.traj_encoder(v['s_0']).mean
+            phi_s = cur_z
+            phi_s_next = next_z
+            z = v['options']
+            z_dir = self.vec_norm(z)
+            cos_theta = (self.vec_norm(phi_s_next - phi_s) * z_dir).sum(dim=1)
+
+            psi_s = self.Psi(phi_s, phi_s_0)
+            psi_s_next = self.Psi(phi_s_next, phi_s_0)
             
-            # total loss
-            rewards = new_reward1 + weight * new_reward2
+            # 1. Similarity Reward
+            reward_sim = ((psi_s_next - psi_s) * z_dir).sum(dim=-1)
+            
+            # 2. Goal Arrival Reward
+            reward_ga = norm(psi_s - z) - norm(psi_s_next - z)    
+            
+            # 3. Constraints
+            ## later in phi loss: cst_penalty
+            rewards = 2 * self.max_path_length * (reward_sim + reward_ga)
+            
             v.update({
                 'cur_z': cur_z,
                 'next_z': next_z,
@@ -649,14 +556,14 @@ class SZN_Z(IOD):
                 'policy_rewards': rewards,
             })
             tensors.update({
-                'reward1': new_reward1.mean(),
-                'reward2': new_reward2.mean(),
-                # 'reward3': new_reward3.mean(),
-                'PureRewardMean': rewards.mean(),     
-                'PureRewardStd': rewards.std(),           
+                'PureRewardMean': rewards.mean(),  
+                'PureRewardStd': rewards.std(),  
+                'reward_sim': reward_sim.mean(),
+                'reward_ga': reward_ga.mean(),
+                'cos_theta': cos_theta.mean(),     
             })
-            return 
-        
+            
+            return
 
         else: 
             option_s_s_next = next_z - cur_z
@@ -714,65 +621,6 @@ class SZN_Z(IOD):
         next_obs = v['next_obs']
         phi_s = v['cur_z']
         phi_s_next = v['next_z']
-        
-        if self.method["phi"] in ['contrastive', 'phi_g']:
-            vec_phi_s_s_next = v['option_s_s_next']
-            alpha = 0
-            t = 1
-            options = v['goal_options']
-            
-            # # contrastive 1 
-            # matrix = (vec_phi_s_s_next.unsqueeze(1) * options.unsqueeze(0)).sum(dim=-1)
-            # # 过滤掉相似的option
-            # option_sim = (options.unsqueeze(1) * options.unsqueeze(0)).sum(dim=-1)
-            # mask = torch.where(option_sim>0.9, 0, 1)
-            # mask = torch.eye(mask.shape[0]).to(self.device) + mask
-            # matrix = matrix * mask
-            
-            # matrix = matrix / t
-            # label = torch.arange(matrix.shape[0]).to(self.device)
-            # new_reward1 = - F.cross_entropy(matrix, label)
-            # new_reward2 = - F.cross_entropy(matrix.T, label)
-            # rewards = (1-alpha) * (new_reward1 + new_reward2) + alpha * v['sample_reward']
-            
-            
-            # contrastive v3
-            new_reward1 = (vec_phi_s_s_next * options).sum(dim=-1)
-            option_sim = (options.unsqueeze(1) * options.unsqueeze(0)).sum(dim=-1)    
-            mask1 = torch.where(option_sim>0.99, 0, 1)
-            mask2 = torch.where(option_sim<0.5, 0, 1)
-            option_sim = option_sim * mask1 * mask2
-            new_reward2 = option_sim.sum(dim=-1) / ((mask1 * mask2).sum(dim=-1) + 1e-6)
-            weight = 1 / self.max_path_length
-            rewards = new_reward1 - weight * new_reward2
-            
-            # contrastive v2
-            # matrix = (vec_phi_s_s_next.unsqueeze(1) * options.unsqueeze(0)).sum(dim=-1)
-            # # 过滤掉相似的option
-            # option_sim = (options.unsqueeze(1) * options.unsqueeze(0)).sum(dim=-1)    
-            # mask = torch.where(option_sim>0.9, 0, 1)
-            # # mask = torch.eye(mask.shape[0]).to(self.device) + mask
-            # Mask_eye = torch.eye(mask.shape[0]).to(self.device)
-            # matrix = matrix * Mask_eye + option_sim * mask
-            
-            # matrix = matrix / t
-            # label = torch.arange(matrix.shape[0]).to(self.device)
-            # new_reward1 = - F.cross_entropy(matrix, label)
-            # new_reward2 = - F.cross_entropy(matrix.T, label)
-            # rewards = (1-alpha) * (new_reward1 + new_reward2) + alpha * v['sample_reward']
-            
-            
-            # no contrastive; but phi_g
-            # new_reward1 = (vec_phi_s_s_next * options).sum(dim=-1)
-            # new_reward2 = new_reward1
-            # rewards = new_reward1
-            
-            tensors.update({
-                'next_z_reward': rewards.mean(),
-                'new_reward1': new_reward1.mean(),
-                'new_reward2': new_reward2.mean(),
-                'new_reward3': v['sample_reward'].mean(),
-            })
 
         if self.dual_dist == 's2_from_s':    
             s2_dist = self.dist_predictor(obs)
@@ -845,13 +693,9 @@ class SZN_Z(IOD):
     【2.1】计算qf的reward
     '''
     def _update_loss_qf(self, tensors, v):
-        if self.method["phi"] in ['contrastive_v3']:
-            option = v['g_options']
-            next_option = v['g_next_options']
-        else:
-            option = v['options']
-            next_option = v['next_options']
-            
+        option = v['options']
+        next_option = v['next_options']
+
         policy_rewards = v['policy_rewards'] * self._reward_scale_factor
         tensors.update({
             'policy_rewards': policy_rewards.mean(),
@@ -885,10 +729,7 @@ class SZN_Z(IOD):
     【2.2】计算policy的loss；
     '''
     def _update_loss_op(self, tensors, v):
-        if self.method["phi"] in ['contrastive_v3']:
-            option = v['g_options'].detach()
-        else:
-            option = v['options'].detach()
+        option = v['options'].detach()
         processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), option)
         sac_utils.update_loss_sacp(
             self, tensors, v,
@@ -1027,8 +868,9 @@ class SZN_Z(IOD):
             ax.scatter(goals_list[i][0], goals_list[i][1], s=50, marker='x', alpha=1, edgecolors='black', label='target.'+str(i))
             print(goals[i])
             # 2.2 reset the env
-            obs = env.reset()  
-            obs = torch.tensor(obs).unsqueeze(0).to(self.device).float()
+            obs_0 = env.reset()  
+            obs_0 = torch.tensor(obs_0).unsqueeze(0).to(self.device).float()
+            obs = obs_0
             target_obs = env.get_target_obs(obs, goals[i])
             phi_target_obs = self.traj_encoder(target_obs).mean
             phi_obs_ = self.traj_encoder(obs).mean
@@ -1040,7 +882,7 @@ class SZN_Z(IOD):
             traj_list["info"] = []
             # 2.3 interact loop
             for t in range(max_path_length):
-                option, phi_obs_, phi_target_obs = self.gen_z(target_obs, obs, device=self.device, ret_emb=True)
+                option, phi_obs_, phi_target_obs = self.gen_psi_z(target_obs, obs, obs_0, device=self.device, ret_emb=True)
                 obs_option = torch.cat((obs, option), -1).float()
                 # for viz
                 if Pepr_viz:
@@ -1099,7 +941,6 @@ class SZN_Z(IOD):
             if Pepr_viz and self.dim_option==2:
                 PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length)
                 print('Repr_Space_traj saved')
-
                 directions = self.vec_norm(torch.randn((100, self.dim_option))).to('cuda')
                 dist = self.goal_sample_network(directions)
                 mean = dist.mean.detach()
@@ -1116,24 +957,24 @@ class SZN_Z(IOD):
                 img_path = os.path.join(path, "SGN.png")
                 plt.savefig(img_path)
 
-    def _save_pt(self):
+    def _save_pt(self, epoch):
         if wandb.run is not None:
             path = wandb.run.dir
         else:
             path = '.'
-        file_name = path + 'option_policy.pt'
+        file_name = path + 'option_policy-' + str(epoch) + '.pt'
         torch.save({
             'discrete': self.discrete,
             'dim_option': self.dim_option,
             'policy': self.option_policy,
         }, file_name)
-        file_name = path + 'taregt_traj_encoder.pt'
+        file_name = path + 'taregt_traj_encoder-' + str(epoch) + '.pt'
         torch.save({
             'discrete': self.discrete,
             'dim_option': self.dim_option,
             'target_traj_encoder': self.target_traj_encoder,
         }, file_name)
-        file_name = path + 'SampleZPolicy.pt'
+        file_name = path + 'SampleZPolicy-' + str(epoch) + '.pt'
         torch.save({
             'discrete': self.discrete,
             'dim_option': self.dim_option,

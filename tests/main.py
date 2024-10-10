@@ -54,6 +54,8 @@ from iod.dads import DADS
 from iod.SZN import SZN
 from iod.SZN_batch import SZN_batch
 from iod.SZN_Z import SZN_Z
+from iod.SZN_P import SZN_P
+
 
 from iod.utils import get_normalizer_preset
 
@@ -115,7 +117,7 @@ def get_argparser():
 
     parser.add_argument('--alpha', type=float, default=0.01)
 
-    parser.add_argument('--algo', type=str, default='metra', choices=['metra', 'dads', 'causer', 'metra_bl', 'SZN', 'SZN_batch', 'SZN_Z'])
+    parser.add_argument('--algo', type=str, default='metra')
 
     parser.add_argument('--sac_tau', type=float, default=5e-3)
     parser.add_argument('--sac_lr_q', type=float, default=None)
@@ -497,7 +499,7 @@ def run(ctxt=None):
     # else:
     replay_buffer = PathBufferTensor(capacity_in_transitions=int(args.sac_max_buffer_size), pixel_shape=pixel_shape)
 
-    if args.algo in ['metra', 'dads', 'causer', 'metra_bl', 'SZN', 'SZN_batch', 'SZN_Z']:
+    if args.algo in ['metra', 'dads', 'causer', 'metra_bl', 'SZN', 'SZN_batch', 'SZN_Z', 'SZN_P']:
         qf1 = ContinuousMLPQFunctionEx(
             obs_dim=policy_q_input_dim,
             action_dim=action_dim,
@@ -642,8 +644,15 @@ def run(ctxt=None):
             SampleZPolicy=SampleZPolicy,
             **skill_common_args,
         ) 
+        
+    elif args.algo == 'SZN_P':
+        algo = SZN_P(
+            **algo_kwargs,
+            SampleZNetwork=SampleZNetwork,
+            SampleZPolicy=SampleZPolicy,
+            **skill_common_args,
+        )       
      
-    
     elif args.algo == 'dads':
         algo = DADS(
             **algo_kwargs,
