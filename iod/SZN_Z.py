@@ -168,6 +168,7 @@ class SZN_Z(IOD):
         self.last_real_return = torch.zeros(self.num_random_trajectories).to(self.device)
         self.input_token = torch.eye(self.num_random_trajectories).float().to(self.device)
         self.z_sample = None
+        self.lamada = 0.3
         
     
     @property
@@ -332,16 +333,16 @@ class SZN_Z(IOD):
                 
                 # Advantage 
                 ## calculate E_z[R(s0, z)]
-                R_z = self.get_Regret(option=self.vec_norm(self.last_z), state=self.init_obs)    # [batch]
-                def get_Ez_Regret(num_sample=10):
-                    dist_z = self.SampleZPolicy(self.input_token)       # [batch, dim]
-                    zs = dist_z.sample((num_sample,))                      # [num_sample, batch, dim]  
-                    zs_flatten = zs.view(-1, self.dim_option)           # [num_sample*batch, dim]
-                    Sumz_Regret = self.get_Regret(option=self.vec_norm(zs_flatten), state=self.single_init_obs.expand(self.num_random_trajectories*num_sample, -1))   # [num_sample*batch]
-                    return Sumz_Regret.view(num_sample, self.num_random_trajectories).mean(dim=0)    # [batch]
+                # R_z = self.get_Regret(option=self.vec_norm(self.last_z), state=self.init_obs)    # [batch]
+                # def get_Ez_Regret(num_sample=10):
+                #     dist_z = self.SampleZPolicy(self.input_token)       # [batch, dim]
+                #     zs = dist_z.sample((num_sample,))                      # [num_sample, batch, dim]  
+                #     zs_flatten = zs.view(-1, self.dim_option)           # [num_sample*batch, dim]
+                #     Sumz_Regret = self.get_Regret(option=self.vec_norm(zs_flatten), state=self.single_init_obs.expand(self.num_random_trajectories*num_sample, -1))   # [num_sample*batch]
+                #     return Sumz_Regret.view(num_sample, self.num_random_trajectories).mean(dim=0)    # [batch]
                 
-                Ez_R = get_Ez_Regret()
-                Adv = (R_z - Ez_R) / Ez_R
+                # Ez_R = get_Ez_Regret()
+                # Adv = (R_z - Ez_R) / Ez_R
                 
                 # update SZN 
                 for t in range(1):
@@ -349,15 +350,10 @@ class SZN_Z(IOD):
                     z_logp = dist_z.log_prob(self.last_z)
                     self.SampleZPolicy_optim.zero_grad()      
                     # Loss SZP
-                    # Loss batch norm
-                    # new_z = dist_z.mean
-                    # l_norm = sim_vec(new_z)
-                    # l_vector = (torch.norm(new_z, p=2, dim=-1) - 1) ** 2
-                    # Loss output vector
+                    new_z = self.SampleZPolicy(self.input_token).sample()
                     # Value = delta_SR.detach() * (torch.log(R_z.detach() + 1) + 1) 、
                     Value = delta_SR.detach()
                     # Value = (Value - Value.mean()) / (Value.std() + 1e-8)
-                    
                     w = 0.01
                     loss_SZP = (-z_logp * Value - w * dist_z.entropy()).mean()
                     loss_SZP.backward()
@@ -374,7 +370,7 @@ class SZN_Z(IOD):
                     wandb.log({
                         "SZN/loss_SZP": loss_SZP,
                         "SZN/delta_SR": delta_SR.mean(),
-                        "SZN/Adv": Adv.mean(),
+                        # "SZN/Adv": Adv.mean(),
                         "SZN/logp": z_logp.mean(),
                         "SZN/SR": SupportReturn.mean(),
                         "SZN/sim_output": sim_iteration.mean(),
@@ -597,7 +593,7 @@ class SZN_Z(IOD):
             mask = torch.eye(option_sim.shape[0]).to(self.device)
             option_sim = option_sim * (1 - mask) 
             decay_k = 3
-            option_sim = torch.exp(decay_k * (option_sim - 1)).detach() * option_sim
+            option_sim = decay_k * torch.exp(decay_k * (option_sim - 1)).detach() * option_sim
             new_reward2 = -option_sim.mean(dim=-1)  
 
             ## add together
@@ -632,22 +628,25 @@ class SZN_Z(IOD):
             weight = 0.1
             matrix = (self.vec_norm(option_s_s_next).unsqueeze(1) * z_sample.unsqueeze(0)).sum(dim=-1)
             # 加一个判断，如果g-与g特别接近，就用mask掉；
-            dist_theta = 1e-3
+            dist_theta = 1e-4
             distance_pos_neg = torch.norm(z_sample.unsqueeze(0) - z_sample.unsqueeze(1), p=2, dim=-1)
             mask = torch.where( distance_pos_neg < dist_theta , 0, 1)
             matrix = matrix * mask
             # clamp
-            matrix = torch.clamp(matrix, 0.5)
-            inner_neg = matrix.mean(dim=1)
+            # matrix = torch.clamp(matrix, 0.5)
+            # inner_neg = matrix.mean(dim=1)
             new_reward2 = - inner_neg
+            decay_k = 2
+            matrix = torch.exp(decay_k * (matrix - 1)).detach() * matrix
+            new_reward2 = -matrix.mean(dim=-1)  
             
             # total loss
-            rewards = 1 * new_reward1 + weight * (new_reward2)
+            rewards = new_reward1 + weight * new_reward2
             v.update({
                 'cur_z': cur_z,
                 'next_z': next_z,
                 'rewards': rewards,
-                'policy_rewards': new_reward1,
+                'policy_rewards': rewards,
             })
             tensors.update({
                 'reward1': new_reward1.mean(),
@@ -674,11 +673,29 @@ class SZN_Z(IOD):
             masks = (v['options'] - v['options'].mean(dim=1, keepdim=True)) * self.dim_option / (self.dim_option - 1 if self.dim_option != 1 else 1)
             rewards = (option_s_s_next * masks).sum(dim=1)
         else:
-            inner = (option_s_s_next * option).sum(dim=1)
-            rewards = inner
+            # inner = (option_s_s_next * option).sum(dim=1)
+            # rewards = inner
+            
+            # inner = (self.vec_norm(option_s_s_next) * option).sum(dim=1)
+            # rewards = inner + torch.log(1 + torch.norm(option_s_s_next, p=2, dim=-1))
+            
+            # cos_theta = (self.vec_norm(option_s_s_next) * option).sum(dim=1)
+            # sin_theta = torch.sqrt(1 - cos_theta ** 2 + 1e-3)
+            # rewards = torch.norm(option_s_s_next, p=2, dim=-1) * (cos_theta - sin_theta)
+            
+            # cos_theta = (self.vec_norm(option_s_s_next) * option).sum(dim=1)
+            # rewards = torch.norm(option_s_s_next, p=2, dim=-1) * (cos_theta**3)
+
+            cos_theta = (self.vec_norm(option_s_s_next) * option).sum(dim=1)
+            rewards = (option_s_s_next * option).sum(dim=1) + self.lamada * (cos_theta - 1)
+            self.lamada = self.lamada - 1e-3 * (cos_theta.mean() - 1 + 0.1)
+            self.lamada = torch.clamp(self.lamada, max=1)
+            
         tensors.update({
             'PureRewardMean': rewards.mean(),  
-            'PureRewardStd': rewards.std(),       
+            'PureRewardStd': rewards.std(),  
+            'self.lamada': self.lamada,
+            'cos_theta': cos_theta.mean(),     
         })
         v['rewards'] = rewards                  
         v['policy_rewards'] = rewards

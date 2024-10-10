@@ -26,7 +26,7 @@ def get_canvas_image(canvas):
     out_image = out_image.reshape(canvas.get_width_height()[::-1] + (3,))
     return out_image
 
-def valid_goal_sampler(self, np_random):
+def valid_goal_sampler(self, np_random, freq=5):
     valid_cells = []
     goal_cells = []
     # print('Hello')
@@ -52,7 +52,7 @@ def valid_goal_sampler(self, np_random):
         random_x = 0
         random_y = 0
         
-        num = 5
+        num = freq
         x = np.linspace(-1.8, 1.1, num)
         y = np.linspace(-1.8, 1.1, num)
         X, Y = np.meshgrid(x, y)

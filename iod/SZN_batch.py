@@ -145,7 +145,7 @@ class SZN_batch(IOD):
         
         self.last_z = None
         self.SampleZPolicy = SampleZPolicy.to(self.device)
-        self.SampleZPolicy_optim = optim.SGD(self.SampleZPolicy.parameters(), lr=1e-4)
+        self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=1e-4)
         self.grad_clip = GradClipper(clip_type='clip_norm', threshold=3, norm_type=2)
         
         self.last_return = None
@@ -155,7 +155,18 @@ class SZN_batch(IOD):
         self.update_token_repeat = 8
         self.s0 = torch.tensor(init_obs).unsqueeze(0).to(self.device)
         
-    
+    @torch.no_grad()
+    def gen_z(self, sub_goal, obs, device="cpu", ret_emb: bool = False):
+        traj_encoder = self.target_traj_encoder.to(device)
+        goal_z = traj_encoder(sub_goal).mean
+        target_cur_z = traj_encoder(obs).mean
+
+        z = self.vec_norm(goal_z - target_cur_z)
+        if ret_emb:
+            return z, target_cur_z, goal_z
+        else:
+            return z
+        
     @property
     def policy(self):
         return {
@@ -316,21 +327,6 @@ class SZN_batch(IOD):
                     return b/new_z.shape[0]   
 
                 Return = self.get_Return(self.epoch_final["obs"], self.epoch_final["next_obs"], self.vec_norm(self.last_z), is_norm=False)[0]
-                
-                Value_estimated = self.get_Value(option=self.vec_norm(self.last_z), state=self.s0.expand(self.last_z.shape[0], -1), qf=[self.qf1, self.qf2], policy=self.option_policy, num_samples=1)
-                
-                Bias = Return - Value_estimated
-                Bias = (Bias - Bias.mean()) / (Bias.std() + 1e-8)
-                
-                # # using Real return to decrease the bias
-                # for t in range(1):
-                #     dist_z = self.SampleZPolicy(self.input_token)
-                #     z_logp = dist_z.log_prob(self.last_z)
-                #     self.SampleZPolicy_optim.zero_grad()      
-                #     loss_SZP = (-z_logp * Bias).mean()
-                #     loss_SZP.backward()
-                #     self.grad_clip.apply(self.SampleZPolicy.parameters())
-                #     self.SampleZPolicy_optim.step()
                     
                 new_z = self.SampleZPolicy(self.input_token).sample().detach()
                 sim_iteration = (self.vec_norm(new_z)*self.vec_norm(self.last_z)).sum(dim=-1)
@@ -339,11 +335,7 @@ class SZN_batch(IOD):
                 
                 if wandb.run is not None:
                     wandb.log({
-                        # "SZN/loss_SZP": loss_SZP,
                         "SZN/Return": Return.mean(),
-                        "SZN/Value_estimated": Value_estimated.std(),
-                        "SZN/Bias": (Return - Value_estimated).mean(), 
-                        # "SZN/logp": z_logp.mean(),
                         "SZN/sim_output": sim_iteration.mean(),
                         "SZN/sim_batch": sim_batch,
                         "epoch": runner.step_itr,
@@ -403,13 +395,15 @@ class SZN_batch(IOD):
                 
                 ## calculate logp using updated network:
                 dist_z = self.SampleZPolicy(v['token'])     # [num_traj, dist]
+                new_z = dist_z.sample()
                 z_logp = dist_z.log_prob(v['options'])                       
                 ## loss:
                 self.SampleZPolicy_optim.zero_grad()
                 ### loss_vec:
                 ### policy loss:
-                l_vector = (torch.norm(dist_z.mean, p=2, dim=-1) - 1) ** 2
-                loss_SZP = (-z_logp * 100 * Value.detach()).mean() + 0 * l_vector.mean()
+                w = 0.01
+                l_vec = (torch.norm(new_z, p=2, dim=-1) - 1)**2
+                loss_SZP = (-z_logp * Value.detach() - w * dist_z.entropy() + l_vec).mean()
                 loss_SZP.backward()
                 self.grad_clip.apply(self.SampleZPolicy.parameters())
                 self.SampleZPolicy_optim.step()
@@ -421,6 +415,7 @@ class SZN_batch(IOD):
                         "SZN_batch/Regret_std": Regret.std(),
                         "SZN_batch/logp": z_logp.mean(),
                         "SZN_batch/V_after_iter": v['V_after_iter'].mean(),
+                        "SZN_batch/Entropy": dist_z.entropy().mean()
                     })
                     
                 tensors.update({
@@ -1029,22 +1024,6 @@ class SZN_batch(IOD):
             if Pepr_viz and self.dim_option==2:
                 PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length)
                 print('Repr_Space_traj saved')
-
-                directions = self.vec_norm(torch.randn((100, self.dim_option))).to('cuda')
-                dist = self.goal_sample_network(directions)
-                mean = dist.mean.detach()
-                stddev = dist.stddev.detach()
-                edge_mean = (directions * mean).cpu().numpy()
-                edge_std = (directions * (mean+stddev)).cpu().numpy()
-                plt.figure(figsize=(8, 8))
-                plt.scatter(x=edge_mean[:,0], y=edge_mean[:,1])
-                plt.scatter(x=edge_std[:,0], y=edge_std[:,1])
-                # plt.colorbar(label='Probability Density')
-                plt.title('Edge')
-                plt.xlabel('X-axis')
-                plt.ylabel('Y-axis')
-                img_path = os.path.join(path, "SGN.png")
-                plt.savefig(img_path)
 
     def _save_pt(self):
         if wandb.run is not None:
