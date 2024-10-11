@@ -511,8 +511,9 @@ class SZN_P(IOD):
             return z
         
     
-    def Psi(self, phi_x, phi_x0, k=2):
-        return 2 * (torch.sigmoid(k * (phi_x - phi_x0) / self.max_path_length) - 0.5)
+    def Psi(self, phi_x, phi_x0, k=20):
+        # return 2 * (torch.sigmoid(k * (phi_x - phi_x0) / self.max_path_length) - 0.5)
+        return 
     
 
     '''
@@ -536,7 +537,7 @@ class SZN_P(IOD):
             z_dir = self.vec_norm(z)
             cos_theta = (self.vec_norm(phi_s_next - phi_s) * z_dir).sum(dim=1)
 
-            psi_s = self.Psi(phi_s, phi_s_0)
+            psi_s = self.Psi(phi_ s, phi_s_0)
             psi_s_next = self.Psi(phi_s_next, phi_s_0)
             
             # 1. Similarity Reward
