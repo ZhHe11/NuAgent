@@ -513,8 +513,10 @@ class SZN_P(IOD):
     
     def Psi(self, phi_x, phi_x0, k=20):
         # return 2 * (torch.sigmoid(k * (phi_x - phi_x0) / self.max_path_length) - 0.5)
-        return 
+        return torch.tanh(phi_x - phi_x0)
     
+    def norm(self, x, keepdim=False):
+        return torch.norm(x, p=2, dim=-1, keepdim=keepdim)        
 
     '''
     【3】更新reward；更新option；更新phi_s；
@@ -526,29 +528,26 @@ class SZN_P(IOD):
         next_z = self.traj_encoder(next_obs).mean
         
         if self.method["phi"] in ['Projection']:
-
-            def norm(x, keepdim=False):
-                return torch.norm(x, p=2, dim=-1, keepdim=keepdim)            
-            
             phi_s_0 = self.traj_encoder(v['s_0']).mean
             phi_s = cur_z
             phi_s_next = next_z
             z = v['options']
             z_dir = self.vec_norm(z)
-            cos_theta = (self.vec_norm(phi_s_next - phi_s) * z_dir).sum(dim=1)
+            # cos_theta = (self.vec_norm(phi_s_next - phi_s) * z_dir).sum(dim=1)
 
-            psi_s = self.Psi(phi_ s, phi_s_0)
+            psi_s = self.Psi(phi_s, phi_s_0)
             psi_s_next = self.Psi(phi_s_next, phi_s_0)
             
             # 1. Similarity Reward
-            reward_sim = ((psi_s_next - psi_s) * z_dir).sum(dim=-1)
+            reward_sim = (self.vec_norm(psi_s_next - psi_s) * z_dir).sum(dim=-1)
             
             # 2. Goal Arrival Reward
-            reward_ga = norm(psi_s - z) - norm(psi_s_next - z)    
+            reward_ga = self.max_path_length * (self.norm(psi_s - z) - self.norm(psi_s_next - z))
             
             # 3. Constraints
             ## later in phi loss: cst_penalty
-            rewards = 2 * self.max_path_length * (reward_sim + reward_ga)
+            # rewards = 2 * self.max_path_length * (reward_sim + reward_ga)
+            rewards = reward_sim + reward_ga
             
             v.update({
                 'cur_z': cur_z,
@@ -561,7 +560,7 @@ class SZN_P(IOD):
                 'PureRewardStd': rewards.std(),  
                 'reward_sim': reward_sim.mean(),
                 'reward_ga': reward_ga.mean(),
-                'cos_theta': cos_theta.mean(),     
+                # 'cos_theta': cos_theta.mean(),     
             })
             
             return
@@ -584,26 +583,9 @@ class SZN_P(IOD):
             inner = (option_s_s_next * option).sum(dim=1)
             rewards = inner
             
-            # inner = (self.vec_norm(option_s_s_next) * option).sum(dim=1)
-            # rewards = inner + torch.log(1 + torch.norm(option_s_s_next, p=2, dim=-1))
-            
-            cos_theta = (self.vec_norm(option_s_s_next) * option).sum(dim=1)
-            # sin_theta = torch.sqrt(1 - cos_theta ** 2 + 1e-3)
-            # rewards = torch.norm(option_s_s_next, p=2, dim=-1) * (cos_theta - sin_theta)
-            
-            # cos_theta = (self.vec_norm(option_s_s_next) * option).sum(dim=1)
-            # rewards = torch.norm(option_s_s_next, p=2, dim=-1) * (cos_theta**3)
-
-            # cos_theta = (self.vec_norm(option_s_s_next) * option).sum(dim=1)
-            # rewards = (option_s_s_next * option).sum(dim=1) + self.lamada * (cos_theta - 1)
-            # self.lamada = self.lamada - 1e-3 * (cos_theta.mean() - 1 + 0.1)
-            # self.lamada = torch.clamp(self.lamada, max=1)
-            
         tensors.update({
             'PureRewardMean': rewards.mean(),  
             'PureRewardStd': rewards.std(),  
-            # 'self.lamada': self.lamada,
-            'cos_theta': cos_theta.mean(),     
         })
         v['rewards'] = rewards                  
         v['policy_rewards'] = rewards
@@ -654,13 +636,12 @@ class SZN_P(IOD):
             else:
                 raise NotImplementedError
 
-            cst_penalty = cst_dist - torch.square(phi_s_next - phi_s).mean(dim=1)       
-            cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)           
+            # cst_penalty = cst_dist - torch.square(phi_s_next - phi_s).mean(dim=1)       
+            # cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)
             
-            if self.method["phi"] in ['contrastive']:           
-                te_obj = rewards + dual_lam.detach() * cst_penalty
-            else:
-                te_obj = rewards + dual_lam.detach() * cst_penalty    
+            cst_penalty = 2 - self.norm(phi_s)
+
+            te_obj = rewards + dual_lam.detach() * cst_penalty    
 
             v.update({
                 'cst_penalty': cst_penalty
@@ -675,6 +656,7 @@ class SZN_P(IOD):
             {
                 "TeObjMean": te_obj.mean(),
                 "LossTe": loss_te,
+                "Norm(phi_s)": self.norm(phi_s).mean(),
             }
         )
     '''

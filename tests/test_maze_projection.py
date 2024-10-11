@@ -75,9 +75,12 @@ def gen_z(sub_goal, obs, traj_encoder, device="cpu", ret_emb: bool = False):
 
 ## load model
 # baseline 
-policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/P-Exp1sd000_1728568045_ant_maze_SZN_P/option_policy500.pt"
-traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/P-Exp1sd000_1728568045_ant_maze_SZN_P/traj_encoder500.pt"
-SZN_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/SZN-Exp4sd000_1728446621_ant_maze_SZN_Z/wandb/latest-run/filesSampleZPolicy.pt"
+policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/P-Exp2-reward_w200sd000_1728571903_ant_maze_SZN_P/wandb/latest-run/filesoption_policy-15000.pt"
+traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/P-Exp2-reward_w200sd000_1728571903_ant_maze_SZN_P/wandb/latest-run/filestaregt_traj_encoder-15000.pt"
+
+
+# policy_path = '/mnt/nfs2/zhanghe/NuAgent/exp/Maze/baselinesd000_1728470802_ant_maze_SZN_Z/option_policy11000.pt'
+# traj_encoder_path = '/mnt/nfs2/zhanghe/NuAgent/exp/Maze/baselinesd000_1728470802_ant_maze_SZN_Z/traj_encoder11000.pt'
 
 # policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/SZN-Exp4sd000_1728446621_ant_maze_SZN_Z/option_policy3000.pt"
 # traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/SZN-Exp4sd000_1728446621_ant_maze_SZN_Z/traj_encoder3000.pt"
@@ -85,6 +88,8 @@ SZN_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/SZN-Exp4sd000_1728446621_ant_maze
 # # SGN-A
 # policy_path = "/data/zh/project12_Metra/METRA/exp/Debug_baseline/SGN_A/option_policy50000.pt"
 # traj_encoder_path = "/data/zh/project12_Metra/METRA/exp/Debug_baseline/SGN_A/traj_encoder50000.pt"
+SZN_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/SZN-Exp4sd000_1728446621_ant_maze_SZN_Z/wandb/latest-run/filesSampleZPolicy.pt"
+
 
 load_option_policy_base = torch.load(policy_path)
 load_traj_encoder_base = torch.load(traj_encoder_path)
@@ -116,9 +121,10 @@ num_eval = 50
 max_path_length = 100
 device = 'cuda'
 model_name = policy_path.split('/')[-4]
-path = './test/' + model_name
-dim_option = 2
 type = 'viz_psi_space'
+path = './test/' + 'Projection' + '-' + type
+dim_option = 2
+
 
 
 FinallDistanceList = []
@@ -271,7 +277,7 @@ def viz_psi_space(num_eval=10):
         for i in trange(len(options)):
             obs = env.reset()
             option = torch.tensor(options[i]).unsqueeze(0).to(device)
-            option = vec_norm(option)       # 可以不vec
+            # option = vec_norm(option)       # 可以不vec
             obs = torch.tensor(obs).unsqueeze(0).to(device).float()
             phi_obs_ = agent_traj_encoder(obs).mean
             phi_x0 = phi_obs_
@@ -287,7 +293,7 @@ def viz_psi_space(num_eval=10):
                 psi_obs = Psi(phi_obs_, phi_x0, max_path_length=max_path_length)
                 # for viz
                 Repr_obs_list.append(psi_obs.cpu().numpy()[0])
-                Repr_goal_list.append(option.numpy()[0])
+                Repr_goal_list.append(option.cpu().numpy()[0])
 
                 # get actions from policy
                 action, agent_info = agent_policy.get_action(obs_option)
@@ -345,5 +351,21 @@ if __name__ == '__main__':
         
         
     elif type == 'viz_psi_space':
-        viz_psi_space()
+        viz_psi_space(50)
+        filepath = path + '-cover_goals.png'
+        plt.savefig(filepath)
+        print("save:", filepath)
+        # calculate metrics
+        FD = np.array(FinallDistanceList).mean()
+        AR = np.array(ArriveList).mean()
+        print("FD:", FD, '\n', "AR:", AR)
+        # plot: traj.
+        plot_trajectories(env, All_trajs_list, fig, ax)
+        # ax.legend(loc='lower right')
+        filepath = path + "-Maze_traj.png"
+        plt.savefig(filepath) 
+        print(filepath)
+        # plot: repr_traj.
+        PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=True)
+        print('Repr_Space_traj saved')
 

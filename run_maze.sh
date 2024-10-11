@@ -3,7 +3,7 @@ export MUJOCO_GL="osmesa"
 
 # regret
 python tests/main.py --run_group Maze --env ant_maze --max_path_length 100 --seed 0 --traj_batch_size 8 --n_parallel 4 --normalizer_type off --sac_max_buffer_size 300000  --n_epochs_per_log 50 --n_epochs_per_eval 50 --n_epochs_per_save 100 --n_epochs_per_pt_save 100 --discrete 0 --dim_option 2 --sac_scale_reward 1 \
-    --algo SZN_P --exp_name P-Exp2-reward_w200k20 --phi_type Projection --explore_type uniform --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 50 --target_theta 1 --is_wandb 1 --trans_minibatch_size 256 
+    --algo SZN_P --exp_name P-Exp3-w_100 --phi_type Projection --explore_type uniform --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 50 --target_theta 1 --is_wandb 1 --trans_minibatch_size 256 
 
     # --algo SZN_Z --exp_name cos-Exp5-update --phi_type baseline --explore_type baseline --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 50 --target_theta 1 --is_wandb 1 --trans_minibatch_size 256 
 
