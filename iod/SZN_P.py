@@ -537,11 +537,12 @@ class SZN_P(IOD):
 
             psi_s = self.Psi(phi_s, phi_s_0)
             psi_s_next = self.Psi(phi_s_next, phi_s_0)
+            grad_psi_s = (1 - self.Psi(phi_s, phi_s_0)**2).detach()
+            
             
             # 1. Similarity Reward
             # reward_sim = (self.vec_norm(psi_s_next - psi_s) * z_dir).sum(dim=-1)
             reward_sim = self.max_path_length * ((psi_s_next - psi_s) * z_dir).sum(dim=-1)
-            
             
             # 2. Goal Arrival Reward
             reward_ga = self.max_path_length * (self.norm(psi_s - z) - self.norm(psi_s_next - z))
@@ -556,6 +557,9 @@ class SZN_P(IOD):
                 'next_z': next_z,
                 'rewards': rewards,
                 'policy_rewards': rewards,
+                'psi_s': psi_s,
+                'psi_s_next': psi_s_next,
+                'grad_psi_s': grad_psi_s,
             })
             tensors.update({
                 'PureRewardMean': rewards.mean(),  
@@ -641,8 +645,13 @@ class SZN_P(IOD):
             # cst_penalty = cst_dist - torch.square(phi_s_next - phi_s).mean(dim=1)       
             # cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)
             
-            cst_penalty = 2 - self.norm(phi_s)
-
+            # cst_penalty = (4 - phi_s**2).sum(dim=-1)
+            
+            cst_penalty = 1 - ((self.max_path_length * (v['psi_s']-v['psi_s_next']) / (2 * v['grad_psi_s']))**2).mean(dim=-1)
+            
+            # cst_penalty = 1 - torch.square((phi_s_next - phi_s) * self.max_path_length / 2).mean(dim=1)  
+            
+            cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)
             te_obj = rewards + dual_lam.detach() * cst_penalty    
 
             v.update({

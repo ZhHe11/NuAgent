@@ -13,6 +13,7 @@ import torch
 from sklearn.decomposition import PCA
 import matplotlib.cm as cm
 from tqdm import trange, tqdm
+import copy
 
 
 # save the traj. as fig
@@ -57,11 +58,12 @@ def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_P
 def vec_norm(vec):
     return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
 
-def Psi(phi_x, phi_x0, k=20, max_path_length=100):
+def Psi(phi_x, phi_x0, k=2, max_path_length=100):
     return 2 * (torch.sigmoid(k * (phi_x - phi_x0) / max_path_length) - 0.5)
-            
+    # return torch.tanh(phi_x - phi_x0)
+
 def norm(x, keepdim=False):
-    return torch.norm(x, p=2, dim=-1, keepdim=keepdim)
+    return torch.norm(x, p=2, dim=-1, keepdim=keepdim)        
 
 def gen_z(sub_goal, obs, traj_encoder, device="cpu", ret_emb: bool = False):
     goal_z = traj_encoder(sub_goal).mean
@@ -119,12 +121,11 @@ RandomInit = 0
 num_goals = 1
 num_eval = 50
 max_path_length = 100
-device = 'cuda'
+device = 'cuda:0'
 model_name = policy_path.split('/')[-4]
-type = 'viz_psi_space'
+type = 'cover'
 path = './test/' + 'Projection' + '-' + type
 dim_option = 2
-
 
 
 FinallDistanceList = []
@@ -136,10 +137,20 @@ All_trajs_list = []
 FinallDistanceList = []
 ArriveList=[]
 
-def eval_cover_rate(freq=5):
+def eval_cover_rate(freq=1):
     with torch.no_grad():
         for i in range(num_goals):
             GoalList = env.env.goal_sampler(np_random, freq=freq)
+            # GoalList = [
+            #                     [12.7, 16.5],
+            #                     [1.1, 12.9],
+            #                     [4.7, 4.5],
+            #                     [17.2, 0.9],
+            #                     [20.2, 20.1],
+            #                     [4.7, 0.9],
+            #                     [0.9, 4.7],
+            #                 ]
+            
             for j in trange(len(GoalList)):
                 goal = GoalList[j]
                 # print(goal)
@@ -150,16 +161,14 @@ def eval_cover_rate(freq=5):
                     continue
                 tensor_goal = torch.tensor(goal).to('cuda')
                 # get obs
-                if RandomInit:
-                    # to do:
-                    pass
-                else:
-                    obs = env.reset()
-                
+                obs = env.reset()
                 obs = torch.tensor(obs).unsqueeze(0).to(device).float()
-                target_obs = env.get_target_obs(obs, tensor_goal)
-                phi_target_obs = agent_traj_encoder(target_obs).mean
+                obs_goal = copy.deepcopy(obs)
+                obs_goal = env.get_target_obs(obs_goal, tensor_goal)
+                phi_g = agent_traj_encoder(obs_goal).mean
                 phi_obs_ = agent_traj_encoder(obs).mean
+                option = Psi(phi_g, phi_obs_)
+                
                 Repr_obs_list = []
                 Repr_goal_list = []
                 gt_return_list = []
@@ -167,11 +176,11 @@ def eval_cover_rate(freq=5):
                 traj_list["observation"] = []
                 traj_list["info"] = []
                 for t in range(max_path_length):
-                    option, phi_obs_, phi_target_obs = gen_z(target_obs, obs, traj_encoder=agent_traj_encoder, device=device, ret_emb=True)
+                    phi_obs_ = agent_traj_encoder(obs).mean
                     obs_option = torch.cat((obs, option), -1).float()
                     # for viz
                     Repr_obs_list.append(phi_obs_.cpu().numpy()[0])
-                    Repr_goal_list.append(phi_target_obs.cpu().numpy()[0])
+                    Repr_goal_list.append(phi_g.cpu().numpy()[0])
                     # get actions from policy
                     action, agent_info = agent_policy.get_action(obs_option)
                     # interact with the env
