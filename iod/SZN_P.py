@@ -539,7 +539,9 @@ class SZN_P(IOD):
             psi_s_next = self.Psi(phi_s_next, phi_s_0)
             
             # 1. Similarity Reward
-            reward_sim = (self.vec_norm(psi_s_next - psi_s) * z_dir).sum(dim=-1)
+            # reward_sim = (self.vec_norm(psi_s_next - psi_s) * z_dir).sum(dim=-1)
+            reward_sim = self.max_path_length * ((psi_s_next - psi_s) * z_dir).sum(dim=-1)
+            
             
             # 2. Goal Arrival Reward
             reward_ga = self.max_path_length * (self.norm(psi_s - z) - self.norm(psi_s_next - z))
