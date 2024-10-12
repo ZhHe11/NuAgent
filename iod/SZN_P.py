@@ -34,6 +34,91 @@ from iod.GradCLipper import GradClipper
 
 from iod.BufferDataset import BufferDataset
 from torch.utils.data import DataLoader
+from scipy.stats import multivariate_normal
+
+def calc_eval_metrics(trajectories, is_option_trajectories, coord_dims=[0,1]):
+    eval_metrics = {}
+    coords = []
+    for traj in trajectories:
+        traj1 = traj['env_infos']['coordinates'][:, coord_dims]
+        traj2 = traj['env_infos']['next_coordinates'][-1:, coord_dims]
+        coords.append(traj1)
+        coords.append(traj2)
+    coords = np.concatenate(coords, axis=0)
+    uniq_coords = np.unique(np.floor(coords), axis=0)
+    eval_metrics.update({
+        'MjNumUniqueCoords': len(uniq_coords),
+    })
+    return eval_metrics
+
+def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_PCA=False, is_goal=True):
+    if len(All_Goal_obs_list) == 0:
+        is_goal = False
+    
+    Repr_obs_array = np.array(All_Repr_obs_list[0])
+    if is_goal:
+        All_Goal_obs_array = np.array(All_Goal_obs_list[0])
+    for i in range(1,len(All_Repr_obs_list)):
+        Repr_obs_array = np.concatenate((Repr_obs_array, np.array(All_Repr_obs_list[i])), axis=0)
+        if is_goal:
+            All_Goal_obs_array = np.concatenate((All_Goal_obs_array, np.array(All_Goal_obs_list[i])), axis=0)
+    # 创建 PCA 对象，指定降到2维
+    if is_PCA:
+        pca = PCA(n_components=2)
+        # 对数据进行 PCA
+        Repr_obs_2d = pca.fit_transform(Repr_obs_array)
+    else:
+        Repr_obs_2d = Repr_obs_array
+        if is_goal:
+            All_Goal_obs_2d = All_Goal_obs_array
+    # 绘制 PCA 降维后的数据
+    plt.figure(figsize=(8, 6))
+    colors = cm.rainbow(np.linspace(0, 1, len(All_Repr_obs_list)))
+    for i in range(0,len(All_Repr_obs_list)):
+        color = colors[i]
+        start_index = i * path_len
+        end_index = (i+1) * path_len
+        plt.scatter(Repr_obs_2d[start_index:end_index, 0], Repr_obs_2d[start_index:end_index, 1], color=color, s=5)
+        if is_goal:
+            plt.scatter(All_Goal_obs_2d[start_index:end_index, 0], All_Goal_obs_2d[start_index:end_index, 1], color=color, s=100, marker='*', edgecolors='black')
+    path_file_traj = path + "-traj.png"
+    plt.xlabel('z[0]')
+    plt.ylabel('z[1]')
+    plt.title('traj. in representation space')
+    # plt.legend()
+    plt.savefig(path_file_traj)
+
+def viz_SZN_dist(SZN, input_token, path):
+    dist = SZN(input_token)
+    # Data
+    x = np.linspace(-5, 5, 500)
+    y = np.linspace(-5, 5, 500)
+    X, Y = np.meshgrid(x,y)
+    from scipy.stats import multivariate_normal
+    num = dist.mean.shape[0]
+    fig = plt.figure(figsize=(18, 12), facecolor='w')
+    for i in range(dist.mean.shape[0]):
+        # Multivariate Normal
+        mu_x = dist.mean[i][0].detach().cpu().numpy()
+        sigma_x = dist.stddev[i][0].detach().cpu().numpy()
+        mu_y = dist.mean[i][1].detach().cpu().numpy()
+        sigma_y = dist.stddev[i][1].detach().cpu().numpy()
+        rv = multivariate_normal([mu_x, mu_y], [[sigma_x, 0], [0, sigma_y]])
+        # Probability Density
+        pos = np.empty(X.shape + (2,))
+        pos[:, :, 0] = X
+        pos[:, :, 1] = Y
+        pd = rv.pdf(pos)
+        # Plot
+        ax = fig.add_subplot(2, num//2, i+1, projection='3d')
+        ax.plot_surface(X, Y, pd, cmap='viridis', linewidth=0)
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Probability Density')
+        print(mu_x, mu_y, sigma_x, sigma_y)
+
+    plt.savefig('test-all' + '.png')
+    plt.close()
 
 
 class SZN_P(IOD):
@@ -161,7 +246,7 @@ class SZN_P(IOD):
         # self.SZN_optim = optim.SGD(self.SampleZNetwork.parameters(), lr=1e-4)
         self.SampleZPolicy = SampleZPolicy.to(self.device)
         # self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=1e-3, weight_decay=1e-3, betas=(0.5, 0.9))
-        self.SampleZPolicy_optim = optim.SGD(self.SampleZPolicy.parameters(), lr=1e-2)
+        self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=1e-3)
         self.grad_clip = GradClipper(clip_type='clip_norm', threshold=3, norm_type=2)
         
         self.last_return = None
@@ -169,6 +254,10 @@ class SZN_P(IOD):
         self.input_token = torch.eye(self.num_random_trajectories).float().to(self.device)
         self.z_sample = None
         self.lamada = 0.3
+        
+        self.last_policy = copy.deepcopy(self.option_policy)
+        self.last_qf1 = copy.deepcopy(self.qf1)
+        self.last_qf2 = copy.deepcopy(self.qf2)
         
     
     @property
@@ -229,7 +318,7 @@ class SZN_P(IOD):
                 epoch_final[key] = epoch_key_final
         
         self.epoch_final = epoch_final
-        self.last_return = self.get_Regret(option=self.vec_norm(self.last_z), state=self.init_obs)
+        # self.last_return = self.get_Regret(option=torch.tanh(self.last_z), state=self.init_obs)
         return epoch_data
 
     def _update_replay_buffer(self, data):
@@ -322,63 +411,36 @@ class SZN_P(IOD):
                 random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
             
             if self.method['explore'] == 'SZN' and self.epoch_final is not None:
-                def sim_vec(new_z):
-                    b = 0
-                    for i in new_z:
-                        a = [(self.vec_norm(i)*self.vec_norm(j)).sum(dim=-1) for j in new_z]
-                        b += torch.tensor(a).mean()
-                    return b/new_z.shape[0]          
-                SupportReturn = self.get_Regret(option=self.vec_norm(self.last_z), state=self.init_obs)
+       
+                SupportReturn = self.get_Regret(option=torch.tanh(self.last_z), state=self.init_obs)
                 delta_SR = SupportReturn - self.last_return
-                
-                # Advantage 
-                ## calculate E_z[R(s0, z)]
-                # R_z = self.get_Regret(option=self.vec_norm(self.last_z), state=self.init_obs)    # [batch]
-                # def get_Ez_Regret(num_sample=10):
-                #     dist_z = self.SampleZPolicy(self.input_token)       # [batch, dim]
-                #     zs = dist_z.sample((num_sample,))                      # [num_sample, batch, dim]  
-                #     zs_flatten = zs.view(-1, self.dim_option)           # [num_sample*batch, dim]
-                #     Sumz_Regret = self.get_Regret(option=self.vec_norm(zs_flatten), state=self.single_init_obs.expand(self.num_random_trajectories*num_sample, -1))   # [num_sample*batch]
-                #     return Sumz_Regret.view(num_sample, self.num_random_trajectories).mean(dim=0)    # [batch]
-                
-                # Ez_R = get_Ez_Regret()
-                # Adv = (R_z - Ez_R) / Ez_R
                 
                 # update SZN 
                 for t in range(1):
                     dist_z = self.SampleZPolicy(self.input_token)
-                    z_logp = dist_z.log_prob(self.last_z)
+                    z_logp = dist_z.log_prob(torch.tanh(self.last_z))
                     self.SampleZPolicy_optim.zero_grad()      
                     # Loss SZP
-                    new_z = self.SampleZPolicy(self.input_token).sample()
-                    # Value = delta_SR.detach() * (torch.log(R_z.detach() + 1) + 1) 、
                     Value = delta_SR.detach()
-                    # Value = (Value - Value.mean()) / (Value.std() + 1e-8)
-                    w = 0.01
+                    w = 0.001
                     loss_SZP = (-z_logp * Value - w * dist_z.entropy()).mean()
                     loss_SZP.backward()
                     self.grad_clip.apply(self.SampleZPolicy.parameters())
                     self.SampleZPolicy_optim.step()
 
-                new_z = self.SampleZPolicy(self.input_token).sample().detach()
-                sim_iteration = (self.vec_norm(new_z)*self.vec_norm(self.last_z)).sum(dim=-1)
-                
-                self.last_z = new_z
-
+                self.last_z = self.SampleZPolicy(self.input_token).sample().detach()
 
                 if wandb.run is not None:
                     wandb.log({
                         "SZN/loss_SZP": loss_SZP,
                         "SZN/delta_SR": delta_SR.mean(),
-                        # "SZN/Adv": Adv.mean(),
                         "SZN/logp": z_logp.mean(),
                         "SZN/SR": SupportReturn.mean(),
-                        "SZN/sim_output": sim_iteration.mean(),
                         "SZN/entropy": dist_z.entropy().mean(),
                         "epoch": runner.step_itr,
                     })
             
-                np_z = self.vec_norm(self.last_z).cpu().numpy()
+                np_z = torch.tanh(self.last_z).cpu().numpy()
                 print("Sample Z: ", np_z)
                 extras = self._generate_option_extras(np_z)                
             
@@ -416,6 +478,15 @@ class SZN_P(IOD):
         tensors = {}
         dataset = BufferDataset(self.replay_buffer._buffer, len=self.replay_buffer.n_transitions_stored)
         dataloader = DataLoader(dataset, batch_size=self._trans_minibatch_size, shuffle=True, num_workers=2, multiprocessing_context='fork')
+        
+        # save k-1 policy and qf
+        def copy_params(ori_model, target_model):
+            for t_param, param in zip(target_model.parameters(), ori_model.parameters()):
+                t_param.data.copy_(param.data)
+        copy_params(self.option_policy, self.last_policy)
+        copy_params(self.qf1, self.last_qf1)
+        copy_params(self.qf2, self.last_qf2)
+        
         for epoch_i, v in enumerate(dataloader):
             if epoch_i > self._trans_optimization_epochs:
                 break
@@ -647,9 +718,9 @@ class SZN_P(IOD):
             
             # cst_penalty = (4 - phi_s**2).sum(dim=-1)
             
-            cst_penalty = 1 - ((self.max_path_length * (v['psi_s']-v['psi_s_next']) / (2 * v['grad_psi_s']))**2).mean(dim=-1)
+            # cst_penalty = 1 - ((self.max_path_length * (v['psi_s']-v['psi_s_next']) / (2 * v['grad_psi_s']))**2).mean(dim=-1)
             
-            # cst_penalty = 1 - torch.square((phi_s_next - phi_s) * self.max_path_length / 2).mean(dim=1)  
+            cst_penalty = 1 - torch.square((phi_s_next - phi_s) * self.max_path_length / 2).mean(dim=1)  
             
             cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)
             te_obj = rewards + dual_lam.detach() * cst_penalty    
@@ -823,13 +894,12 @@ class SZN_P(IOD):
         right now in ant_maze env;
         later will move to other envs(ketchen or ExORL or gyms);
         '''
+        num_eval = 20
         env = runner._env
         fig, ax = plt.subplots()
         env.draw(ax)
         # 1. initialize the parameters
-        
         max_path_length = self.max_path_length
-        # goals = torch.zeros((num_eval, self.dim_option)).to(self.device)
         
         frames = []
         All_Repr_obs_list = []
@@ -841,115 +911,76 @@ class SZN_P(IOD):
         Pepr_viz = True
         np_random = np.random.default_rng()    
         
-        goals_list = [
-            [12.7, 16.5],
-            [1.1, 12.9],
-            [4.7, 4.5],
-            [17.2, 0.9],
-            [20.2, 20.1],
-            [4.7, 0.9],
-            [0.9, 4.7],
-        ]
-        num_eval = len(goals_list)
-        goals = torch.tensor(np.array(goals_list)).to(self.device)
-        
         # 2. interact with the env
+        options = np.random.randn(num_eval, self.dim_option)
+        All_Cover_list = []
         progress = tqdm(range(num_eval), desc="Evaluation")
-
         for i in progress:
-            # 2.1 calculate the goal;
-            # goal = env.env.goal_sampler(np_random)
-            ax.scatter(goals_list[i][0], goals_list[i][1], s=50, marker='x', alpha=1, edgecolors='black', label='target.'+str(i))
-            print(goals[i])
-            # 2.2 reset the env
-            obs_0 = env.reset()  
-            obs_0 = torch.tensor(obs_0).unsqueeze(0).to(self.device).float()
-            obs = obs_0
-            target_obs = env.get_target_obs(obs, goals[i])
-            phi_target_obs = self.traj_encoder(target_obs).mean
+            obs = env.reset()
+            option = torch.tensor(options[i]).unsqueeze(0).to(self.device)
+            obs = torch.tensor(obs).unsqueeze(0).to(self.device).float()
             phi_obs_ = self.traj_encoder(obs).mean
+            phi_x0 = phi_obs_
             Repr_obs_list = []
             Repr_goal_list = []
-            gt_return_list = []
             traj_list = {}
             traj_list["observation"] = []
             traj_list["info"] = []
-            # 2.3 interact loop
+            Cover_list = {}
             for t in range(max_path_length):
-                option, phi_obs_, phi_target_obs = self.gen_psi_z(target_obs, obs, obs_0, device=self.device, ret_emb=True)
+                phi_obs_ = self.traj_encoder(obs).mean
                 obs_option = torch.cat((obs, option), -1).float()
+                psi_obs = self.Psi(phi_obs_, phi_x0)
                 # for viz
-                if Pepr_viz:
-                    Repr_obs_list.append(phi_obs_.cpu().numpy()[0])
-                    Repr_goal_list.append(phi_target_obs.cpu().numpy()[0])
+                Repr_obs_list.append(psi_obs.cpu().numpy()[0])
+                Repr_goal_list.append(option.cpu().numpy()[0])
                 # get actions from policy
-                # action = self.option_policy(obs_option)[1]['mean']
                 action, agent_info = self.option_policy.get_action(obs_option)
                 # interact with the env
                 obs, reward, dones, info = env.step(action)
-                gt_dist = np.linalg.norm(goals[i].cpu() - obs[:2])
                 # for recording traj.2
                 traj_list["observation"].append(obs)
                 info['x'], info['y'] = env.env.get_xy()
                 traj_list["info"].append(info)
                 # calculate the repr phi
+                if 'env_infos' not in Cover_list:
+                    Cover_list['env_infos'] = {}
+                    Cover_list['env_infos']['coordinates'] = []
+                    Cover_list['env_infos']['next_coordinates'] = []
+                Cover_list['env_infos']['coordinates'].append(obs[:2])
+                Cover_list['env_infos']['next_coordinates'].append(obs[:2])
+                
                 obs = torch.tensor(obs).unsqueeze(0).to(self.device).float()
-                gt_reward = - gt_dist / (30 * max_path_length)
-                gt_return_list.append(gt_reward)
                 
             All_Repr_obs_list.append(Repr_obs_list)
             All_Goal_obs_list.append(Repr_goal_list)
-            All_GtReturn_list.append(gt_return_list)
             All_trajs_list.append(traj_list)
-            FinallDistanceList.append(-gt_dist)
-            progress.set_postfix_str(
-                f"gt_ret={sum(gt_return_list):.3f},final_dist={gt_dist:.3f}")
-            
-            
-        All_GtReturn_array = np.array([np.array(i).sum() for i in All_GtReturn_list])
-        print(
-            "All_GtReturn", All_GtReturn_array.mean()
-        )
-        FinallDistance = np.array(FinallDistanceList).mean()
-        FinallDistSum = np.array(FinallDistanceList).sum()
+            Cover_list['env_infos']['coordinates'] = np.array(Cover_list['env_infos']['coordinates'])
+            Cover_list['env_infos']['next_coordinates'] = np.array(Cover_list['env_infos']['next_coordinates'])
+            All_Cover_list.append(Cover_list)
         
+        
+        eval_metrics = calc_eval_metrics(All_Cover_list, is_option_trajectories=True)
+        print(eval_metrics)
         plot_trajectories(env, All_trajs_list, fig, ax)
         ax.legend(loc='lower right')
-        
+
         if wandb.run is not None:
-            path = wandb.run.dir
-            filepath = os.path.join(path, "Maze_traj.png")
-            plt.savefig(filepath) 
-            print(filepath)
+            path = wandb.run.dir + '/E' + str(runner.step_itr) + '-'
+            plt.savefig(path + 'Maze_traj.png') 
             wandb.log(  
                         {
                             "epoch": runner.step_itr,
                             "SampleSteps": runner.step_itr * self.max_path_length * self.num_random_trajectories,
-                            "test/All_GtReturn": All_GtReturn_array.mean(),
-                            "test/FinallDistance": FinallDistance,
-                            "test/FinallDistSum": FinallDistSum,
-                            "Maze_traj": wandb.Image(filepath),
+                            "CoordsCover": eval_metrics['MjNumUniqueCoords'], 
+                            "Maze_traj": wandb.Image(path + 'Maze_traj.png'),
                         },
                     )
         
             if Pepr_viz and self.dim_option==2:
-                PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length)
-                print('Repr_Space_traj saved')
-                directions = self.vec_norm(torch.randn((100, self.dim_option))).to('cuda')
-                dist = self.goal_sample_network(directions)
-                mean = dist.mean.detach()
-                stddev = dist.stddev.detach()
-                edge_mean = (directions * mean).cpu().numpy()
-                edge_std = (directions * (mean+stddev)).cpu().numpy()
-                plt.figure(figsize=(8, 8))
-                plt.scatter(x=edge_mean[:,0], y=edge_mean[:,1])
-                plt.scatter(x=edge_std[:,0], y=edge_std[:,1])
-                # plt.colorbar(label='Probability Density')
-                plt.title('Edge')
-                plt.xlabel('X-axis')
-                plt.ylabel('Y-axis')
-                img_path = os.path.join(path, "SGN.png")
-                plt.savefig(img_path)
+                PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=self.max_path_length, is_goal=True)
+                viz_SZN_dist(self.SampleZPolicy, self.input_token, path=path)
+
 
     def _save_pt(self, epoch):
         if wandb.run is not None:
@@ -1114,5 +1145,18 @@ class SZN_P(IOD):
                 'Steps': runner.step_itr * self.num_random_trajectories * self.max_path_length,
                 })
             wandb.log(eval_option_metrics)
-
+    
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
                 

@@ -307,10 +307,6 @@ class IOD(RLAlgorithm):
                         if Z_viz:
                             phi_g = trajectories[i]['agent_infos']['option'] + phi_s[0]
                             All_Goal_obs_list.append(phi_g)
-            if Pepr_viz:
-                path = wandb.run.dir
-                PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=self.max_path_length, is_PCA=True, tag='train')                
-                print('Repr_Space_traj saved')
             
         return trajectories
 

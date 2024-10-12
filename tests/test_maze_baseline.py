@@ -15,7 +15,10 @@ import matplotlib.cm as cm
 from tqdm import trange, tqdm
 import copy
 
-def calc_eval_metrics(trajectories, is_option_trajectories, coord_dims=[0,1]):
+
+
+
+def calc_eval_metrics(trajectories, is_option_trajectories, coord_dims=[0,1], k=5):
     eval_metrics = {}
 
     coords = []
@@ -25,7 +28,7 @@ def calc_eval_metrics(trajectories, is_option_trajectories, coord_dims=[0,1]):
         coords.append(traj1)
         coords.append(traj2)
     coords = np.concatenate(coords, axis=0)
-    uniq_coords = np.unique(np.floor(coords), axis=0)
+    uniq_coords = np.unique(np.floor(k * coords), axis=0)
     eval_metrics.update({
         'MjNumUniqueCoords': len(uniq_coords),
     })
@@ -75,9 +78,9 @@ def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_P
 def vec_norm(vec):
     return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
 
-def Psi(phi_x, phi_x0, k=20):
-    # return 2 * (torch.sigmoid(k * (phi_x - phi_x0) / self.max_path_length) - 0.5)
-    return torch.tanh(phi_x - phi_x0)
+def Psi(phi_x, phi_x0, k=2, max_path_length=100):
+    return 2 * (torch.sigmoid(k * (phi_x - phi_x0) / max_path_length) - 0.5)
+    # return torch.tanh(phi_x - phi_x0)
 
 def norm(x, keepdim=False):
     return torch.norm(x, p=2, dim=-1, keepdim=keepdim)        
@@ -92,70 +95,6 @@ def gen_z(sub_goal, obs, traj_encoder, device="cpu", ret_emb: bool = False):
     else:
         return z
 
-## load model
-# baseline 
-policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/P-Exp4-gradsd000_1728639360_ant_maze_SZN_P/wandb/latest-run/filesoption_policy-14000.pt"
-traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/P-Exp4-gradsd000_1728639360_ant_maze_SZN_P/wandb/latest-run/filestaregt_traj_encoder-14000.pt"
-
-# P-Exp4-averagesd000_1728639442_ant_maze_SZN_P
-
-# policy_path = '/mnt/nfs2/zhanghe/NuAgent/exp/Maze/baselinesd000_1728470802_ant_maze_SZN_Z/option_policy11000.pt'
-# traj_encoder_path = '/mnt/nfs2/zhanghe/NuAgent/exp/Maze/baselinesd000_1728470802_ant_maze_SZN_Z/traj_encoder11000.pt'
-
-# policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/SZN-Exp4sd000_1728446621_ant_maze_SZN_Z/option_policy3000.pt"
-# traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/SZN-Exp4sd000_1728446621_ant_maze_SZN_Z/traj_encoder3000.pt"
-
-# # SGN-A
-# policy_path = "/data/zh/project12_Metra/METRA/exp/Debug_baseline/SGN_A/option_policy50000.pt"
-# traj_encoder_path = "/data/zh/project12_Metra/METRA/exp/Debug_baseline/SGN_A/traj_encoder50000.pt"
-SZN_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/P-SZN-Exp5-gradsd000_1728648844_ant_maze_SZN_P/wandb/latest-run/filesSampleZPolicy-1000.pt"
-
-
-load_option_policy_base = torch.load(policy_path)
-load_traj_encoder_base = torch.load(traj_encoder_path)
-load_SZN_path_base = torch.load(SZN_path)
-agent_policy = load_option_policy_base['policy'].eval()
-if "target_traj_encoder" in load_traj_encoder_base.keys():
-    agent_traj_encoder = load_traj_encoder_base['target_traj_encoder'].eval()
-else:
-    agent_traj_encoder = load_traj_encoder_base['traj_encoder'].eval()
-SZN = load_SZN_path_base['goal_sample_network'].eval()
-input_token = load_SZN_path_base['input_token']
-    
-# set up env
-env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
-env.reset()
-frames = []
-fig, ax = plt.subplots()
-np_random = np.random.default_rng(seed=0) 
-goal = env.env.goal_sampler(np_random)
-env.draw(ax)
-goal_list = []
-init_obs = env.reset()  
-
-# settings:
-Eval = 1
-RandomInit = 0
-num_goals = 1
-num_eval = 50
-max_path_length = 100
-device = 'cuda:0'
-model_name = policy_path.split('ant_maze')[0].split('/')[-1]
-type = ['SZN_dist']
-path = './test/' + model_name + '/'
-if not os.path.exists(path):
-    os.mkdir(path)
-dim_option = 2
-
-
-FinallDistanceList = []
-All_Repr_obs_list = []
-All_Goal_obs_list = []
-All_Return_list = []
-All_GtReturn_list = []
-All_trajs_list = []
-FinallDistanceList = []
-ArriveList=[]
 
 def eval_cover_rate(freq=1):
     with torch.no_grad():
@@ -301,7 +240,13 @@ def viz_SZN_dist(num_sample=10):
     plt.close()
     
     
-def viz_psi_space(num_eval=10):
+def CalculateMetrics(dim_option, agent_traj_encoder, agent_policy, device, num_eval=20, max_path_length=100):
+    FinallDistanceList = []
+    All_Repr_obs_list = []
+    All_Goal_obs_list = []
+    All_trajs_list = []
+    FinallDistanceList = []
+    ArriveList=[]
     with torch.no_grad(): 
         options = np.random.randn(num_eval, dim_option)
         All_Cover_list = []
@@ -309,7 +254,7 @@ def viz_psi_space(num_eval=10):
             obs = env.reset()
             Cover_list = {}
             option = torch.tensor(options[i]).unsqueeze(0).to(device)
-            # option = vec_norm(option)       # 可以不vec
+            option = vec_norm(option)
             obs = torch.tensor(obs).unsqueeze(0).to(device).float()
             phi_obs_ = agent_traj_encoder(obs).mean
             phi_x0 = phi_obs_
@@ -319,14 +264,11 @@ def viz_psi_space(num_eval=10):
             traj_list["observation"] = []
             traj_list["info"] = []
             for t in range(max_path_length):
-                
                 phi_obs_ = agent_traj_encoder(obs).mean
                 obs_option = torch.cat((obs, option), -1).float()
-                psi_obs = Psi(phi_obs_, phi_x0)
                 # for viz
-                Repr_obs_list.append(psi_obs.cpu().numpy()[0])
+                Repr_obs_list.append(phi_obs_.cpu().numpy()[0])
                 Repr_goal_list.append(option.cpu().numpy()[0])
-
                 # get actions from policy
                 action, agent_info = agent_policy.get_action(obs_option)
                 # interact with the env
@@ -352,66 +294,152 @@ def viz_psi_space(num_eval=10):
             All_Cover_list.append(Cover_list)
         eval_metrics = calc_eval_metrics(All_Cover_list, is_option_trajectories=True)
         print(eval_metrics)
-    
-    
+        
+        return eval_metrics['MjNumUniqueCoords'], All_trajs_list, All_Repr_obs_list, All_Goal_obs_list
+
+
+def CalculateMetricsProjection(dim_option, agent_traj_encoder, agent_policy, device, num_eval=20, max_path_length=100):
+    FinallDistanceList = []
+    All_Repr_obs_list = []
+    All_Goal_obs_list = []
+    All_trajs_list = []
+    FinallDistanceList = []
+    ArriveList=[]
+    with torch.no_grad(): 
+        options = np.random.randn(num_eval, dim_option)
+        All_Cover_list = []
+        for i in trange(len(options)):
+            obs = env.reset()
+            Cover_list = {}
+            option = torch.tensor(options[i]).unsqueeze(0).to(device)
+            obs = torch.tensor(obs).unsqueeze(0).to(device).float()
+            phi_obs_ = agent_traj_encoder(obs).mean
+            phi_x0 = phi_obs_
+            Repr_obs_list = []
+            Repr_goal_list = []
+            traj_list = {}
+            traj_list["observation"] = []
+            traj_list["info"] = []
+            for t in range(max_path_length):
+                phi_obs_ = agent_traj_encoder(obs).mean
+                obs_option = torch.cat((obs, option), -1).float()
+                psi_obs = Psi(phi_obs_, phi_x0)
+                # for viz
+                Repr_obs_list.append(psi_obs.cpu().numpy()[0])
+                Repr_goal_list.append(option.cpu().numpy()[0])
+                # get actions from policy
+                action, agent_info = agent_policy.get_action(obs_option)
+                # interact with the env
+                obs, reward, dones, info = env.step(action)
+                # for recording traj.2
+                traj_list["observation"].append(obs)
+                info['x'], info['y'] = env.env.get_xy()
+                traj_list["info"].append(info)
+                # calculate the repr phi
+                if 'env_infos' not in Cover_list:
+                    Cover_list['env_infos'] = {}
+                    Cover_list['env_infos']['coordinates'] = []
+                    Cover_list['env_infos']['next_coordinates'] = []
+                Cover_list['env_infos']['coordinates'].append(obs[:2])
+                Cover_list['env_infos']['next_coordinates'].append(obs[:2])
+                obs = torch.tensor(obs).unsqueeze(0).to(device).float()
+                    
+            All_Repr_obs_list.append(Repr_obs_list)
+            All_Goal_obs_list.append(Repr_goal_list)
+            All_trajs_list.append(traj_list)
+            Cover_list['env_infos']['coordinates'] = np.array(Cover_list['env_infos']['coordinates'])
+            Cover_list['env_infos']['next_coordinates'] = np.array(Cover_list['env_infos']['next_coordinates'])
+            All_Cover_list.append(Cover_list)
+        eval_metrics = calc_eval_metrics(All_Cover_list, is_option_trajectories=True)
+        print(eval_metrics)
+        
+        return eval_metrics['MjNumUniqueCoords'], All_trajs_list, All_Repr_obs_list, All_Goal_obs_list
+
+
+def run(path, num_eval, type=['metrics']):
+    ## load model
+    # baseline 
+    policy_path = path
+    traj_encoder_path = policy_path.replace('option_policy', 'traj_encoder')
+
+    load_option_policy_base = torch.load(policy_path)
+    load_traj_encoder_base = torch.load(traj_encoder_path)
+    # load_SZN_path_base = torch.load(SZN_path)
+    agent_policy = load_option_policy_base['policy'].eval()
+    if "target_traj_encoder" in load_traj_encoder_base.keys():
+        agent_traj_encoder = load_traj_encoder_base['target_traj_encoder'].eval()
+    else:
+        agent_traj_encoder = load_traj_encoder_base['traj_encoder'].eval()
+            
+    # set up env
+    env.reset()
+    frames = []
+    fig, ax = plt.subplots()
+    np_random = np.random.default_rng(seed=0) 
+    goal = env.env.goal_sampler(np_random)
+    env.draw(ax)
+    goal_list = []
+    init_obs = env.reset()  
+
+    # settings:
+    max_path_length = 100
+    device = 'cuda:0'
+    model_name = policy_path.split('ant_maze')[0].split('/')[-1]
+    path = './test/' + model_name + '/'
+    if not os.path.exists(path):
+        os.mkdir(path)
+    dim_option = 2
+
+        
+    if 'metrics_baseline' in type:
+        metrics, All_trajs_list, All_Repr_obs_list, All_Goal_obs_list = CalculateMetrics(dim_option, agent_traj_encoder, agent_policy, device, num_eval, max_path_length)
+        # calculate metrics
+        # plot: traj.
+        plot_trajectories(env, All_trajs_list, fig, ax)
+        # ax.legend(loc='lower right')
+        filepath = path + "-Maze_traj.png"
+        plt.savefig(filepath) 
+        print(filepath)
+        # plot: repr_traj.
+        PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=True)
+        print('Repr_Space_traj saved')
+        
+        return metrics, path
+
+    elif 'metrics_projection' in type:
+        metrics, All_trajs_list, All_Repr_obs_list, All_Goal_obs_list = CalculateMetricsProjection(dim_option, agent_traj_encoder, agent_policy, device, num_eval, max_path_length)
+        # calculate metrics
+        # plot: traj.
+        plot_trajectories(env, All_trajs_list, fig, ax)
+        # ax.legend(loc='lower right')
+        filepath = path + "-Maze_traj.png"
+        plt.savefig(filepath) 
+        print(filepath)
+        # plot: repr_traj.
+        PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=True)
+        print('Repr_Space_traj saved')
+        
+        return metrics, path
+
+
 
 if __name__ == '__main__':
-    # exe:
-    if 'cover' in type:
-        eval_cover_rate(freq=2)
-        filepath = path + 'cover' + '-cover_goals.png'
-        plt.savefig(filepath)
-        print("save:", filepath)
-        # calculate metrics
-        FD = np.array(FinallDistanceList).mean()
-        AR = np.array(ArriveList).mean()
-        print("FD:", FD, '\n', "AR:", AR)
-        # plot: traj.
-        plot_trajectories(env, All_trajs_list, fig, ax)
-        # ax.legend(loc='lower right')
-        filepath = path + "-Maze_traj.png"
-        plt.savefig(filepath) 
-        print(filepath)
-        # plot: repr_traj.
-        PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=True)
-        print('Repr_Space_traj saved')
+    env = MazeWrapper("antmaze-umaze-diverse-v0", random_init=False)
 
-
-    if 'random_z' in type:
-        eval_random_z(num_eval)
-        # plot: traj.
-        plot_trajectories(env, All_trajs_list, fig, ax)
-        # ax.legend(loc='lower right')
-        filepath = path + 'random_z' + "-Maze_traj.png"
-        plt.savefig(filepath) 
-        print(filepath)
-        # plot: repr_traj.
-        PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=False)
-        print('Repr_Space_traj saved')
-
-
-    elif 'SZN_dist' in type:
-        viz_SZN_dist()
+    paths = [
+        "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/P-Exp2-reward_w200sd000_1728571903_ant_maze_SZN_P/option_policy6000.pt", 
+        "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/P-Exp2-reward_w200sd000_1728571903_ant_maze_SZN_P/option_policy7000.pt", 
+        "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/P-Exp2-reward_w200sd000_1728571903_ant_maze_SZN_P/option_policy8000.pt", 
+        "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/P-Exp2-reward_w200sd000_1728571903_ant_maze_SZN_P/option_policy9000.pt", 
+        "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/P-Exp2-reward_w200sd000_1728571903_ant_maze_SZN_P/option_policy10000.pt", 
+    ]
+    # P-Exp2-reward_w200sd000_1728571903_ant_maze_SZN_P
+    metrics_list = []
+    for path in paths:
+        metrics, save_path = run(path, type=['metrics_projection'], num_eval=20)
+        metrics_list.append(metrics)
         
-        
-    elif 'viz_psi_space' in type:
-        viz_psi_space(50)
-        # calculate metrics
-        FD = np.array(FinallDistanceList).mean()
-        AR = np.array(ArriveList).mean()
-        print("FD:", FD, '\n', "AR:", AR)
-        # plot: traj.
-        plot_trajectories(env, All_trajs_list, fig, ax)
-        # ax.legend(loc='lower right')
-        filepath = path + "-Maze_traj.png"
-        plt.savefig(filepath) 
-        print(filepath)
-        # plot: repr_traj.
-        PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=True)
-        print('Repr_Space_traj saved')
-
-
-
-
-
-
+    metrics_array = np.array(metrics_list)
+    np.save(save_path+'metrics.npy', metrics_array)
+    
+    
