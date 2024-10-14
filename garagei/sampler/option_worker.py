@@ -120,6 +120,14 @@ class OptionWorker(DefaultWorker):
                 else:
                     cur_extra = self._cur_extras[self._cur_extra_idx][cur_extra_key]
                     
+                    if 'psi_g' in self._cur_extras[self._cur_extra_idx].keys():
+                        with torch.no_grad():
+                            psi_g = self._cur_extras[self._cur_extra_idx]['psi_g']
+                            psi_g = torch.tensor(psi_g).to('cuda')
+                            phi_s = self.agent.traget_traj_encoder(torch.tensor(self._prev_obs).to('cuda')).mean
+                            psi_s = torch.tanh(phi_s)
+                            cur_extra = (psi_g - psi_s).cpu().numpy()
+                    
                     # if 'sub_goal' in self._cur_extras[self._cur_extra_idx].keys():
                     #     sub_goal = self._cur_extras[self._cur_extra_idx]['sub_goal']
                     #     cur_extra = self.agent.gen_z(torch.tensor(sub_goal), torch.tensor(self._prev_obs), device="cpu").numpy()

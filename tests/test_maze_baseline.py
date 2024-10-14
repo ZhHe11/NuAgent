@@ -78,9 +78,9 @@ def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_P
 def vec_norm(vec):
     return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
 
-def Psi(phi_x, phi_x0, k=2, max_path_length=100):
+def Psi(phi_x):
     # return 2 * (torch.sigmoid(k * (phi_x - phi_x0) / max_path_length) - 0.5)
-    return torch.tanh(phi_x - phi_x0)
+    return torch.tanh(phi_x)
 
 def norm(x, keepdim=False):
     return torch.norm(x, p=2, dim=-1, keepdim=keepdim)        
@@ -96,7 +96,7 @@ def gen_z(sub_goal, obs, traj_encoder, device="cpu", ret_emb: bool = False):
         return z
 
 
-def eval_cover_rate(ax, dim_option, agent_traj_encoder, agent_policy, device, max_path_length=300, freq=1):
+def eval_cover_rate(ax, dim_option, agent_traj_encoder, agent_policy, device, max_path_length=300, freq=3):
     FinallDistanceList = []
     All_Repr_obs_list = []
     All_Goal_obs_list = []
@@ -106,7 +106,7 @@ def eval_cover_rate(ax, dim_option, agent_traj_encoder, agent_policy, device, ma
     All_GtReturn_list=[]
     np_random = np.random.default_rng(seed=0) 
     with torch.no_grad():
-        for i in range(freq):
+        for i in range(1):
             GoalList = env.env.goal_sampler(np_random, freq=freq)
             # GoalList = [
             #                 [12.7, 16.5],
@@ -134,8 +134,11 @@ def eval_cover_rate(ax, dim_option, agent_traj_encoder, agent_policy, device, ma
                 phi_obs_ = agent_traj_encoder(obs).mean
                 phi_obs0 = copy.deepcopy(phi_obs_)
                 
-                psi_g = Psi(phi_g, phi_obs0)
-                # option = vec_norm(phi_g - phi_obs_)
+                psi_g = Psi(phi_g)
+                psi_obs0 = Psi(phi_obs0)
+                option = psi_g - psi_obs0
+                option = torch.randn_like(option).to(device)
+                
                 
                 Repr_obs_list = []
                 Repr_goal_list = []
@@ -146,7 +149,7 @@ def eval_cover_rate(ax, dim_option, agent_traj_encoder, agent_policy, device, ma
                 for t in range(max_path_length):
                     phi_obs_ = agent_traj_encoder(obs).mean
                     # option = vec_norm(phi_g - phi_obs_)
-                    option = psi_g - Psi(phi_obs_, phi_obs0)
+                    # option = psi_g - Psi(phi_obs_)
                     obs_option = torch.cat((obs, option), -1).float()
                     # for viz
                     Repr_obs_list.append(phi_obs_.cpu().numpy()[0])
@@ -473,10 +476,10 @@ if __name__ == '__main__':
         # "/mnt/nfs2/zhanghe/NuAgent/exp/LittleMaze/baseline-path300sd000_1728804501_ant_maze_SZN_Z/option_policy1700.pt",
         # "/mnt/nfs2/zhanghe/NuAgent/exp/LittleMaze/baseline-path300sd000_1728804501_ant_maze_SZN_Z/option_policy1900.pt",
                         
-        "/mnt/nfs2/zhanghe/NuAgent/exp/LittleMaze/norm_psisd000_1728815280_ant_maze_SZN_P/option_policy1400.pt",
+        # "/mnt/nfs2/zhanghe/NuAgent/exp/LittleMaze/norm_psisd000_1728815280_ant_maze_SZN_P/option_policy1400.pt",
         
         
-        
+        "/mnt/nfs2/zhanghe/NuAgent/exp/LittleMaze/norm_psisd000_1728907633_ant_maze_SZN_PP/option_policy500.pt",       
         
         # "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/PSZNsd000_1728725075_ant_maze_SZN_P/option_policy5000.pt", 
         # "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/PSZNsd000_1728725075_ant_maze_SZN_P/option_policy6000.pt", 
