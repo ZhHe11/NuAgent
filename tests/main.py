@@ -55,7 +55,7 @@ from iod.SZN import SZN
 from iod.SZN_batch import SZN_batch
 from iod.SZN_Z import SZN_Z
 from iod.SZN_P import SZN_P
-
+from iod.SZN_PP import SZN_PP
 
 from iod.utils import get_normalizer_preset
 
@@ -364,46 +364,6 @@ def run(ctxt=None):
         traj_encoder = with_encoder(traj_encoder, encoder=te_encoder)
         
 
-    # Network for goal policy
-    # zhanghe
-    module_cls, module_kwargs = get_gaussian_module_construction(
-        args,
-        hidden_sizes=master_dims,
-        hidden_nonlinearity=nonlinearity or torch.relu,
-        w_init=torch.nn.init.xavier_uniform_,
-        input_dim=args.dim_option,
-        output_dim=1,
-        init_std=10,
-        min_std=1,
-        max_std=args.max_path_length,
-    )
-    # 如果是输出vecter的话，要再改;
-    goal_sample_network = module_cls(**module_kwargs)
-     # Network for dist_predictor
-    module_cls, module_kwargs = get_gaussian_module_construction(
-        args,
-        hidden_sizes=master_dims,
-        hidden_nonlinearity=nonlinearity or torch.relu,
-        w_init=torch.nn.init.xavier_uniform_,
-        input_dim=args.dim_option,
-        output_dim=1,
-        init_std=1.,
-        min_std=1e-6,
-        max_std=2.,
-    )
-    space_predictor = module_cls(**module_kwargs)
-    # SZN
-    module_cls, module_kwargs = get_gaussian_module_construction(
-        args,
-        hidden_sizes=master_dims,
-        hidden_nonlinearity=nonlinearity or torch.relu,
-        w_init=torch.nn.init.xavier_uniform_,
-        input_dim=args.dim_option,
-        output_dim=1,
-        init_std=1.,
-        const_std=True,
-    )
-    SampleZNetwork = module_cls(**module_kwargs)
     # SampleZPolicyx
     module_cls, module_kwargs = get_gaussian_module_construction(
         args,
@@ -412,9 +372,10 @@ def run(ctxt=None):
         w_init=torch.nn.init.xavier_uniform_,
         input_dim=args.traj_batch_size,
         output_dim=args.dim_option,
-        init_std=1.,
+        init_std=1,
         min_std=1e-2,
-        max_std=1e2,
+        max_std=2,
+        normal_distribution_cls=TanhNormal,
     )
     SampleZPolicy = module_cls(**module_kwargs)
     # zhanghe end
@@ -477,9 +438,6 @@ def run(ctxt=None):
         'dual_lam': torch.optim.Adam([
             {'params': dual_lam.parameters(), 'lr': _finalize_lr(args.dual_lr)},
         ]),
-        'goal_sample_network': torch.optim.Adam([
-            {'params': goal_sample_network.parameters(), 'lr': _finalize_lr(args.lr_op)},
-        ]),
     }
     if skill_dynamics is not None:
         optimizers.update({
@@ -499,7 +457,7 @@ def run(ctxt=None):
     # else:
     replay_buffer = PathBufferTensor(capacity_in_transitions=int(args.sac_max_buffer_size), pixel_shape=pixel_shape)
 
-    if args.algo in ['metra', 'dads', 'causer', 'metra_bl', 'SZN', 'SZN_batch', 'SZN_Z', 'SZN_P']:
+    if args.algo in ['metra', 'dads', 'causer', 'metra_bl', 'SZN', 'SZN_batch', 'SZN_Z', 'SZN_P', 'SZN_PP']:
         qf1 = ContinuousMLPQFunctionEx(
             obs_dim=policy_q_input_dim,
             action_dim=action_dim,
@@ -572,8 +530,6 @@ def run(ctxt=None):
         policy_type=args.policy_type,
         explore_type=args.explore_type,
         sample_type=args.sample_type,
-        goal_sample_network=goal_sample_network,
-        space_predictor=space_predictor,
         num_her=args.num_her,
         _trans_phi_optimization_epochs=args._trans_phi_optimization_epochs,
         _trans_policy_optimization_epochs=args._trans_policy_optimization_epochs,
@@ -624,7 +580,6 @@ def run(ctxt=None):
     elif args.algo == 'SZN':
         algo = SZN(
             **algo_kwargs,
-            SampleZNetwork=SampleZNetwork,
             SampleZPolicy=SampleZPolicy,
             **skill_common_args,
         )
@@ -632,7 +587,6 @@ def run(ctxt=None):
     elif args.algo == 'SZN_batch':
         algo = SZN_batch(
             **algo_kwargs,
-            SampleZNetwork=SampleZNetwork,
             SampleZPolicy=SampleZPolicy,
             **skill_common_args,
         ) 
@@ -640,7 +594,6 @@ def run(ctxt=None):
     elif args.algo == 'SZN_Z':
         algo = SZN_Z(
             **algo_kwargs,
-            SampleZNetwork=SampleZNetwork,
             SampleZPolicy=SampleZPolicy,
             **skill_common_args,
         ) 
@@ -648,7 +601,13 @@ def run(ctxt=None):
     elif args.algo == 'SZN_P':
         algo = SZN_P(
             **algo_kwargs,
-            SampleZNetwork=SampleZNetwork,
+            SampleZPolicy=SampleZPolicy,
+            **skill_common_args,
+        )       
+        
+    elif args.algo == 'SZN_PP':
+        algo = SZN_PP(
+            **algo_kwargs,
             SampleZPolicy=SampleZPolicy,
             **skill_common_args,
         )       

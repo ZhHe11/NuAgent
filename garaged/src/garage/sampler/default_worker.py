@@ -160,7 +160,7 @@ class DefaultWorker(Worker):
         for k, v in env_infos.items():
             env_infos[k] = np.asarray(v)
         lengths = self._lengths
-        self._lengths = []
+        self._lengths = []        
         return TrajectoryBatch(self.env.spec, np.asarray(observations),
                                np.asarray(last_observations),
                                np.asarray(actions), np.asarray(rewards),

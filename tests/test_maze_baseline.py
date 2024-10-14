@@ -79,8 +79,8 @@ def vec_norm(vec):
     return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
 
 def Psi(phi_x, phi_x0, k=2, max_path_length=100):
-    return 2 * (torch.sigmoid(k * (phi_x - phi_x0) / max_path_length) - 0.5)
-    # return torch.tanh(phi_x - phi_x0)
+    # return 2 * (torch.sigmoid(k * (phi_x - phi_x0) / max_path_length) - 0.5)
+    return torch.tanh(phi_x - phi_x0)
 
 def norm(x, keepdim=False):
     return torch.norm(x, p=2, dim=-1, keepdim=keepdim)        
@@ -96,28 +96,34 @@ def gen_z(sub_goal, obs, traj_encoder, device="cpu", ret_emb: bool = False):
         return z
 
 
-def eval_cover_rate(freq=1):
+def eval_cover_rate(ax, dim_option, agent_traj_encoder, agent_policy, device, max_path_length=300, freq=1):
+    FinallDistanceList = []
+    All_Repr_obs_list = []
+    All_Goal_obs_list = []
+    All_trajs_list = []
+    FinallDistanceList = []
+    ArriveList=[]
+    All_GtReturn_list=[]
+    np_random = np.random.default_rng(seed=0) 
     with torch.no_grad():
-        for i in range(num_goals):
-            # GoalList = env.env.goal_sampler(np_random, freq=freq)
-            GoalList = [
-                            [12.7, 16.5],
-                            [1.1, 12.9],
-                            [4.7, 4.5],
-                            [17.2, 0.9],
-                            [20.2, 20.1],
-                            [4.7, 0.9],
-                            [0.9, 4.7],
-                        ]
-        
+        for i in range(freq):
+            GoalList = env.env.goal_sampler(np_random, freq=freq)
+            # GoalList = [
+            #                 [12.7, 16.5],
+            #                 [1.1, 12.9],
+            #                 [4.7, 4.5],
+            #                 [17.2, 0.9],
+            #                 [20.2, 20.1],
+            #                 [4.7, 0.9],
+            #                 [0.9, 4.7],
+            #             ]
+            goal_list = []
             for j in trange(len(GoalList)):
                 goal = GoalList[j]
                 # print(goal)
                 # get goal
                 goal_list.append(goal)
                 ax.scatter(goal[0], goal[1], s=25, marker='o', alpha=1, edgecolors='black')
-                if Eval == 0:
-                    continue
                 tensor_goal = torch.tensor(goal).to('cuda')
                 # get obs
                 obs = env.reset()
@@ -126,7 +132,10 @@ def eval_cover_rate(freq=1):
                 obs_goal = env.get_target_obs(obs_goal, tensor_goal)
                 phi_g = agent_traj_encoder(obs_goal).mean
                 phi_obs_ = agent_traj_encoder(obs).mean
-                option = Psi(phi_g, phi_obs_)
+                phi_obs0 = copy.deepcopy(phi_obs_)
+                
+                psi_g = Psi(phi_g, phi_obs0)
+                # option = vec_norm(phi_g - phi_obs_)
                 
                 Repr_obs_list = []
                 Repr_goal_list = []
@@ -136,6 +145,8 @@ def eval_cover_rate(freq=1):
                 traj_list["info"] = []
                 for t in range(max_path_length):
                     phi_obs_ = agent_traj_encoder(obs).mean
+                    # option = vec_norm(phi_g - phi_obs_)
+                    option = psi_g - Psi(phi_obs_, phi_obs0)
                     obs_option = torch.cat((obs, option), -1).float()
                     # for viz
                     Repr_obs_list.append(phi_obs_.cpu().numpy()[0])
@@ -164,6 +175,8 @@ def eval_cover_rate(freq=1):
                     ArriveList.append(1)
                 else:
                     ArriveList.append(0)
+                    
+    return ax,  All_trajs_list, All_Repr_obs_list, All_Goal_obs_list
 
 
 def eval_random_z(num_eval): 
@@ -382,13 +395,13 @@ def run(path, num_eval, type=['metrics']):
     init_obs = env.reset()  
 
     # settings:
-    max_path_length = 100
+    max_path_length = 300
     device = 'cuda:0'
     model_name = policy_path.split('ant_maze')[0].split('/')[-1]
     path = './test/' + model_name + '/'
     if not os.path.exists(path):
         os.mkdir(path)
-    dim_option = 2
+    dim_option = 4
 
         
     if 'metrics_baseline' in type:
@@ -421,25 +434,65 @@ def run(path, num_eval, type=['metrics']):
         
         return metrics, path
 
+    
+    elif 'eval_cover_rate' in type:
+        ax, All_trajs_list, All_Repr_obs_list, All_Goal_obs_list = eval_cover_rate(ax, dim_option, agent_traj_encoder, agent_policy, device, max_path_length)
+        # calculate metrics
+        # plot: traj.
+        plot_trajectories(env, All_trajs_list, fig, ax)
+        # ax.legend(loc='lower right')
+        filepath = path + "-Maze_traj.png"
+        plt.savefig(filepath) 
+        print(filepath)
+        # plot: repr_traj.
+        PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=True)
+        print('Repr_Space_traj saved')
+        
+        return -1, path
+
+        
+
+    
+    
 
 
 if __name__ == '__main__':
-    env = MazeWrapper("antmaze-umaze-diverse-v0", random_init=False)
+    # env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
+    env = MazeWrapper("antmaze-umaze-v0", random_init=False)
+    
 
     paths = [
-        "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/P-Exp2-reward_w200sd000_1728571903_ant_maze_SZN_P/option_policy6000.pt", 
-        "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/P-Exp2-reward_w200sd000_1728571903_ant_maze_SZN_P/option_policy7000.pt", 
-        "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/P-Exp2-reward_w200sd000_1728571903_ant_maze_SZN_P/option_policy8000.pt", 
-        "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/P-Exp2-reward_w200sd000_1728571903_ant_maze_SZN_P/option_policy9000.pt", 
-        "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/P-Exp2-reward_w200sd000_1728571903_ant_maze_SZN_P/option_policy10000.pt", 
+        # "/mnt/nfs2/zhanghe/NuAgent/exp/LittleMaze/baseline-path300sd000_1728804501_ant_maze_SZN_Z/option_policy100.pt",
+        # "/mnt/nfs2/zhanghe/NuAgent/exp/LittleMaze/baseline-path300sd000_1728804501_ant_maze_SZN_Z/option_policy300.pt",
+        # "/mnt/nfs2/zhanghe/NuAgent/exp/LittleMaze/baseline-path300sd000_1728804501_ant_maze_SZN_Z/option_policy500.pt",
+        # "/mnt/nfs2/zhanghe/NuAgent/exp/LittleMaze/baseline-path300sd000_1728804501_ant_maze_SZN_Z/option_policy700.pt",
+        # "/mnt/nfs2/zhanghe/NuAgent/exp/LittleMaze/baseline-path300sd000_1728804501_ant_maze_SZN_Z/option_policy900.pt",
+        # "/mnt/nfs2/zhanghe/NuAgent/exp/LittleMaze/baseline-path300sd000_1728804501_ant_maze_SZN_Z/option_policy1100.pt",
+        # "/mnt/nfs2/zhanghe/NuAgent/exp/LittleMaze/baseline-path300sd000_1728804501_ant_maze_SZN_Z/option_policy1300.pt",
+        # "/mnt/nfs2/zhanghe/NuAgent/exp/LittleMaze/baseline-path300sd000_1728804501_ant_maze_SZN_Z/option_policy1500.pt",
+        # "/mnt/nfs2/zhanghe/NuAgent/exp/LittleMaze/baseline-path300sd000_1728804501_ant_maze_SZN_Z/option_policy1700.pt",
+        # "/mnt/nfs2/zhanghe/NuAgent/exp/LittleMaze/baseline-path300sd000_1728804501_ant_maze_SZN_Z/option_policy1900.pt",
+                        
+        "/mnt/nfs2/zhanghe/NuAgent/exp/LittleMaze/norm_psisd000_1728815280_ant_maze_SZN_P/option_policy1400.pt",
+        
+        
+        
+        
+        # "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/PSZNsd000_1728725075_ant_maze_SZN_P/option_policy5000.pt", 
+        # "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/PSZNsd000_1728725075_ant_maze_SZN_P/option_policy6000.pt", 
+        # "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/PSZNsd000_1728725075_ant_maze_SZN_P/option_policy3000.pt", 
+        # "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/PSZNsd000_1728725075_ant_maze_SZN_P/option_policy4000.pt", 
+        # "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/SZN_epoch50sd000_1728740178_ant_maze_SZN_P/option_policy10000.pt", 
     ]
-    # P-Exp2-reward_w200sd000_1728571903_ant_maze_SZN_P
+
     metrics_list = []
     for path in paths:
-        metrics, save_path = run(path, type=['metrics_projection'], num_eval=20)
-        metrics_list.append(metrics)
-        
-    metrics_array = np.array(metrics_list)
-    np.save(save_path+'metrics.npy', metrics_array)
+        metrics, save_path = run(path, type=['eval_cover_rate'], num_eval=20)
+        if metrics != -1:
+            metrics_list.append(metrics)
+    
+    if len(metrics_list) != 0:
+        metrics_array = np.array(metrics_list)
+        np.save(save_path+'metrics.npy', metrics_array)
     
     

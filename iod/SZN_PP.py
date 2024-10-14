@@ -121,7 +121,7 @@ def viz_SZN_dist(SZN, input_token, path):
     plt.close()
 
 
-class SZN_P(IOD):
+class SZN_PP(IOD):
     def __init__(
             self,
             *,
@@ -405,7 +405,7 @@ class SZN_P(IOD):
             if self.method['explore'] == 'SZN' and self.epoch_final is not None:
                 # EstimateValue(policy, alpha, qf1, qf2, option, state, num_samples=10)
                 
-                for t in range(10):
+                for t in range(5):
                     # 1. smaple z
                     dist_z = self.SampleZPolicy(self.input_token)
                     # new_actions_pre_tanh, z = dist_z.rsample_with_pre_tanh_value()
@@ -419,14 +419,16 @@ class SZN_P(IOD):
                     # 3. update SZN 
                     self.SampleZPolicy_optim.zero_grad()      
                     # Loss SZP
-                    w = 0.002
+                    w = 0.001
                     loss_SZP = (-z_logp * Regret - w * dist_z.entropy()).mean()
                     loss_SZP.backward()
                     self.grad_clip.apply(self.SampleZPolicy.parameters())
                     self.SampleZPolicy_optim.step()
 
-                self.last_z = self.SampleZPolicy(self.input_token).sample().detach()
-
+                psi_g = self.SampleZPolicy(self.input_token).sample().detach()
+                psi_s0 = self.Psi(self.traj_encoder(self.init_obs).mean).detach()
+                self.last_z = psi_g - psi_s0
+                
                 if wandb.run is not None:
                     wandb.log({
                         "SZN/loss_SZP": loss_SZP,
@@ -572,7 +574,7 @@ class SZN_P(IOD):
         target_cur_z = traj_encoder(obs).mean
         z_0 = traj_encoder(obs_0).mean
         
-        z = self.Psi(goal_z, z_0)
+        z = self.Psi(goal_z) - self.Psi(z_0)
         
         if ret_emb:
             return z, target_cur_z, goal_z
@@ -580,9 +582,8 @@ class SZN_P(IOD):
             return z
         
     
-    def Psi(self, phi_x, phi_x0, k=20):
-        # return 2 * (torch.sigmoid(k * (phi_x - phi_x0) / self.max_path_length) - 0.5)
-        return torch.tanh(phi_x - phi_x0)
+    def Psi(self, phi_x):
+        return torch.tanh(phi_x)
     
     def norm(self, x, keepdim=False):
         return torch.norm(x, p=2, dim=-1, keepdim=keepdim)        
@@ -603,19 +604,22 @@ class SZN_P(IOD):
             z = v['options']
             z_dir = self.vec_norm(z)
             # cos_theta = (self.vec_norm(phi_s_next - phi_s) * z_dir).sum(dim=1)
-
-            psi_s = self.Psi(phi_s, phi_s_0)
-            psi_s_next = self.Psi(phi_s_next, phi_s_0)
-            grad_psi_s = (1 - self.Psi(phi_s, phi_s_0)**2).detach()
+            
+            psi_s_0 = self.Psi(phi_s_0)
+            psi_s = self.Psi(phi_s)
+            psi_s_next = self.Psi(phi_s_next)
+            grad_psi_s = (1 - self.Psi(phi_s)**2).detach() + 1e-3
             
             
             # 1. Similarity Reward
-            reward_sim = 0 * (self.vec_norm(psi_s_next - psi_s) * z_dir).sum(dim=-1)
+            reward_sim = self.max_path_length * ((psi_s_next - psi_s) * z_dir).sum(dim=-1)
+            # reward_sim = self.max_path_length * ((psi_s_next - psi_s) * z_dir).sum(dim=-1)
             # reward_sim = self.max_path_length * ((psi_s_next - psi_s) * z_dir).sum(dim=-1)
             
             # 2. Goal Arrival Reward
-            w = self.max_path_length / (2 * self.norm(grad_psi_s))
-            reward_ga = 5 * w * (self.norm(psi_s - z) - self.norm(psi_s_next - z))
+            # w = self.max_path_length / (2 * self.norm(grad_psi_s))
+            # reward_ga =  self.max_path_length * (self.norm(psi_s - psi_s_0 - z) - self.norm(psi_s_next - psi_s_0 - z))
+            reward_ga = self.max_path_length * (self.norm(psi_s - psi_s_0 - z) - self.norm(psi_s_next - psi_s_0 - z))
 
             # 3. Constraints
             ## later in phi loss: cst_penalty
@@ -625,11 +629,12 @@ class SZN_P(IOD):
             v.update({
                 'cur_z': cur_z,
                 'next_z': next_z,
-                'rewards': rewards,
-                'policy_rewards': rewards,
+                'rewards': reward_sim,
+                'policy_rewards': reward_sim + reward_ga,
                 'psi_s': psi_s,
                 'psi_s_next': psi_s_next,
                 'grad_psi_s': grad_psi_s,
+                'psi_s_0': psi_s_0,
             })
             tensors.update({
                 'PureRewardMean': rewards.mean(),  
@@ -715,15 +720,23 @@ class SZN_P(IOD):
             # cst_penalty = cst_dist - torch.square(phi_s_next - phi_s).mean(dim=1)       
             # cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)
             
-            # cst_penalty = (4 - phi_s**2).sum(dim=-1)
+            # cst_penalty = (1 - (phi_s**2)/4).mean(dim=-1)
             
             # cst_penalty = 1 - ((self.max_path_length * (v['psi_s']-v['psi_s_next']) / (2 * v['grad_psi_s']))**2).mean(dim=-1)
-            cst_penalty = 1 - (self.max_path_length / (2 * self.norm(v['grad_psi_s']))) * self.norm(v['psi_s']-v['psi_s_next'])
+            # cst_penalty = 1 - (self.max_path_length / (2 * self.norm(v['grad_psi_s']))) * self.norm(v['psi_s']-v['psi_s_next'])
             
-            # cst_penalty = 1 - torch.square((phi_s_next - phi_s) * self.max_path_length / 2).mean(dim=1)  
-            
+            # cst_penalty_1 = (4 - (phi_s**2)).mean(dim=-1)
+            cst_penalty = 1 / self.max_path_length - (self.norm(v['psi_s']-v['psi_s_next']))
+            # cst_penalty_3 = - self.norm(v['psi_s_0'])
+                        
+            # cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)
+            # cst_penalty = torch.clamp(cst_penalty_2, max=0.1/self.max_path_length) + torch.clamp(cst_penalty_3, max=1/self.max_path_length)
             cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)
-            te_obj = rewards + dual_lam.detach() * cst_penalty    
+            
+            te_obj = rewards + dual_lam.detach() * (cst_penalty)
+            
+            # te_obj = rewards + cst_penalty_1 + cst_penalty_2
+            
 
             v.update({
                 'cst_penalty': cst_penalty
@@ -739,6 +752,9 @@ class SZN_P(IOD):
                 "TeObjMean": te_obj.mean(),
                 "LossTe": loss_te,
                 "Norm(phi_s)": self.norm(phi_s).mean(),
+                # "cst_penalty_1": cst_penalty_1.mean(),
+                # "cst_penalty_2": cst_penalty_2.mean(),
+                # "cst_penalty_3": cst_penalty_3.mean(),
             }
         )
     '''
@@ -908,6 +924,7 @@ class SZN_P(IOD):
         np_random = np.random.default_rng()    
         
         # 2. interact with the env
+        GoalList = env.env.goal_sampler(np_random, freq=1)
         options = np.random.randn(num_eval, self.dim_option)
         All_Cover_list = []
         progress = tqdm(range(num_eval), desc="Evaluation")
@@ -916,7 +933,17 @@ class SZN_P(IOD):
             option = torch.tensor(options[i]).unsqueeze(0).to(self.device)
             obs = torch.tensor(obs).unsqueeze(0).to(self.device).float()
             phi_obs_ = self.traj_encoder(obs).mean
-            phi_x0 = phi_obs_
+            phi_obs0 = copy.deepcopy(phi_obs_)
+            # goal condition
+            goal = GoalList[i]
+            ax.scatter(goal[0], goal[1], s=25, marker='o', alpha=1, edgecolors='black')
+            tensor_goal = torch.tensor(goal).to('cuda')
+            obs_goal = copy.deepcopy(obs)
+            obs_goal = env.get_target_obs(obs_goal, tensor_goal)
+            phi_g = self.traj_encoder(obs_goal).mean
+            # option
+            option = self.Psi(phi_g) - self.Psi(phi_obs0)
+            
             Repr_obs_list = []
             Repr_goal_list = []
             traj_list = {}
@@ -926,10 +953,11 @@ class SZN_P(IOD):
             for t in range(max_path_length):
                 phi_obs_ = self.traj_encoder(obs).mean
                 obs_option = torch.cat((obs, option), -1).float()
-                psi_obs = self.Psi(phi_obs_, phi_x0)
+                psi_obs = self.Psi(phi_obs_)
+                
                 # for viz
                 Repr_obs_list.append(psi_obs.cpu().numpy()[0])
-                Repr_goal_list.append(option.cpu().numpy()[0])
+                Repr_goal_list.append(self.Psi(phi_g).cpu().numpy()[0])
                 # get actions from policy
                 action, agent_info = self.option_policy.get_action(obs_option)
                 # interact with the env
