@@ -113,7 +113,7 @@ def get_argparser():
 
     parser.add_argument('--dim_option', type=int, default=2)
 
-    parser.add_argument('--common_lr', type=float, default=3e-4)
+    parser.add_argument('--common_lr', type=float, default=1e-4)
     parser.add_argument('--lr_op', type=float, default=None)
     parser.add_argument('--lr_te', type=float, default=None)
 
@@ -146,7 +146,7 @@ def get_argparser():
     parser.add_argument('--unit_length', type=int, default=1, choices=[0, 1])  # Only for continuous skills
 
     parser.add_argument('--dual_reg', type=int, default=1, choices=[0, 1])
-    parser.add_argument('--dual_lam', type=float, default=100)
+    parser.add_argument('--dual_lam', type=float, default=20)
     parser.add_argument('--dual_slack', type=float, default=1e-4)
     parser.add_argument('--dual_dist', type=str, default='one', choices=['l2', 's2_from_s', 'one'])
     parser.add_argument('--dual_lr', type=float, default=None)
@@ -374,9 +374,9 @@ def run(ctxt=None):
         w_init=torch.nn.init.xavier_uniform_,
         input_dim=args.traj_batch_size,
         output_dim=args.dim_option,
-        init_std=1e-1,
+        init_std=1e-2,
         min_std=1e-6,
-        max_std=5e-1,
+        max_std=1e-1,
         normal_distribution_cls=TanhNormal,
     )
     SampleZPolicy = module_cls(**module_kwargs)

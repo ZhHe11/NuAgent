@@ -237,6 +237,7 @@ class SZN_PPAU(IOD):
         self.last_qf1 = copy.deepcopy(self.qf1)
         self.last_qf2 = copy.deepcopy(self.qf2)
         self.last_alpha = copy.deepcopy(self.log_alpha)
+        self.copyed = 0
         
     
     @property
@@ -348,16 +349,29 @@ class SZN_PPAU(IOD):
                 random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
             
             if self.method['explore'] == 'SZN' and self.epoch_final is not None:
-                if runner.step_itr % 100 == 0:
-                    for t in range(10):
+                if runner.step_itr % 50 == 0:
+                    Regret = 1
+                    for t in range(50):
                         dist_z = self.SampleZPolicy(self.input_token)
                         z = dist_z.sample() 
                         z_logp = dist_z.log_prob(z)
                         V_z = self.EstimateValue(policy=self.option_policy, alpha=self.log_alpha, qf1=self.qf1, qf2=self.qf2, option=z, state=self.init_obs)
-                        self.SampleZPolicy_optim.zero_grad()      
+                        
+                        if self.copyed and Regret:
+                            V_z_last_iter = self.EstimateValue(policy=self.last_policy, alpha=self.last_alpha, qf1=self.last_qf1, qf2=self.last_qf2, option=z, state=self.init_obs)
+                        else:
+                            V_z_last_iter = 0
+                            
+                        if Regret:
+                            Regret = V_z - V_z_last_iter
+                            V_szn = Regret
+                        else:
+                            V_z = (V_z - V_z.mean()) / (V_z + 1e-3)
+                            V_szn = -V_z
+                        
+                        self.SampleZPolicy_optim.zero_grad()    
                         w = 0.001
-                        V_z = (V_z - V_z.mean()) / (V_z + 1e-3)
-                        loss_SZP = (-z_logp * (-V_z) - w * dist_z.entropy()).mean()
+                        loss_SZP = (-z_logp * V_szn - w * dist_z.entropy()).mean()
                         loss_SZP.backward()
                         self.grad_clip.apply(self.SampleZPolicy.parameters())
                         self.SampleZPolicy_optim.step()
@@ -369,6 +383,18 @@ class SZN_PPAU(IOD):
                                 "SZN/entropy": dist_z.entropy().mean(),
                                 "epoch": runner.step_itr,
                             })
+                            
+                    # save k-1 policy and qf
+                    def copy_params(ori_model, target_model):
+                        for t_param, param in zip(target_model.parameters(), ori_model.parameters()):
+                            t_param.data.copy_(param.data)
+                    copy_params(self.option_policy, self.last_policy)
+                    copy_params(self.log_alpha, self.last_alpha)
+                    copy_params(self.qf1, self.last_qf1)
+                    copy_params(self.qf2, self.last_qf2)
+                    self.copyed = 1
+                    
+                
                     
                 psi_g = self.SampleZPolicy(self.input_token).sample().detach()
                 self.last_z = psi_g
@@ -382,7 +408,7 @@ class SZN_PPAU(IOD):
                 # w/o unit_length
                 random_options = np.random.randn(runner._train_args.batch_size, self.dim_option)
                 print(random_options)
-                extras = self._generate_option_extras(random_options)
+                extras = self._generate_option_extras(random_options, psi_g=random_options)
             
             else: 
                 self.last_z = torch.tensor(random_options, dtype=torch.float32).to(self.device)
@@ -411,15 +437,6 @@ class SZN_PPAU(IOD):
         tensors = {}
         dataset = BufferDataset(self.replay_buffer._buffer, len=self.replay_buffer.n_transitions_stored)
         dataloader = DataLoader(dataset, batch_size=self._trans_minibatch_size, shuffle=True, num_workers=2, multiprocessing_context='fork')
-        
-        # save k-1 policy and qf
-        def copy_params(ori_model, target_model):
-            for t_param, param in zip(target_model.parameters(), ori_model.parameters()):
-                t_param.data.copy_(param.data)
-        copy_params(self.option_policy, self.last_policy)
-        copy_params(self.log_alpha, self.last_alpha)
-        copy_params(self.qf1, self.last_qf1)
-        copy_params(self.qf2, self.last_qf2)
         
         for epoch_i, v in enumerate(dataloader):
             if epoch_i > self._trans_optimization_epochs:
@@ -541,17 +558,22 @@ class SZN_PPAU(IOD):
             psi_s_0 = self.Psi(phi_s_0)
             psi_s = self.Psi(phi_s)
             psi_s_next = self.Psi(phi_s_next)
+            grad_psi_s = (1 - self.Psi(phi_s)**2).detach()
             # 0. updated option
             updated_option = psi_g
             updated_next_option = psi_g
+            k = 2
+            d = 1 / self.max_path_length
+            
             
             # 1. Similarity Reward
-            reward_sim = ((psi_s_next - psi_s) * self.vec_norm(psi_g)).sum(dim=-1)
+            delta_norm = self.norm((psi_s_next - psi_s))
+            direction_sim = (self.vec_norm(psi_s_next - psi_s) * self.vec_norm(psi_g - psi_s)).sum(dim=-1)
+            phi_obj = 1/d * torch.clamp(delta_norm, min=-1*d, max=1*d) * direction_sim
+            # reward_sim = self.max_path_length * ((psi_s_next - psi_s) * self.vec_norm(psi_g)).sum(dim=-1)
             # reward_sim = (self.vec_norm(psi_s) * self.vec_norm(psi_g)).sum(dim=-1)
 
             # 2. Goal Arrival Reward
-            k = 2
-            d = 1 / self.max_path_length
             reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
             reward_g_arrival = torch.where(self.norm(psi_g - psi_s_next)<d, 1.0, 0.).to(self.device)
             reward_g_dir = 1 * (self.vec_norm(psi_s_next - psi_s) * self.vec_norm(psi_g)).sum(dim=-1)
@@ -559,23 +581,24 @@ class SZN_PPAU(IOD):
             
             # 3. Constraints
             ## later in phi loss: cst_penalty
-            rewards = reward_sim + policy_rewards
+            # rewards = reward_sim + policy_rewards
             
             v.update({
                 'cur_z': cur_z,
                 'next_z': next_z,
-                'rewards': reward_sim,
+                'rewards': phi_obj,
                 'policy_rewards': policy_rewards,
                 'psi_s': psi_s,
                 'psi_s_next': psi_s_next,
                 'psi_s_0': psi_s_0,
                 'updated_option': updated_option,
                 "updated_next_option": updated_next_option,
+                'grad_psi_s': grad_psi_s,
             })
             tensors.update({
-                'PureRewardMean': rewards.mean(),  
-                'PureRewardStd': rewards.std(),  
-                'reward_sim': reward_sim.mean(),
+                # 'PureRewardMean': rewards.mean(),  
+                # 'PureRewardStd': rewards.std(),  
+                'phi_obj': phi_obj.mean(),
                 'reward_g_distance': reward_g_distance.mean(),
                 'reward_g_arrival': reward_g_arrival.mean(),
                 'reward_g_dir': reward_g_dir.mean(),
@@ -654,7 +677,7 @@ class SZN_PPAU(IOD):
             else:
                 raise NotImplementedError
             
-            cst_penalty_2 = 1 / self.max_path_length - (self.norm(v['psi_s']-v['psi_s_next']))
+            cst_penalty_2 = 1 * 2 * self.norm(v['grad_psi_s']) / self.max_path_length - (self.norm(v['psi_s']-v['psi_s_next']))
             cst_penalty_3 = - self.norm(v['psi_s_0'])
                         
             cst_penalty = torch.clamp(cst_penalty_2, max=self.dual_slack)
