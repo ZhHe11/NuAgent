@@ -550,7 +550,7 @@ class SZN_PPAU(IOD):
             # reward_sim = (self.vec_norm(psi_s) * self.vec_norm(psi_g)).sum(dim=-1)
 
             # 2. Goal Arrival Reward
-            k = 4
+            k = 2
             d = 1 / self.max_path_length
             reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
             reward_g_arrival = torch.where(self.norm(psi_g - psi_s_next)<d, 1.0, 0.).to(self.device)
