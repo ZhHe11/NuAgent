@@ -57,6 +57,7 @@ from iod.SZN_Z import SZN_Z
 from iod.SZN_P import SZN_P
 from iod.SZN_PP import SZN_PP
 from iod.SZN_PPP import SZN_PPP
+from iod.SZN_PPAU import SZN_PPAU
 
 from iod.utils import get_normalizer_preset
 
@@ -112,7 +113,7 @@ def get_argparser():
 
     parser.add_argument('--dim_option', type=int, default=2)
 
-    parser.add_argument('--common_lr', type=float, default=1e-4)
+    parser.add_argument('--common_lr', type=float, default=3e-4)
     parser.add_argument('--lr_op', type=float, default=None)
     parser.add_argument('--lr_te', type=float, default=None)
 
@@ -145,8 +146,8 @@ def get_argparser():
     parser.add_argument('--unit_length', type=int, default=1, choices=[0, 1])  # Only for continuous skills
 
     parser.add_argument('--dual_reg', type=int, default=1, choices=[0, 1])
-    parser.add_argument('--dual_lam', type=float, default=30)
-    parser.add_argument('--dual_slack', type=float, default=1e-3)
+    parser.add_argument('--dual_lam', type=float, default=100)
+    parser.add_argument('--dual_slack', type=float, default=1e-4)
     parser.add_argument('--dual_dist', type=str, default='one', choices=['l2', 's2_from_s', 'one'])
     parser.add_argument('--dual_lr', type=float, default=None)
     
@@ -373,9 +374,9 @@ def run(ctxt=None):
         w_init=torch.nn.init.xavier_uniform_,
         input_dim=args.traj_batch_size,
         output_dim=args.dim_option,
-        init_std=1,
-        min_std=1e-2,
-        max_std=2,
+        init_std=1e-1,
+        min_std=1e-6,
+        max_std=5e-1,
         normal_distribution_cls=TanhNormal,
     )
     SampleZPolicy = module_cls(**module_kwargs)
@@ -458,7 +459,7 @@ def run(ctxt=None):
     # else:
     replay_buffer = PathBufferTensor(capacity_in_transitions=int(args.sac_max_buffer_size), pixel_shape=pixel_shape)
 
-    if args.algo in ['metra', 'dads', 'causer', 'metra_bl', 'SZN', 'SZN_batch', 'SZN_Z', 'SZN_P', 'SZN_PP', 'SZN_PPP']:
+    if args.algo in ['metra', 'dads', 'causer', 'metra_bl', 'SZN', 'SZN_batch', 'SZN_Z', 'SZN_P', 'SZN_PP', 'SZN_PPP', 'SZN_PPAU']:
         qf1 = ContinuousMLPQFunctionEx(
             obs_dim=policy_q_input_dim,
             action_dim=action_dim,
@@ -614,7 +615,14 @@ def run(ctxt=None):
         )
         
     elif args.algo == 'SZN_PPP':
-        algo = SZN_PP(
+        algo = SZN_PPP(
+            **algo_kwargs,
+            SampleZPolicy=SampleZPolicy,
+            **skill_common_args,
+        )       
+        
+    elif args.algo == 'SZN_PPAU':
+        algo = SZN_PPAU(
             **algo_kwargs,
             SampleZPolicy=SampleZPolicy,
             **skill_common_args,

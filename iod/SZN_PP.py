@@ -115,8 +115,7 @@ def viz_SZN_dist(SZN, input_token, path):
         ax.set_xlabel('X')
         ax.set_ylabel('Y')
         ax.set_zlabel('Probability Density')
-        print(mu_x, mu_y, sigma_x, sigma_y)
-
+        ax.set_title(label = str(mu_x)[:3] + '-' + str(sigma_x)[:3] + '\n' + str(mu_y)[:3] + '-' + str(sigma_y)[:3])
     plt.savefig(path + '-all' + '.png')
     plt.close()
 
@@ -404,7 +403,7 @@ class SZN_PP(IOD):
             
             if self.method['explore'] == 'SZN' and self.epoch_final is not None:
                 # EstimateValue(policy, alpha, qf1, qf2, option, state, num_samples=10)
-                
+                # self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=1e-4)
                 for t in range(5):
                     # 1. smaple z
                     dist_z = self.SampleZPolicy(self.input_token)
@@ -416,11 +415,12 @@ class SZN_PP(IOD):
                     V_before_iter = self.EstimateValue(policy=self.last_policy, alpha=self.last_alpha, qf1=self.last_qf1, qf2=self.last_qf2, option=z, state=self.init_obs)
                     V_after_iter = self.EstimateValue(policy=self.option_policy, alpha=self.log_alpha, qf1=self.qf1, qf2=self.qf2, option=z, state=self.init_obs)
                     Regret = (V_after_iter - V_before_iter).detach()
+                    # Regret = (Regret - Regret.mean()) / (Regret.std() + 1e-3)
                     # 3. update SZN 
                     self.SampleZPolicy_optim.zero_grad()      
                     # Loss SZP
-                    w = 0.001
-                    loss_SZP = (-z_logp * Regret - w * dist_z.entropy()).mean()
+                    w = 0.005
+                    loss_SZP = (-z_logp * 1 * Regret - w * dist_z.entropy()).mean()
                     loss_SZP.backward()
                     self.grad_clip.apply(self.SampleZPolicy.parameters())
                     self.SampleZPolicy_optim.step()
@@ -441,7 +441,7 @@ class SZN_PP(IOD):
             
                 np_z = self.last_z.cpu().numpy()
                 print("Sample Z: ", np_z)
-                extras = self._generate_option_extras(np_z)                
+                extras = self._generate_option_extras(np_z, psi_g=psi_g.cpu().numpy())                
             
             
             elif self.method['explore'] == 'uniform' and self.epoch_final is not None:
@@ -452,7 +452,7 @@ class SZN_PP(IOD):
             
             else: 
                 self.last_z = torch.tensor(random_options, dtype=torch.float32).to(self.device)
-                extras = self._generate_option_extras(random_options)      # 变成字典的形式；
+                extras = self._generate_option_extras(random_options, psi_g=random_options)      # 变成字典的形式；
             
         return dict(
             extras=extras,
@@ -598,50 +598,62 @@ class SZN_PP(IOD):
         next_z = self.traj_encoder(next_obs).mean
         
         if self.method["phi"] in ['Projection']:
+            # todo: 优化：v[s_0]不从环境中去，因为s0固定，所以从self中初始化取得；
             phi_s_0 = self.traj_encoder(v['s_0']).mean
             phi_s = cur_z
             phi_s_next = next_z
-            z = v['options']
-            z_dir = self.vec_norm(z)
-            # cos_theta = (self.vec_norm(phi_s_next - phi_s) * z_dir).sum(dim=1)
+            # z = v['options']
+            # z_dir = self.vec_norm(z)
+            psi_g = v['psi_g']
             
             psi_s_0 = self.Psi(phi_s_0)
             psi_s = self.Psi(phi_s)
             psi_s_next = self.Psi(phi_s_next)
             grad_psi_s = (1 - self.Psi(phi_s)**2).detach() + 1e-3
-            
+            # 0. updated option
+            updated_option = psi_g - psi_s
+            updated_next_option = psi_g - psi_s_next
             
             # 1. Similarity Reward
-            reward_sim = self.max_path_length * ((psi_s_next - psi_s) * z_dir).sum(dim=-1)
-            # reward_sim = self.max_path_length * ((psi_s_next - psi_s) * z_dir).sum(dim=-1)
-            # reward_sim = self.max_path_length * ((psi_s_next - psi_s) * z_dir).sum(dim=-1)
-            
+            # reward_sim = self.max_path_length * ((psi_s_next - psi_s) * self.vec_norm(psi_g - psi_s_0)).sum(dim=-1)
+            # reward_sim = (self.vec_norm(psi_s_next - psi_s) * self.vec_norm(psi_g - psi_s_0)).sum(dim=-1)
+            reward_sim = self.max_path_length * ((psi_s_next - psi_s) * self.vec_norm(psi_g - psi_s)).sum(dim=-1)
+
             # 2. Goal Arrival Reward
             # w = self.max_path_length / (2 * self.norm(grad_psi_s))
             # reward_ga =  self.max_path_length * (self.norm(psi_s - psi_s_0 - z) - self.norm(psi_s_next - psi_s_0 - z))
-            reward_ga = self.max_path_length * (self.norm(psi_s - psi_s_0 - z) - self.norm(psi_s_next - psi_s_0 - z))
-
+            k = 10
+            d = 1 / self.max_path_length
+            reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
+            reward_g_arrival = torch.where(self.norm(psi_g - psi_s_next)<d, 1.0, 0.).to(self.device)
+            reward_g_dir = 1/d * ((psi_s_next - psi_s) * self.vec_norm(psi_g - psi_s_0)).sum(dim=-1)
+            
+            policy_rewards = 1 * reward_g_distance + reward_g_arrival + 0 * reward_g_dir
+            
             # 3. Constraints
             ## later in phi loss: cst_penalty
             # rewards = 2 * self.max_path_length * (reward_sim + reward_ga)
-            rewards = reward_sim + reward_ga
+            rewards = reward_sim + policy_rewards
             
             v.update({
                 'cur_z': cur_z,
                 'next_z': next_z,
-                'rewards': reward_sim,
-                'policy_rewards': reward_ga,
+                'rewards': policy_rewards,
+                'policy_rewards': policy_rewards,
                 'psi_s': psi_s,
                 'psi_s_next': psi_s_next,
                 'grad_psi_s': grad_psi_s,
                 'psi_s_0': psi_s_0,
+                'updated_option': updated_option,
+                "updated_next_option": updated_next_option,
             })
             tensors.update({
                 'PureRewardMean': rewards.mean(),  
                 'PureRewardStd': rewards.std(),  
                 'reward_sim': reward_sim.mean(),
-                'reward_ga': reward_ga.mean(),
-                # 'cos_theta': cos_theta.mean(),     
+                'reward_g_distance': reward_g_distance.mean(),
+                'reward_g_arrival': reward_g_arrival.mean(),
+                'reward_g_dir': reward_g_dir.mean(),
             })
             
             return
@@ -716,30 +728,14 @@ class SZN_PP(IOD):
                 })
             else:
                 raise NotImplementedError
-
-            # cst_penalty = cst_dist - torch.square(phi_s_next - phi_s).mean(dim=1)       
-            # cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)
-            
-            # cst_penalty = (1 - (phi_s**2)/4).mean(dim=-1)
-            
-            # cst_penalty = 1 - ((self.max_path_length * (v['psi_s']-v['psi_s_next']) / (2 * v['grad_psi_s']))**2).mean(dim=-1)
-            # cst_penalty = 1 - (self.max_path_length / (2 * self.norm(v['grad_psi_s']))) * self.norm(v['psi_s']-v['psi_s_next'])
-            
-            # cst_penalty_1 = (4 - (phi_s**2)).mean(dim=-1)
-            # cst_penalty_2 = 1 - self.max_path_length * (self.norm(v['psi_s']-v['psi_s_next']))
-            # cst_penalty_3 = - self.max_path_length * self.norm(v['psi_s_0'])
             
             cst_penalty_2 = 1 / self.max_path_length - (self.norm(v['psi_s']-v['psi_s_next']))
             cst_penalty_3 = - self.norm(v['psi_s_0'])
                         
             cst_penalty = torch.clamp(cst_penalty_2, max=self.dual_slack) + torch.clamp(cst_penalty_3, max=self.dual_slack)
-            # cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)
-            
+                        
             te_obj = rewards + dual_lam.detach() * (cst_penalty)
-            
-            # te_obj = rewards + cst_penalty_1 + cst_penalty_2
-            
-
+                    
             v.update({
                 'cst_penalty': cst_penalty
             })
@@ -754,9 +750,6 @@ class SZN_PP(IOD):
                 "TeObjMean": te_obj.mean(),
                 "LossTe": loss_te,
                 "Norm(phi_s)": self.norm(phi_s).mean(),
-                # "cst_penalty_1": cst_penalty_1.mean(),
-                # "cst_penalty_2": cst_penalty_2.mean(),
-                # "cst_penalty_3": cst_penalty_3.mean(),
             }
         )
     '''
@@ -776,14 +769,22 @@ class SZN_PP(IOD):
     【2.1】计算qf的reward
     '''
     def _update_loss_qf(self, tensors, v):
-        option = v['options']
-        next_option = v['next_options']
+        if "updated_option" in v.keys():    
+            option = v['updated_option']
+            next_option = v['updated_next_option']
+        else:
+            option = v['options']   
+            next_option = v['next_options']
 
-        policy_rewards = v['policy_rewards'] * self._reward_scale_factor
+        if 'policy_rewards' in v.keys():    
+            policy_rewards = v['policy_rewards'] * self._reward_scale_factor
+        else:
+            policy_rewards = v['rewards'] * self._reward_scale_factor
+            
         tensors.update({
             'policy_rewards': policy_rewards.mean(),
         })
-
+    
         processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), option.float())
         next_processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['next_obs']), next_option.float())
         

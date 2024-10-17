@@ -2,26 +2,11 @@ export CUDA_VISIBLE_DEVICES=0
 export MUJOCO_GL="osmesa"
 
 # regret
-python tests/main.py --run_group LittleMaze --env ant_maze --max_path_length 300 --seed 0 --traj_batch_size 16 --n_parallel 2 --normalizer_type off --sac_max_buffer_size 300000  --n_epochs_per_log 25 --n_epochs_per_eval 25 --n_epochs_per_save 100 --n_epochs_per_pt_save 100 --discrete 0 --dim_option 2 --sac_scale_reward 1 \
-    --algo SZN_PPP --exp_name PPP --phi_type Projection --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 75 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 
+python tests/main.py --run_group MazeSZN --env ant_maze --max_path_length 300 --seed 0 --traj_batch_size 16 --n_parallel 4 --normalizer_type off --sac_max_buffer_size 300000  --n_epochs_per_log 5 --n_epochs_per_eval 50 --n_epochs_per_save 100 --n_epochs_per_pt_save 100 --discrete 0 --dim_option 2 --sac_scale_reward 1 \
+    --algo SZN_PPAU --exp_name PPAU-EXP6 --phi_type Projection --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 75 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 
 
 
     --algo SZN_Z --exp_name baseline-path300 --phi_type baseline --explore_type baseline --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 75 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
     --algo SZN_P --exp_name SZN_epoch50 --phi_type Projection --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 75 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 
