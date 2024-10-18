@@ -115,8 +115,7 @@ def viz_SZN_dist(SZN, input_token, path):
         ax.set_xlabel('X')
         ax.set_ylabel('Y')
         ax.set_zlabel('Probability Density')
-        print(mu_x, mu_y, sigma_x, sigma_y)
-
+        ax.set_title(label = str(mu_x)[:3] + '-' + str(sigma_x)[:3] + '\n' + str(mu_y)[:3] + '-' + str(sigma_y)[:3])
     plt.savefig(path + '-all' + '.png')
     plt.close()
 
@@ -252,6 +251,8 @@ class SZN_P(IOD):
         self.last_qf1 = copy.deepcopy(self.qf1)
         self.last_qf2 = copy.deepcopy(self.qf2)
         self.last_alpha = copy.deepcopy(self.log_alpha)
+        
+        self.obs0 = torch.tensor(init_obs).to(self.device)
         
     
     @property
@@ -403,54 +404,67 @@ class SZN_P(IOD):
                 random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
             
             if self.method['explore'] == 'SZN' and self.epoch_final is not None:
-                # EstimateValue(policy, alpha, qf1, qf2, option, state, num_samples=10)
-                
-                for t in range(10):
-                    # 1. smaple z
-                    dist_z = self.SampleZPolicy(self.input_token)
-                    # new_actions_pre_tanh, z = dist_z.rsample_with_pre_tanh_value()
-                    # z_logp = dist_z.log_prob(z, pre_tanh_value=new_actions_pre_tanh)
-                    z = dist_z.sample() 
-                    z_logp = dist_z.log_prob(z)
-                    # 2. calculate the Regret
-                    V_before_iter = self.EstimateValue(policy=self.last_policy, alpha=self.last_alpha, qf1=self.last_qf1, qf2=self.last_qf2, option=z, state=self.init_obs)
-                    V_after_iter = self.EstimateValue(policy=self.option_policy, alpha=self.log_alpha, qf1=self.qf1, qf2=self.qf2, option=z, state=self.init_obs)
-                    Regret = (V_after_iter - V_before_iter).detach()
-                    # 3. update SZN 
-                    self.SampleZPolicy_optim.zero_grad()      
-                    # Loss SZP
-                    w = 0.002
-                    loss_SZP = (-z_logp * Regret - w * dist_z.entropy()).mean()
-                    loss_SZP.backward()
-                    self.grad_clip.apply(self.SampleZPolicy.parameters())
-                    self.SampleZPolicy_optim.step()
-
-                self.last_z = self.SampleZPolicy(self.input_token).sample().detach()
-
-                if wandb.run is not None:
-                    wandb.log({
-                        "SZN/loss_SZP": loss_SZP,
-                        "SZN/Regret": Regret.mean(),
-                        "SZN/logp": z_logp.mean(),
-                        "SZN/V_after_iter": V_after_iter.mean(),
-                        "SZN/entropy": dist_z.entropy().mean(),
-                        "epoch": runner.step_itr,
-                    })
-            
+                if runner.step_itr % 50 == 0:
+                    Regret = 1
+                    for t in range(20):
+                        dist_z = self.SampleZPolicy(self.input_token)
+                        z = dist_z.sample() 
+                        z_logp = dist_z.log_prob(z)
+                        V_z = self.EstimateValue(policy=self.option_policy, alpha=self.log_alpha, qf1=self.qf1, qf2=self.qf2, option=z, state=self.init_obs)
+                        
+                        if self.copyed and Regret:
+                            V_z_last_iter = self.EstimateValue(policy=self.last_policy, alpha=self.last_alpha, qf1=self.last_qf1, qf2=self.last_qf2, option=z, state=self.init_obs)
+                        else:
+                            V_z_last_iter = 0
+                            
+                        if Regret:
+                            Regret = V_z - V_z_last_iter
+                            V_szn = Regret
+                        else:
+                            V_z = (V_z - V_z.mean()) / (V_z + 1e-3)
+                            V_szn = -V_z
+                        
+                        self.SampleZPolicy_optim.zero_grad()    
+                        w = 0.001
+                        loss_SZP = (-z_logp * V_szn - w * dist_z.entropy()).mean()
+                        loss_SZP.backward()
+                        self.grad_clip.apply(self.SampleZPolicy.parameters())
+                        self.SampleZPolicy_optim.step()
+                        if wandb.run is not None:
+                            wandb.log({
+                                "SZN/loss_SZP": loss_SZP,
+                                "SZN/logp": z_logp.mean(),
+                                "SZN/V_z": V_z.mean(),
+                                "SZN/entropy": dist_z.entropy().mean(),
+                                "epoch": runner.step_itr,
+                            })
+                            
+                    # save k-1 policy and qf
+                    def copy_params(ori_model, target_model):
+                        for t_param, param in zip(target_model.parameters(), ori_model.parameters()):
+                            t_param.data.copy_(param.data)
+                    copy_params(self.option_policy, self.last_policy)
+                    copy_params(self.log_alpha, self.last_alpha)
+                    copy_params(self.qf1, self.last_qf1)
+                    copy_params(self.qf2, self.last_qf2)
+                    self.copyed = 1
+                    
+                psi_g = self.SampleZPolicy(self.input_token).sample().detach()
+                self.last_z = psi_g
                 np_z = self.last_z.cpu().numpy()
                 print("Sample Z: ", np_z)
-                extras = self._generate_option_extras(np_z)                
+                extras = self._generate_option_extras(np_z, psi_g=psi_g.cpu().numpy())                
             
             
             elif self.method['explore'] == 'uniform' and self.epoch_final is not None:
                 # w/o unit_length
                 random_options = np.random.randn(runner._train_args.batch_size, self.dim_option)
                 print(random_options)
-                extras = self._generate_option_extras(random_options)
+                extras = self._generate_option_extras(random_options, psi_g=random_options)
             
             else: 
                 self.last_z = torch.tensor(random_options, dtype=torch.float32).to(self.device)
-                extras = self._generate_option_extras(random_options)      # 变成字典的形式；
+                extras = self._generate_option_extras(random_options, psi_g=random_options)      # 变成字典的形式；
             
         return dict(
             extras=extras,
@@ -607,15 +621,16 @@ class SZN_P(IOD):
             psi_s = self.Psi(phi_s, phi_s_0)
             psi_s_next = self.Psi(phi_s_next, phi_s_0)
             grad_psi_s = (1 - self.Psi(phi_s, phi_s_0)**2).detach()
-            
+            k = 2
+            d = 1 / self.max_path_length
             
             # 1. Similarity Reward
-            reward_sim = 0 * (self.vec_norm(psi_s_next - psi_s) * z_dir).sum(dim=-1)
+            reward_sim = ((psi_s_next - psi_s) * z_dir).sum(dim=-1)
             # reward_sim = self.max_path_length * ((psi_s_next - psi_s) * z_dir).sum(dim=-1)
             
             # 2. Goal Arrival Reward
             w = self.max_path_length / (2 * self.norm(grad_psi_s))
-            reward_ga = 5 * w * (self.norm(psi_s - z) - self.norm(psi_s_next - z))
+            reward_ga = w * (self.norm(psi_s - z) - self.norm(psi_s_next - z))
 
             # 3. Constraints
             ## later in phi loss: cst_penalty
@@ -625,8 +640,8 @@ class SZN_P(IOD):
             v.update({
                 'cur_z': cur_z,
                 'next_z': next_z,
-                'rewards': rewards,
-                'policy_rewards': rewards,
+                'rewards': reward_sim,
+                'policy_rewards': reward_ga,
                 'psi_s': psi_s,
                 'psi_s_next': psi_s_next,
                 'grad_psi_s': grad_psi_s,
@@ -908,6 +923,7 @@ class SZN_P(IOD):
         np_random = np.random.default_rng()    
         
         # 2. interact with the env
+        GoalList = env.env.goal_sampler(np_random, freq=1)
         options = np.random.randn(num_eval, self.dim_option)
         All_Cover_list = []
         progress = tqdm(range(num_eval), desc="Evaluation")
@@ -916,7 +932,17 @@ class SZN_P(IOD):
             option = torch.tensor(options[i]).unsqueeze(0).to(self.device)
             obs = torch.tensor(obs).unsqueeze(0).to(self.device).float()
             phi_obs_ = self.traj_encoder(obs).mean
-            phi_x0 = phi_obs_
+            phi_obs0 = copy.deepcopy(phi_obs_)
+            # goal condition
+            goal = GoalList[i]
+            ax.scatter(goal[0], goal[1], s=25, marker='o', alpha=1, edgecolors='black')
+            tensor_goal = torch.tensor(goal).to('cuda')
+            obs_goal = copy.deepcopy(obs)
+            obs_goal = env.get_target_obs(obs_goal, tensor_goal)
+            phi_g = self.traj_encoder(obs_goal).mean
+            # option
+            option = self.Psi(phi_g, phi_obs0)
+            
             Repr_obs_list = []
             Repr_goal_list = []
             traj_list = {}
@@ -926,10 +952,11 @@ class SZN_P(IOD):
             for t in range(max_path_length):
                 phi_obs_ = self.traj_encoder(obs).mean
                 obs_option = torch.cat((obs, option), -1).float()
-                psi_obs = self.Psi(phi_obs_, phi_x0)
+                psi_obs = self.Psi(phi_obs_, phi_obs0)
+                
                 # for viz
                 Repr_obs_list.append(psi_obs.cpu().numpy()[0])
-                Repr_goal_list.append(option.cpu().numpy()[0])
+                Repr_goal_list.append(self.Psi(phi_g, phi_obs0).cpu().numpy()[0])
                 # get actions from policy
                 action, agent_info = self.option_policy.get_action(obs_option)
                 # interact with the env
