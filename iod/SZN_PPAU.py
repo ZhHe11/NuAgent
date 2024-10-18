@@ -350,19 +350,19 @@ class SZN_PPAU(IOD):
             
             if self.method['explore'] == 'SZN' and self.epoch_final is not None:
                 if runner.step_itr % 50 == 0:
-                    Regret = 1
+                    use_Regret = 1
                     for t in range(50):
                         dist_z = self.SampleZPolicy(self.input_token)
                         z = dist_z.sample() 
                         z_logp = dist_z.log_prob(z)
                         V_z = self.EstimateValue(policy=self.option_policy, alpha=self.log_alpha, qf1=self.qf1, qf2=self.qf2, option=z, state=self.init_obs)
                         
-                        if self.copyed and Regret:
+                        if self.copyed and use_Regret:
                             V_z_last_iter = self.EstimateValue(policy=self.last_policy, alpha=self.last_alpha, qf1=self.last_qf1, qf2=self.last_qf2, option=z, state=self.init_obs)
                         else:
                             V_z_last_iter = 0
                             
-                        if Regret:
+                        if use_Regret:
                             Regret = V_z - V_z_last_iter
                             V_szn = Regret
                         else:
@@ -534,7 +534,7 @@ class SZN_PPAU(IOD):
         
     
     def Psi(self, phi_x):
-        return torch.tanh(phi_x)
+        return torch.tanh(1/300 * phi_x)
     
     def norm(self, x, keepdim=False):
         return torch.norm(x, p=2, dim=-1, keepdim=keepdim)        
@@ -562,7 +562,7 @@ class SZN_PPAU(IOD):
             # 0. updated option
             updated_option = psi_g
             updated_next_option = psi_g
-            k = 2
+            k = 10
             d = 1 / self.max_path_length
             
             
@@ -586,7 +586,7 @@ class SZN_PPAU(IOD):
             v.update({
                 'cur_z': cur_z,
                 'next_z': next_z,
-                'rewards': phi_obj,
+                'rewards': policy_rewards,
                 'policy_rewards': policy_rewards,
                 'psi_s': psi_s,
                 'psi_s_next': psi_s_next,
@@ -677,7 +677,7 @@ class SZN_PPAU(IOD):
             else:
                 raise NotImplementedError
             
-            cst_penalty_2 = 1/self.max_path_length - (self.norm(v['psi_s']-v['psi_s_next']))
+            cst_penalty_2 = 1 - self.max_path_length * (self.norm(v['psi_s']-v['psi_s_next']))
             # cst_penalty_3 = - self.norm(v['psi_s_0'])
                         
             cst_penalty = torch.clamp(cst_penalty_2, max=self.dual_slack)
@@ -877,7 +877,17 @@ class SZN_PPAU(IOD):
         np_random = np.random.default_rng()    
         
         # 2. interact with the env
-        GoalList = env.env.goal_sampler(np_random, freq=1)
+        GoalList = [
+            [12.7, 16.5],
+            [1.1, 12.9],
+            [4.7, 4.5],
+            [17.2, 0.9],
+            [20.2, 20.1],
+            [4.7, 0.9],
+            [0.9, 4.7],
+        ]
+        # GoalList = env.env.goal_sampler(np_random, freq=1)
+        num_eval = len(GoalList)
         options = np.random.randn(num_eval, self.dim_option)
         All_Cover_list = []
         progress = tqdm(range(num_eval), desc="Evaluation")

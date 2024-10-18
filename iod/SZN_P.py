@@ -245,7 +245,6 @@ class SZN_P(IOD):
         self.last_real_return = torch.zeros(self.num_random_trajectories).to(self.device)
         self.input_token = torch.eye(self.num_random_trajectories).float().to(self.device)
         self.z_sample = None
-        self.lamada = 0.3
         
         self.last_policy = copy.deepcopy(self.option_policy)
         self.last_qf1 = copy.deepcopy(self.qf1)
@@ -253,7 +252,10 @@ class SZN_P(IOD):
         self.last_alpha = copy.deepcopy(self.log_alpha)
         
         self.obs0 = torch.tensor(init_obs).to(self.device)
+        self.copyed = 0
         
+        
+                
     
     @property
     def policy(self):
@@ -404,20 +406,26 @@ class SZN_P(IOD):
                 random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
             
             if self.method['explore'] == 'SZN' and self.epoch_final is not None:
-                if runner.step_itr % 50 == 0:
-                    Regret = 1
+                # if runner.step_itr < 500:
+                #     update_interval = 50
+                # else: 
+                #     update_interval = 25
+                update_interval = 50
+                
+                if runner.step_itr % update_interval == 0:
+                    use_Regret = 0
                     for t in range(20):
                         dist_z = self.SampleZPolicy(self.input_token)
                         z = dist_z.sample() 
                         z_logp = dist_z.log_prob(z)
                         V_z = self.EstimateValue(policy=self.option_policy, alpha=self.log_alpha, qf1=self.qf1, qf2=self.qf2, option=z, state=self.init_obs)
                         
-                        if self.copyed and Regret:
+                        if self.copyed and use_Regret:
                             V_z_last_iter = self.EstimateValue(policy=self.last_policy, alpha=self.last_alpha, qf1=self.last_qf1, qf2=self.last_qf2, option=z, state=self.init_obs)
                         else:
                             V_z_last_iter = 0
                             
-                        if Regret:
+                        if use_Regret:
                             Regret = V_z - V_z_last_iter
                             V_szn = Regret
                         else:
@@ -594,7 +602,9 @@ class SZN_P(IOD):
             return z
         
     
-    def Psi(self, phi_x, phi_x0, k=20):
+    def Psi(self, phi_x, phi_x0=None):
+        if phi_x0 == None:
+            phi_x0 = self.traj_encoder(self.obs0).mean
         # return 2 * (torch.sigmoid(k * (phi_x - phi_x0) / self.max_path_length) - 0.5)
         return torch.tanh(phi_x - phi_x0)
     
@@ -620,12 +630,14 @@ class SZN_P(IOD):
 
             psi_s = self.Psi(phi_s, phi_s_0)
             psi_s_next = self.Psi(phi_s_next, phi_s_0)
-            grad_psi_s = (1 - self.Psi(phi_s, phi_s_0)**2).detach()
+            grad_psi_s = (1 - self.Psi(phi_s, phi_s_0)**2).detach() + 1e-3
             k = 2
             d = 1 / self.max_path_length
             
             # 1. Similarity Reward
-            reward_sim = ((psi_s_next - psi_s) * z_dir).sum(dim=-1)
+            delta_norm = self.norm((psi_s_next - psi_s))
+            # reward_sim = ((psi_s_next - psi_s) * z_dir).sum(dim=-1)
+            reward_sim = 1/d * torch.clamp(delta_norm, min=-k*d, max=k*d) * (self.vec_norm(psi_s_next - psi_s) * self.vec_norm(z)).sum(dim=-1)
             # reward_sim = self.max_path_length * ((psi_s_next - psi_s) * z_dir).sum(dim=-1)
             
             # 2. Goal Arrival Reward
@@ -905,7 +917,6 @@ class SZN_P(IOD):
         right now in ant_maze env;
         later will move to other envs(ketchen or ExORL or gyms);
         '''
-        num_eval = 5
         env = runner._env
         fig, ax = plt.subplots()
         env.draw(ax)
@@ -922,8 +933,19 @@ class SZN_P(IOD):
         Pepr_viz = True
         np_random = np.random.default_rng()    
         
+        GoalList = [
+            [12.7, 16.5],
+            [1.1, 12.9],
+            [4.7, 4.5],
+            [17.2, 0.9],
+            [20.2, 20.1],
+            [4.7, 0.9],
+            [0.9, 4.7],
+        ]
+        
         # 2. interact with the env
-        GoalList = env.env.goal_sampler(np_random, freq=1)
+        # GoalList = env.env.goal_sampler(np_random, freq=1)
+        num_eval = len(GoalList)
         options = np.random.randn(num_eval, self.dim_option)
         All_Cover_list = []
         progress = tqdm(range(num_eval), desc="Evaluation")
