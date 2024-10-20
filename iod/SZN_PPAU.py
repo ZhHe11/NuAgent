@@ -350,7 +350,7 @@ class SZN_PPAU(IOD):
             
             if self.method['explore'] == 'SZN' and self.epoch_final is not None:
                 if runner.step_itr % 50 == 0:
-                    use_Regret = 1
+                    use_Regret = 0
                     for t in range(50):
                         dist_z = self.SampleZPolicy(self.input_token)
                         z = dist_z.sample() 
@@ -406,7 +406,8 @@ class SZN_PPAU(IOD):
             
             elif self.method['explore'] == 'uniform' and self.epoch_final is not None:
                 # w/o unit_length
-                random_options = np.random.randn(runner._train_args.batch_size, self.dim_option)
+                # random_options = np.random.randn(runner._train_args.batch_size, self.dim_option)
+                random_options = np.random.uniform(-1,1, (runner._train_args.batch_size, self.dim_option))
                 print(random_options)
                 extras = self._generate_option_extras(random_options, psi_g=random_options)
             
@@ -562,21 +563,22 @@ class SZN_PPAU(IOD):
             # 0. updated option
             updated_option = psi_g
             updated_next_option = psi_g
-            k = 10
+            k = 5
             d = 1 / self.max_path_length
             
             
             # 1. Similarity Reward
-            delta_norm = self.norm((psi_s_next - psi_s))
+            # delta_norm = self.norm((psi_s_next - psi_s))
             # direction_sim = (self.vec_norm(psi_s_next - psi_s) * self.vec_norm(psi_g - psi_s)).sum(dim=-1)
             # phi_obj = 1/d * torch.clamp(delta_norm, min=-1*d, max=1*d) * direction_sim
             # reward_sim = self.max_path_length * ((psi_s_next - psi_s) * self.vec_norm(psi_g)).sum(dim=-1)
-            phi_obj = 1/d * torch.clamp(delta_norm, min=-1*d, max=1*d) * (self.vec_norm(psi_s) * self.vec_norm(psi_g)).sum(dim=-1)
+            # phi_obj = 1/d * torch.clamp(delta_norm, min=-k*d, max=k*d) * (self.vec_norm(psi_s) * self.vec_norm(psi_g)).sum(dim=-1)
+            phi_obj = ((psi_s_next - psi_s) * self.vec_norm(psi_g)).sum(dim=-1)
 
             # 2. Goal Arrival Reward
             reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
             reward_g_arrival = torch.where(self.norm(psi_g - psi_s_next)<d, 1.0, 0.).to(self.device)
-            reward_g_dir = 1 * (self.vec_norm(psi_s_next - psi_s) * self.vec_norm(psi_g-psi_s)).sum(dim=-1)
+            reward_g_dir = (self.vec_norm(psi_s_next - psi_s) * self.vec_norm(psi_g-psi_s)).sum(dim=-1)
             policy_rewards = 1 * reward_g_distance + 1 * reward_g_dir
             
             # 3. Constraints
@@ -586,7 +588,7 @@ class SZN_PPAU(IOD):
             v.update({
                 'cur_z': cur_z,
                 'next_z': next_z,
-                'rewards': policy_rewards,
+                'rewards': phi_obj,
                 'policy_rewards': policy_rewards,
                 'psi_s': psi_s,
                 'psi_s_next': psi_s_next,
@@ -677,7 +679,7 @@ class SZN_PPAU(IOD):
             else:
                 raise NotImplementedError
             
-            cst_penalty_2 = 1 - self.max_path_length * (self.norm(v['psi_s']-v['psi_s_next']))
+            cst_penalty_2 = 1/self.max_path_length -  (self.norm(v['psi_s']-v['psi_s_next']))
             # cst_penalty_3 = - self.norm(v['psi_s_0'])
                         
             cst_penalty = torch.clamp(cst_penalty_2, max=self.dual_slack)
