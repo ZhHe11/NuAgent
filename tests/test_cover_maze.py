@@ -65,11 +65,76 @@ def gen_z(sub_goal, obs, traj_encoder, device="cpu", ret_emb: bool = False):
     else:
         return z
 
+
+
+# def EstimateValue(policy, alpha, qf1, qf2, option, state, num_samples=10):
+#     '''
+#     num_samles越大,方差越小,偏差不会更小;
+#     '''
+#     batch = option.shape[0]
+#     # [s0, z]
+#     processed_cat_obs = self._get_concat_obs(policy.process_observations(state), option.float())                            # [b,dim_s+dim_z]
+    
+#     # dist of pi(a|[s0, z])
+#     dist, info = policy(processed_cat_obs)    # [b, dim]
+#     actions = dist.sample((num_samples,))          # [n, b, dim]
+#     log_probs = dist.log_prob(actions).squeeze(-1)  # [n, b]
+    
+#     processed_cat_obs_flatten = processed_cat_obs.repeat(1, num_samples).view(batch * num_samples, -1)      # [n*b, dim_s+z]
+#     actions_flatten = actions.view(batch * num_samples, -1)     # [n*b, dim_a]
+#     q_values = torch.min(qf1(processed_cat_obs_flatten, actions_flatten), qf2(processed_cat_obs_flatten, actions_flatten))      # [n*b, dim_1]
+    
+#     alpha = alpha.param.exp()
+        
+#     values = q_values - alpha * log_probs.view(batch*num_samples, -1)      # [n*b, 1]
+#     values = values.view(num_samples, batch, -1)        # [n, b, 1]
+#     E_V = values.mean(dim=0)        # [b, 1]
+
+#     return E_V.squeeze(-1)
+
+
+
+
+def viz_Value_in_Psi(SZN, input_token, path):
+    # dist = SZN(input_token)
+    # Data
+    x = np.linspace(-1, 1, 100)
+    y = np.linspace(-1, 1, 100)
+    
+    X, Y = np.meshgrid(x,y)
+    from scipy.stats import multivariate_normal
+    num = dist.mean.shape[0]
+    fig = plt.figure(figsize=(18, 12), facecolor='w')
+    for i in range(dist.mean.shape[0]):
+        # Multivariate Normal
+        mu_x = dist.mean[i][0].detach().cpu().numpy()
+        sigma_x = dist.stddev[i][0].detach().cpu().numpy()
+        mu_y = dist.mean[i][1].detach().cpu().numpy()
+        sigma_y = dist.stddev[i][1].detach().cpu().numpy()
+        rv = multivariate_normal([mu_x, mu_y], [[sigma_x, 0], [0, sigma_y]])
+        # Probability Density
+        pos = np.empty(X.shape + (2,))
+        pos[:, :, 0] = X
+        pos[:, :, 1] = Y
+        pd = rv.pdf(pos)
+        # Plot
+        ax = fig.add_subplot(2, num//2, i+1, projection='3d')
+        ax.plot_surface(X, Y, pd, cmap='viridis', linewidth=0)
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Probability Density')
+        ax.set_title(label = str(mu_x)[:3] + '-' + str(sigma_x)[:3] + '\n' + str(mu_y)[:3] + '-' + str(sigma_y)[:3])
+    plt.savefig(path + '-all' + '.png')
+    plt.close()
+
+
+
+
 ## load model
 # baseline 
 policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/cos-Exp5-updatesd000_1728556976_ant_maze_SZN_Z/wandb/latest-run/filesoption_policy.pt"
 traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/cos-Exp5-updatesd000_1728556976_ant_maze_SZN_Z/wandb/latest-run/filestaregt_traj_encoder.pt"
-SZN_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/SZN-Exp4sd000_1728446621_ant_maze_SZN_Z/wandb/latest-run/filesSampleZPolicy.pt"
+SZN_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/P_SZN_AU-1sd000_1729405183_ant_maze_P_SZN_AU/wandb/latest-run/filesSampleZPolicy-0.pt"
 
 # policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/SZN-Exp4sd000_1728446621_ant_maze_SZN_Z/option_policy3000.pt"
 # traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/SZN-Exp4sd000_1728446621_ant_maze_SZN_Z/traj_encoder3000.pt"
