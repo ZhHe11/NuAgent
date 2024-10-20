@@ -249,7 +249,7 @@ class P_SZN_AU(IOD):
         
         self.last_z = None
         self.SampleZPolicy = SampleZPolicy.to(self.device)
-        self.SampleZPolicy_optim = optim.SGD(self.SampleZPolicy.parameters(), lr=1e-2)
+        self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=1e-4)
         self.grad_clip = GradClipper(clip_type='clip_norm', threshold=3, norm_type=2)
         
         self.input_token = torch.eye(self.num_random_trajectories).float().to(self.device)
