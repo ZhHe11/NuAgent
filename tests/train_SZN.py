@@ -1,3 +1,4 @@
+
 '''
 to test coverarge of maze;
 '''
@@ -100,15 +101,12 @@ def EstimateValue(policy, alpha, qf1, qf2, option, state, num_samples=1):
     values = values.view(num_samples, batch, -1)        # [n, b, 1]
     E_V = values.mean(dim=0)        # [b, 1]
     
-    weight = 1 - 0.99**(torch.clamp(torch.norm(option, p=2, dim=-1, keepdim=True)*300, min=75))
-    E_V = E_V/weight 
-    
     return E_V.squeeze(-1)
 
 
 
 @torch.no_grad()
-def viz_Value_in_Psi(policy, alpha, qf1, qf2, state, num_samples=10, device='cpu', path='./'):
+def viz_Value_in_Psi(policy, alpha, qf1, qf2, state, num_samples=10, device='cpu', path='./', label='1'):
     density = 200
     x = np.linspace(-1, 1, density)
     y = np.linspace(-1, 1, density)
@@ -136,7 +134,7 @@ def viz_Value_in_Psi(policy, alpha, qf1, qf2, state, num_samples=10, device='cpu
     ax.set_ylabel('Y')
     ax.set_zlabel('Value')
     plt.savefig(path + '-Value' + '.png')
-    print('save at: ' + path + '-Value' + '.png')
+    print('save at: ' + path + '-Value' + label + '.png')
     plt.close()
 
 
@@ -160,12 +158,12 @@ def viz_Regert_in_Psi(base1, base2, state, num_samples=10, device='cpu', path='.
     
     # value 1:
     qf1, qf2, alpha, policy = get_fuctions(base1)
-    V1 = EstimateValue(policy, alpha, qf1, qf2, option, state_batch, num_samples=10)
+    V1 = EstimateValue(policy, alpha, qf1, qf2, option, state_batch, num_samples=num_samples)
     V1 = V1.view(pos.shape[0],pos.shape[1])
     
     # value 2:
     qf1, qf2, alpha, policy = get_fuctions(base2)
-    V2 = EstimateValue(policy, alpha, qf1, qf2, option, state_batch, num_samples=10)
+    V2 = EstimateValue(policy, alpha, qf1, qf2, option, state_batch, num_samples=num_samples)
     V2 = V2.view(pos.shape[0],pos.shape[1])
     
     
@@ -184,8 +182,29 @@ def viz_Regert_in_Psi(base1, base2, state, num_samples=10, device='cpu', path='.
     print('save at: ' + path + '-Regret' + '.png')
     plt.close()
     
+    # plot Value:
+    fig = plt.figure(figsize=(18, 12), facecolor='w')
+    ax = fig.add_subplot(111, projection='3d')
+    ax.plot_surface(X, Y, V1.cpu().numpy(), rstride=1, cstride=1, cmap='viridis', edgecolor='none')
+    ax.view_init(60, 35)
+    ax.set_xlabel('X')          
+    ax.set_ylabel('Y')
+    ax.set_zlabel('V1')
+    plt.savefig(path + '-Value1' + '.png')
+    print('save at: ' + path + '-Value1' + '.png')
+    plt.close()
     
-    
+    # plot Value:
+    fig = plt.figure(figsize=(18, 12), facecolor='w')
+    ax = fig.add_subplot(111, projection='3d')
+    ax.plot_surface(X, Y, V2.cpu().numpy(), rstride=1, cstride=1, cmap='viridis', edgecolor='none')
+    ax.view_init(60, 35)
+    ax.set_xlabel('X')          
+    ax.set_ylabel('Y')
+    ax.set_zlabel('V2')
+    plt.savefig(path + '-Value2' + '.png')
+    print('save at: ' + path + '-Value2' + '.png')
+    plt.close()
     
     
     
@@ -195,8 +214,8 @@ def viz_Regert_in_Psi(base1, base2, state, num_samples=10, device='cpu', path='.
 
 ## load model
 # baseline 
-policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/P-SZN-Regretsd000_1729510830_ant_maze_P_SZN_AU/wandb/run-20241021_194033-ykpu3psm/filesoption_policy-0.pt"
-policy_path2 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/P-SZN-Regretsd000_1729510830_ant_maze_P_SZN_AU/wandb/run-20241021_194033-ykpu3psm/filesoption_policy-20.pt"
+policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/SaveModel/filesoption_policy-900.pt"
+policy_path2 = "/mnt/nfs2/zhanghe/NuAgent/exp/SaveModel/filesoption_policy-1000.pt"
 traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PPAU-constraint7-uniform-3sd000_1729427323_ant_maze_P_SZN_AU/wandb/latest-run/filestaregt_traj_encoder-1000.pt"
 SZN_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PPAU-constraint7-uniform-3sd000_1729427323_ant_maze_P_SZN_AU/wandb/latest-run/filesSampleZPolicy-1000.pt"
 
@@ -249,7 +268,7 @@ type = 'random_z'
 
 s0 = torch.tensor(obs0).to(device).float()
 psi_s0 = Psi(agent_traj_encoder(s0).mean)
-viz_Regert_in_Psi(base1=load_option_policy_base, base2=load_option_policy_base2, state=s0, device=device)
+viz_Regert_in_Psi(base1=load_option_policy_base, base2=load_option_policy_base2, state=s0, device=device, num_samples=100)
     
     
     
@@ -263,7 +282,7 @@ viz_Regert_in_Psi(base1=load_option_policy_base, base2=load_option_policy_base2,
 # policy = load_option_policy_base['policy']
 # viz_Value_in_Psi(policy, alpha, qf1, qf2, state=s0, num_samples=10, device=device, path=path)
 
-exit()
+# exit()
 
 FinallDistanceList = []
 All_Repr_obs_list = []

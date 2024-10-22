@@ -249,7 +249,7 @@ class P_SZN_AU(IOD):
         
         self.last_z = None
         self.SampleZPolicy = SampleZPolicy.to(self.device)
-        self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=1e-4)
+        self.SampleZPolicy_optim = optim.SGD(self.SampleZPolicy.parameters(), lr=1e-4)
         self.grad_clip = GradClipper(clip_type='clip_norm', threshold=3, norm_type=2)
         
         self.input_token = torch.eye(self.num_random_trajectories).float().to(self.device)
@@ -331,20 +331,19 @@ class P_SZN_AU(IOD):
 
 
     @torch.no_grad()
-    def EstimateValue(self, policy, alpha, qf1, qf2, option, state, num_samples=10):
+    def EstimateValue(self, policy, alpha, qf1, qf2, option, state, num_samples=1):
         '''
         num_samles越大,方差越小,偏差不会更小;
         '''
-        batch = option.shape[0]
-        # [s0, z]
-        processed_cat_obs = self._get_concat_obs(policy.process_observations(state), option.float())                            # [b,dim_s+dim_z]
+        batch = option.shape[0]     # [s0, z]
+        processed_cat_obs = self._get_concat_obs(policy.process_observations(state), option.float())     # [b,dim_s+dim_z]
         
-        # dist of pi(a|[s0, z])
         dist, info = policy(processed_cat_obs)    # [b, dim]
         actions = dist.sample((num_samples,))          # [n, b, dim]
         log_probs = dist.log_prob(actions).squeeze(-1)  # [n, b]
         
-        processed_cat_obs_flatten = processed_cat_obs.repeat(1, num_samples).view(batch * num_samples, -1)      # [n*b, dim_s+z]
+        # [fatal bug!!!!]: repeat wrong dim
+        processed_cat_obs_flatten = processed_cat_obs.repeat(num_samples, 1, 1).view(batch * num_samples, -1)      # [n*b, dim_s+z]
         actions_flatten = actions.view(batch * num_samples, -1)     # [n*b, dim_a]
         q_values = torch.min(qf1(processed_cat_obs_flatten, actions_flatten), qf2(processed_cat_obs_flatten, actions_flatten))      # [n*b, dim_1]
         
@@ -370,9 +369,9 @@ class P_SZN_AU(IOD):
                 random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
             
             if self.method['explore'] == 'SZN' and self.epoch_final is not None:
-                if runner.step_itr % 1 == 0:
-                    use_Regret = 0
-                    for t in range(10):
+                if runner.step_itr % 20 == 0:
+                    use_Regret = 1
+                    for t in range(100):
                         dist_z = self.SampleZPolicy(self.input_token)
                         z = dist_z.rsample() 
                         z_logp = dist_z.log_prob(z)
@@ -394,15 +393,12 @@ class P_SZN_AU(IOD):
                         k = 50
                         d = 1/self.max_path_length
                         distance_z_psis = 1 * torch.clamp(self.norm(self.Psi(self.traj_encoder(self.epoch_final['obs'][:,-1]).mean).detach() - z), min=(k*d))
-                        loss_SZP = (-z_logp * V_szn - w * dist_z.entropy() + distance_z_psis).mean()
+                        loss_SZP = (-z_logp * V_szn - w * dist_z.entropy() + 0 * distance_z_psis).mean()
                         loss_SZP.backward()
                         self.grad_clip.apply(self.SampleZPolicy.parameters())
                         self.SampleZPolicy_optim.step()
                         
-                        # viz the SZN dist
-                        if runner.step_itr % 5 == 0:
-                            path = wandb.run.dir + '/E' + str(runner.step_itr) + '-'
-                            viz_SZN_dist_circle(self.SampleZPolicy, self.input_token, path=path)
+
                         
                         if wandb.run is not None:
                             wandb.log({
@@ -424,8 +420,11 @@ class P_SZN_AU(IOD):
                         copy_params(self.qf1, self.last_qf1)
                         copy_params(self.qf2, self.last_qf2)
                         self.copyed = 1
-                    
-
+                                            # viz the SZN dist
+                if runner.step_itr % 5 == 0:
+                    path = wandb.run.dir + '/E' + str(runner.step_itr) + '-'
+                    viz_SZN_dist_circle(self.SampleZPolicy, self.input_token, path=path)
+            
                 psi_g = self.SampleZPolicy(self.input_token).sample().detach()
                 self.last_z = psi_g
                 
@@ -595,17 +594,22 @@ class P_SZN_AU(IOD):
             updated_next_option = psi_g
             k = 5
             d = 1 / self.max_path_length
-            
-            
+
             # 1. Similarity Reward
-            # delta_norm = self.norm((psi_s_next - psi_s))
+            delta_norm = self.norm((psi_s_next - psi_s))
             # direction_sim = (self.vec_norm(psi_s_next - psi_s) * self.vec_norm(psi_g - psi_s)).sum(dim=-1)
             # phi_obj = 1/d * torch.clamp(delta_norm, min=-1*d, max=1*d) * direction_sim
             # reward_sim = self.max_path_length * ((psi_s_next - psi_s) * self.vec_norm(psi_g)).sum(dim=-1)
             # phi_obj = 1/d * torch.clamp(delta_norm, min=-k*d, max=k*d) * (self.vec_norm(psi_s) * self.vec_norm(psi_g)).sum(dim=-1)
-            phi_obj = ((psi_s_next - psi_s) * self.vec_norm(psi_g)).sum(dim=-1)
+            # phi_obj = ((psi_s_next - psi_s) * self.vec_norm(psi_g)).sum(dim=-1)
+            # phi_obj = delta_norm * ((self.vec_norm(psi_s) + self.vec_norm(psi_s_next)) * self.vec_norm(psi_g)).sum(dim=-1)
+            # phi_obj = ((self.vec_norm(psi_s) + self.vec_norm(psi_s_next)) * self.vec_norm(psi_g)).sum(dim=-1) + delta_norm
+            direction_sim = ((psi_s_next - psi_s) * self.vec_norm(psi_g)).sum(dim=-1)    # [-1,1]
+            distance_equal = self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next)      # [-k, k] 
+            phi_obj = direction_sim + 0 * distance_equal
 
             # 2. Goal Arrival Reward
+            # reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
             reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
             reward_g_arrival = torch.where(self.norm(psi_g - psi_s_next)<d, 1.0, 0.).to(self.device)
             reward_g_dir = (self.vec_norm(psi_s_next - psi_s) * self.vec_norm(psi_g-psi_s)).sum(dim=-1)
@@ -634,6 +638,9 @@ class P_SZN_AU(IOD):
                 'reward_g_distance': reward_g_distance.mean(),
                 'reward_g_arrival': reward_g_arrival.mean(),
                 'reward_g_dir': reward_g_dir.mean(),
+                'delta_norm': delta_norm.mean(),
+                'direction_sim': direction_sim.mean(),
+                'distance_equal': distance_equal.mean(),
             })
             
             return

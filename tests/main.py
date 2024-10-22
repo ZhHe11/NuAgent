@@ -375,8 +375,8 @@ def run(ctxt=None):
         w_init=torch.nn.init.xavier_uniform_,
         input_dim=args.traj_batch_size,
         output_dim=args.dim_option,
-        init_std=1e-2,
-        min_std=1e-6,
+        init_std=1e-1,
+        min_std=1e-2,
         max_std=1,
         normal_distribution_cls=TanhNormal,
     )
