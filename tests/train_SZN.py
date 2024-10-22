@@ -144,7 +144,7 @@ def viz_Regert_in_Psi(base1, base2, state, num_samples=10, device='cpu', path='.
     def get_fuctions(base):
         return base['qf1'], base['qf2'], base['alpha'], base['policy'] 
     
-    density = 200
+    density = 100
     x = np.linspace(-1, 1, density)
     y = np.linspace(-1, 1, density)
     X, Y = np.meshgrid(x,y)
@@ -231,8 +231,8 @@ def viz_Regert_in_Psi(base1, base2, state, num_samples=10, device='cpu', path='.
 
 ## load model
 # baseline 
-policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/P-SZN-Regret-4sd000_1729577220_ant_maze_P_SZN_AU/wandb/latest-run/filesoption_policy-80.pt"
-policy_path2 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/P-SZN-Regret-4sd000_1729577220_ant_maze_P_SZN_AU/wandb/latest-run/filesoption_policy-100.pt"
+policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZN-R4-Window-1sd000_1729586807_ant_maze_P_SZN_AU/wandb/run-20241022_164649-hfwwbyxc/filesoption_policy-60.pt"
+policy_path2 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZN-R4-Window-1sd000_1729586807_ant_maze_P_SZN_AU/wandb/run-20241022_164649-hfwwbyxc/filesoption_policy-80.pt"
 traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PPAU-constraint7-uniform-3sd000_1729427323_ant_maze_P_SZN_AU/wandb/latest-run/filestaregt_traj_encoder-1000.pt"
 SZN_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PPAU-constraint7-uniform-3sd000_1729427323_ant_maze_P_SZN_AU/wandb/latest-run/filesSampleZPolicy-1000.pt"
 

@@ -36,6 +36,9 @@ from iod.BufferDataset import BufferDataset
 from torch.utils.data import DataLoader
 from scipy.stats import multivariate_normal
 
+import random
+
+
 def calc_eval_metrics(trajectories, is_option_trajectories, coord_dims=[0,1]):
     eval_metrics = {}
     coords = []
@@ -119,7 +122,7 @@ def viz_SZN_dist(SZN, input_token, path):
     plt.savefig(path + '-all' + '.png')
     plt.close()
     
-def viz_SZN_dist_circle(SZN, input_token, path):
+def viz_SZN_dist_circle(SZN, input_token, path, psi_z=None):
     dist = SZN(input_token)
     from matplotlib.patches import Ellipse
     num = dist.mean.shape[0]
@@ -132,6 +135,10 @@ def viz_SZN_dist_circle(SZN, input_token, path):
         sigma_y = dist.stddev[i][1].detach().cpu().numpy()
         e = Ellipse(xy = (mu_x,mu_y), width = sigma_x * 2, height = sigma_y * 2, angle=0)
         ax.add_artist(e)
+        
+    if psi_z is not None:
+        ax.scatter(psi_z[:, 0], psi_z[:, 1], marker='*', alpha=1)
+
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.grid(True)
@@ -260,6 +267,7 @@ class P_SZN_AU(IOD):
         self.last_qf2 = copy.deepcopy(self.qf2)
         self.last_alpha = copy.deepcopy(self.log_alpha)
         self.copyed = 0
+        self.DistWindow = []
         
     
     @property
@@ -378,6 +386,13 @@ class P_SZN_AU(IOD):
             if self.method['explore'] == 'SZN' and self.epoch_final is not None:
                 if runner.step_itr % 20 == 0:
                     use_Regret = 1
+                    # window queue operation
+                    with torch.no_grad():
+                        dist = self.SampleZPolicy(self.input_token)
+                        self.DistWindow.append(dist)
+                        if len(self.DistWindow) > 5:
+                            self.DistWindow.pop(0)
+                
                     self.copy_params(self.ResetSZPolicy, self.SampleZPolicy)
                     self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=1e-4)
 
@@ -395,9 +410,9 @@ class P_SZN_AU(IOD):
                             
                         if use_Regret:
                             Regret = V_z - V_z_last_iter
-                            V_szn = Regret
+                            V_szn = (Regret - Regret.mean()) / (Regret.std() + 1e-3)
                         else:
-                            V_szn = -(V_z - V_z.mean()) / (V_z + 1e-3)
+                            V_szn = -(V_z - V_z.mean()) / (V_z.std() + 1e-3)
                         
                         self.SampleZPolicy_optim.zero_grad()    
                         w = 0.01
@@ -414,7 +429,7 @@ class P_SZN_AU(IOD):
                                 "SZN/entropy": dist_z.entropy().mean(),
                                 "epoch": runner.step_itr,
                             })
-                            
+                              
                     # save k-1 policy and qf
                     if use_Regret:
                         self.copy_params(self.option_policy, self.last_policy)
@@ -422,19 +437,34 @@ class P_SZN_AU(IOD):
                         self.copy_params(self.qf1, self.last_qf1)
                         self.copy_params(self.qf2, self.last_qf2)
                         self.copyed = 1
-
-                # if runner.step_itr % 5 == 0:
-                    path = wandb.run.dir + '/E' + str(runner.step_itr) + '-'
-                    viz_SZN_dist_circle(self.SampleZPolicy, self.input_token, path=path)
             
                 psi_g = self.SampleZPolicy(self.input_token).sample().detach()
-                self.last_z = psi_g
+                
+                
+                z_pool = psi_g
+                for j in range(len(self.DistWindow)):
+                    # method 1
+                    # random_index = random.randint(0, self.num_random_trajectories-1)
+                    # z_history = self.DistWindow[j].sample()[random_index]
+                    # random_index = random.randint(0, self.num_random_trajectories-1)
+                    # psi_g[random_index] = z_history
+                    
+                    # method 2
+                    z_pool = torch.cat((z_pool, self.DistWindow[j].sample()), 0)    
+                
+                # self.last_z = psi_g
+                random_index = np.random.randint(0, z_pool.shape[0], self.num_random_trajectories)
+                self.last_z = z_pool[random_index]
                 
                 np_z = self.last_z.cpu().numpy()
                 print("Sample Z: ", np_z)
-                extras = self._generate_option_extras(np_z, psi_g=psi_g.cpu().numpy())                
+                extras = self._generate_option_extras(np_z, psi_g=psi_g.cpu().numpy())   
             
-            
+                # viz the dist using mean and std;
+                if runner.step_itr % 20 == 0:
+                    path = wandb.run.dir + '/E' + str(runner.step_itr) + '-'
+                    viz_SZN_dist_circle(self.SampleZPolicy, self.input_token, path=path, psi_z=np_z)
+
             elif self.method['explore'] == 'uniform' and self.epoch_final is not None:
                 # w/o unit_length
                 # random_options = np.random.randn(runner._train_args.batch_size, self.dim_option)
