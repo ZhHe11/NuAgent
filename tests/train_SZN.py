@@ -100,6 +100,7 @@ def EstimateValue(policy, alpha, qf1, qf2, option, state, num_samples=1):
     values = q_values - alpha * log_probs.view(batch*num_samples, -1)      # [n*b, 1]
     values = values.view(num_samples, batch, -1)        # [n, b, 1]
     E_V = values.mean(dim=0)        # [b, 1]
+
     
     return E_V.squeeze(-1)
 
@@ -166,9 +167,9 @@ def viz_Regert_in_Psi(base1, base2, state, num_samples=10, device='cpu', path='.
     V2 = EstimateValue(policy, alpha, qf1, qf2, option, state_batch, num_samples=num_samples)
     V2 = V2.view(pos.shape[0],pos.shape[1])
     
-    
     # Regret:
     Regret = V2 - V1
+    
     print(Regret.max(), Regret.min())
     
     ax = fig.add_subplot(111, projection='3d')
@@ -182,29 +183,45 @@ def viz_Regert_in_Psi(base1, base2, state, num_samples=10, device='cpu', path='.
     print('save at: ' + path + '-Regret' + '.png')
     plt.close()
     
-    # plot Value:
-    fig = plt.figure(figsize=(18, 12), facecolor='w')
-    ax = fig.add_subplot(111, projection='3d')
-    ax.plot_surface(X, Y, V1.cpu().numpy(), rstride=1, cstride=1, cmap='viridis', edgecolor='none')
-    ax.view_init(60, 35)
-    ax.set_xlabel('X')          
-    ax.set_ylabel('Y')
-    ax.set_zlabel('V1')
-    plt.savefig(path + '-Value1' + '.png')
-    print('save at: ' + path + '-Value1' + '.png')
-    plt.close()
+    # # Regret-scale:
+    # Regret = (V2 - V1) / (1- (1-0.99)/2 * V1)
+    # print("scale", (1- (1-0.99)/2 * V1))
+    # print(Regret.max(), Regret.min())
+    # fig = plt.figure(figsize=(18, 12), facecolor='w')
+    # ax = fig.add_subplot(111, projection='3d')
+    # # ax.plot_surface(X, Y, Z, rstride=1, cstride=1, cmap='viridis', edgecolor='none')
+    # ax.plot_surface(X, Y, Regret.cpu().numpy(), rstride=1, cstride=1, cmap='viridis', edgecolor='none')
+    # ax.view_init(60, 35)
+    # ax.set_xlabel('X')          
+    # ax.set_ylabel('Y')
+    # ax.set_zlabel('Regret-scale')
+    # plt.savefig(path + '-Regret-scale' + '.png')
+    # print('save at: ' + path + '-Regret-scale' + '.png')
+    # plt.close()
     
-    # plot Value:
-    fig = plt.figure(figsize=(18, 12), facecolor='w')
-    ax = fig.add_subplot(111, projection='3d')
-    ax.plot_surface(X, Y, V2.cpu().numpy(), rstride=1, cstride=1, cmap='viridis', edgecolor='none')
-    ax.view_init(60, 35)
-    ax.set_xlabel('X')          
-    ax.set_ylabel('Y')
-    ax.set_zlabel('V2')
-    plt.savefig(path + '-Value2' + '.png')
-    print('save at: ' + path + '-Value2' + '.png')
-    plt.close()
+    # # plot Value:
+    # fig = plt.figure(figsize=(18, 12), facecolor='w')
+    # ax = fig.add_subplot(111, projection='3d')
+    # ax.plot_surface(X, Y, V1.cpu().numpy(), rstride=1, cstride=1, cmap='viridis', edgecolor='none')
+    # ax.view_init(60, 35)
+    # ax.set_xlabel('X')          
+    # ax.set_ylabel('Y')
+    # ax.set_zlabel('V1')
+    # plt.savefig(path + '-Value1' + '.png')
+    # print('save at: ' + path + '-Value1' + '.png')
+    # plt.close()
+    
+    # # plot Value:
+    # fig = plt.figure(figsize=(18, 12), facecolor='w')
+    # ax = fig.add_subplot(111, projection='3d')
+    # ax.plot_surface(X, Y, V2.cpu().numpy(), rstride=1, cstride=1, cmap='viridis', edgecolor='none')
+    # ax.view_init(60, 35)
+    # ax.set_xlabel('X')          l
+    # ax.set_ylabel('Y')
+    # ax.set_zlabel('V2')
+    # plt.savefig(path + '-Value2' + '.png')
+    # print('save at: ' + path + '-Value2' + '.png')
+    # plt.close()
     
     
     
@@ -214,8 +231,8 @@ def viz_Regert_in_Psi(base1, base2, state, num_samples=10, device='cpu', path='.
 
 ## load model
 # baseline 
-policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/SaveModel/filesoption_policy-900.pt"
-policy_path2 = "/mnt/nfs2/zhanghe/NuAgent/exp/SaveModel/filesoption_policy-1000.pt"
+policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/P-SZN-Regret-4sd000_1729577220_ant_maze_P_SZN_AU/wandb/latest-run/filesoption_policy-80.pt"
+policy_path2 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/P-SZN-Regret-4sd000_1729577220_ant_maze_P_SZN_AU/wandb/latest-run/filesoption_policy-100.pt"
 traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PPAU-constraint7-uniform-3sd000_1729427323_ant_maze_P_SZN_AU/wandb/latest-run/filestaregt_traj_encoder-1000.pt"
 SZN_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PPAU-constraint7-uniform-3sd000_1729427323_ant_maze_P_SZN_AU/wandb/latest-run/filesSampleZPolicy-1000.pt"
 
@@ -282,7 +299,7 @@ viz_Regert_in_Psi(base1=load_option_policy_base, base2=load_option_policy_base2,
 # policy = load_option_policy_base['policy']
 # viz_Value_in_Psi(policy, alpha, qf1, qf2, state=s0, num_samples=10, device=device, path=path)
 
-# exit()
+exit()
 
 FinallDistanceList = []
 All_Repr_obs_list = []

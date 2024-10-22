@@ -249,7 +249,8 @@ class P_SZN_AU(IOD):
         
         self.last_z = None
         self.SampleZPolicy = SampleZPolicy.to(self.device)
-        self.SampleZPolicy_optim = optim.SGD(self.SampleZPolicy.parameters(), lr=1e-4)
+        self.ResetSZPolicy = copy.deepcopy(self.SampleZPolicy)
+        self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=1e-4)
         self.grad_clip = GradClipper(clip_type='clip_norm', threshold=3, norm_type=2)
         
         self.input_token = torch.eye(self.num_random_trajectories).float().to(self.device)
@@ -354,8 +355,14 @@ class P_SZN_AU(IOD):
         E_V = values.mean(dim=0)        # [b, 1]
 
         return E_V.squeeze(-1)
-    
-    
+
+
+
+    def copy_params(self, ori_model, target_model):
+        for t_param, param in zip(target_model.parameters(), ori_model.parameters()):
+            t_param.data.copy_(param.data)
+
+
     '''
     【0】 计算online时的option；
     '''
@@ -371,9 +378,13 @@ class P_SZN_AU(IOD):
             if self.method['explore'] == 'SZN' and self.epoch_final is not None:
                 if runner.step_itr % 20 == 0:
                     use_Regret = 1
-                    for t in range(100):
+                    self.copy_params(self.ResetSZPolicy, self.SampleZPolicy)
+                    self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=1e-4)
+
+                    for t in range(50):
+                        # Reset the SZN:
                         dist_z = self.SampleZPolicy(self.input_token)
-                        z = dist_z.rsample() 
+                        z = dist_z.rsample()
                         z_logp = dist_z.log_prob(z)
                         V_z = self.EstimateValue(policy=self.option_policy, alpha=self.log_alpha, qf1=self.qf1, qf2=self.qf2, option=z, state=self.init_obs)
                         
@@ -389,16 +400,11 @@ class P_SZN_AU(IOD):
                             V_szn = -(V_z - V_z.mean()) / (V_z + 1e-3)
                         
                         self.SampleZPolicy_optim.zero_grad()    
-                        w = 0.005
-                        k = 50
-                        d = 1/self.max_path_length
-                        distance_z_psis = 1 * torch.clamp(self.norm(self.Psi(self.traj_encoder(self.epoch_final['obs'][:,-1]).mean).detach() - z), min=(k*d))
-                        loss_SZP = (-z_logp * V_szn - w * dist_z.entropy() + 0 * distance_z_psis).mean()
+                        w = 0.01
+                        loss_SZP = (-z_logp * V_szn - w * dist_z.entropy()).mean()
                         loss_SZP.backward()
                         self.grad_clip.apply(self.SampleZPolicy.parameters())
                         self.SampleZPolicy_optim.step()
-                        
-
                         
                         if wandb.run is not None:
                             wandb.log({
@@ -406,22 +412,18 @@ class P_SZN_AU(IOD):
                                 "SZN/logp": z_logp.mean(),
                                 "SZN/V_z": V_z.mean(),
                                 "SZN/entropy": dist_z.entropy().mean(),
-                                "SZN/distance_z_psis": distance_z_psis.mean(),
                                 "epoch": runner.step_itr,
                             })
                             
                     # save k-1 policy and qf
                     if use_Regret:
-                        def copy_params(ori_model, target_model):
-                            for t_param, param in zip(target_model.parameters(), ori_model.parameters()):
-                                t_param.data.copy_(param.data)
-                        copy_params(self.option_policy, self.last_policy)
-                        copy_params(self.log_alpha, self.last_alpha)
-                        copy_params(self.qf1, self.last_qf1)
-                        copy_params(self.qf2, self.last_qf2)
+                        self.copy_params(self.option_policy, self.last_policy)
+                        self.copy_params(self.log_alpha, self.last_alpha)
+                        self.copy_params(self.qf1, self.last_qf1)
+                        self.copy_params(self.qf2, self.last_qf2)
                         self.copyed = 1
-                                            # viz the SZN dist
-                if runner.step_itr % 5 == 0:
+
+                # if runner.step_itr % 5 == 0:
                     path = wandb.run.dir + '/E' + str(runner.step_itr) + '-'
                     viz_SZN_dist_circle(self.SampleZPolicy, self.input_token, path=path)
             
