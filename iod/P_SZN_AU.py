@@ -612,7 +612,7 @@ class P_SZN_AU(IOD):
         
         if self.method["phi"] in ['Projection']:
             psi_g = v['options']
-            # phi_s_0 = self.traj_encoder(v['s_0']).mean
+            phi_s_0 = self.traj_encoder(v['s_0']).mean
             phi_s = cur_z
             phi_s_next = next_z
             # psi_g = v['psi_g']
