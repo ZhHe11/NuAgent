@@ -693,7 +693,7 @@ class PSZP(IOD):
             reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
             reward_g_arrival = torch.where(self.norm(psi_g - psi_s_next)<d, 1.0, 0.).to(self.device)
             reward_g_dir = (self.vec_norm(psi_s_next - psi_s) * self.vec_norm(psi_g - psi_s)).sum(dim=-1)
-            policy_rewards = 1 * reward_g_distance + 1 * reward_g_dir + 2 * reward_g_arrival
+            policy_rewards = 1 * reward_g_distance + 1 * reward_g_dir + 10 * reward_g_arrival
             
             v.update({
                 'cur_z': cur_z,
