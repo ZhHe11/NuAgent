@@ -59,6 +59,8 @@ from iod.SZN_PP import SZN_PP
 from iod.SZN_PPP import SZN_PPP
 from iod.SZN_PPAU import SZN_PPAU
 from iod.P_SZN_AU import P_SZN_AU
+from iod.PSZP import PSZP
+
 
 from iod.utils import get_normalizer_preset
 
@@ -460,7 +462,7 @@ def run(ctxt=None):
     # else:
     replay_buffer = PathBufferTensor(capacity_in_transitions=int(args.sac_max_buffer_size), pixel_shape=pixel_shape)
 
-    if args.algo in ['metra', 'dads', 'causer', 'metra_bl', 'SZN', 'SZN_batch', 'SZN_Z', 'SZN_P', 'SZN_PP', 'SZN_PPP', 'SZN_PPAU', 'P_SZN_AU']:
+    if args.algo in ['metra', 'dads', 'causer', 'metra_bl', 'SZN', 'SZN_batch', 'SZN_Z', 'SZN_P', 'SZN_PP', 'SZN_PPP', 'SZN_PPAU', 'P_SZN_AU', 'PSZP']:
         qf1 = ContinuousMLPQFunctionEx(
             obs_dim=policy_q_input_dim,
             action_dim=action_dim,
@@ -631,6 +633,13 @@ def run(ctxt=None):
     
     elif args.algo == 'P_SZN_AU':
         algo = P_SZN_AU(
+            **algo_kwargs,
+            SampleZPolicy=SampleZPolicy,
+            **skill_common_args,
+        )
+        
+    elif args.algo == 'PSZP':
+        algo = PSZP(
             **algo_kwargs,
             SampleZPolicy=SampleZPolicy,
             **skill_common_args,

@@ -276,7 +276,7 @@ class IOD(RLAlgorithm):
                             # phi_g = trajectories[i]['agent_infos']['phi_sub_goal']
                             # psi_s = self.Psi(self.traj_encoder(torch.tensor(trajectories[i]['observations']).to(self.device)).mean,  self.traj_encoder(self.obs0).mean).cpu().numpy()
                             psi_s = self.Psi(self.traj_encoder(torch.tensor(trajectories[i]['observations']).to(self.device)).mean).cpu().numpy()
-                            psi_g = trajectories[i]['agent_infos']['psi_g']
+                            psi_g = trajectories[i]['agent_infos']['options']
                             All_Repr_obs_list.append(psi_s)
                             All_Goal_obs_list.append(psi_g)
                         
