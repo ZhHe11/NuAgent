@@ -145,9 +145,36 @@ def viz_SZN_dist_circle(SZN, input_token, path, psi_z=None):
     plt.xlim(-1, 1)
     plt.ylim(-1, 1)
     plt.savefig(path + '-c' + '.png')
+    print("save at:", path + '-c' + '.png')
     plt.close()
 
+def viz_dist_circle(window, path, psi_z=None):
+    from matplotlib.patches import Ellipse
+    fig = plt.figure(0)
+    ax = fig.add_subplot(111)
+    for i in range(len(window)):
+        dist = window[i]
+        for i in range(dist.mean.shape[0]):
+            mu_x = dist.mean[i][0].detach().cpu().numpy()
+            sigma_x = dist.stddev[i][0].detach().cpu().numpy()
+            mu_y = dist.mean[i][1].detach().cpu().numpy()
+            sigma_y = dist.stddev[i][1].detach().cpu().numpy()
+            e = Ellipse(xy = (mu_x,mu_y), width = sigma_x * 2, height = sigma_y * 2, angle=0)
+            ax.add_artist(e)
+        
+    if psi_z is not None:
+        ax.scatter(psi_z[:, 0], psi_z[:, 1], marker='*', alpha=1)
 
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.grid(True)
+    plt.xlim(-1, 1)
+    plt.ylim(-1, 1)
+    plt.savefig(path + '-c' + '.png')
+    print("save at:", path + '-c' + '.png')
+    plt.close()
+    
+    
 class P_SZN_AU(IOD):
     def __init__(
             self,
@@ -248,6 +275,7 @@ class P_SZN_AU(IOD):
         
         # for psro:
         self.init_obs = torch.tensor(init_obs).unsqueeze(0).expand(self.num_random_trajectories, -1).to(self.device)
+        self.s0 = torch.tensor(init_obs).unsqueeze(0).to(self.device)
         self.exp_z = None   
         self.epoch_final = None
         self._trans_phi_optimization_epochs = _trans_phi_optimization_epochs
@@ -260,14 +288,15 @@ class P_SZN_AU(IOD):
         self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=1e-4)
         self.grad_clip = GradClipper(clip_type='clip_norm', threshold=3, norm_type=2)
         
-        self.input_token = torch.eye(self.num_random_trajectories).float().to(self.device)
+        self.input_token = torch.zeros(self.num_random_trajectories, self.num_random_trajectories).float().to(self.device)
         
         self.last_policy = copy.deepcopy(self.option_policy)
         self.last_qf1 = copy.deepcopy(self.qf1)
         self.last_qf2 = copy.deepcopy(self.qf2)
         self.last_alpha = copy.deepcopy(self.log_alpha)
         self.copyed = 0
-        self.DistWindow = []
+        with torch.no_grad():
+            self.DistWindow = [self.SampleZPolicy(self.input_token)]
         
     
     @property
@@ -385,42 +414,40 @@ class P_SZN_AU(IOD):
             
             if self.method['explore'] == 'SZN' and self.epoch_final is not None:
                 if runner.step_itr % 20 == 0:
-                    use_Regret = 1
-                    # window queue operation
-                    with torch.no_grad():
-                        dist = self.SampleZPolicy(self.input_token)
-                        self.DistWindow.append(dist)
-                        if len(self.DistWindow) > 5:
-                            self.DistWindow.pop(0)
-                
                     self.copy_params(self.ResetSZPolicy, self.SampleZPolicy)
-                    self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=1e-4)
-
+                    self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=1e-1)
+                    
                     for t in range(50):
                         # Reset the SZN:
                         dist_z = self.SampleZPolicy(self.input_token)
-                        z = dist_z.rsample()
+                        z = dist_z.sample()
                         z_logp = dist_z.log_prob(z)
                         V_z = self.EstimateValue(policy=self.option_policy, alpha=self.log_alpha, qf1=self.qf1, qf2=self.qf2, option=z, state=self.init_obs)
                         
-                        if self.copyed and use_Regret:
+                        if self.copyed:
                             V_z_last_iter = self.EstimateValue(policy=self.last_policy, alpha=self.last_alpha, qf1=self.last_qf1, qf2=self.last_qf2, option=z, state=self.init_obs)
                         else:
                             V_z_last_iter = 0
                             
-                        if use_Regret:
-                            Regret = V_z - V_z_last_iter
-                            V_szn = (Regret - Regret.mean()) / (Regret.std() + 1e-3)
-                        else:
-                            V_szn = -(V_z - V_z.mean()) / (V_z.std() + 1e-3)
-                        
+                        Regret = V_z - V_z_last_iter
+                        V_szn = Regret
+                    
                         self.SampleZPolicy_optim.zero_grad()    
                         w = 0.01
-                        loss_SZP = (-z_logp * V_szn - w * dist_z.entropy()).mean()
+                        
+                        Kl_sum = 0
+                        for i in range(len(self.DistWindow)):
+                            dist_i = self.DistWindow[i]
+                            log_qz = dist_i.log_prob(z)
+                            log_pz = z_logp
+                            pz = torch.exp(log_pz)
+                            Kl_sum += - pz * (log_pz - log_qz)
+                        kl_window = log_pz / len(self.DistWindow)
+                        
+                        loss_SZP = (-z_logp * V_szn - w * dist_z.entropy() - kl_window).mean()
                         loss_SZP.backward()
                         self.grad_clip.apply(self.SampleZPolicy.parameters())
                         self.SampleZPolicy_optim.step()
-                        
                         if wandb.run is not None:
                             wandb.log({
                                 "SZN/loss_SZP": loss_SZP,
@@ -430,40 +457,45 @@ class P_SZN_AU(IOD):
                                 "epoch": runner.step_itr,
                             })
                               
+                    # window queue operation    
+                    with torch.no_grad():
+                        dist = self.SampleZPolicy(self.input_token)    
+                        is_different = 1
+                        for j in range(len(self.DistWindow)):
+                            dist_mean = dist.mean
+                            window_j_mean = self.DistWindow[j].mean
+                            if (self.norm(dist_mean - window_j_mean)).mean() < 0.1:
+                                is_different = 0
+                                break
+                        if is_different == 1:               
+                            self.DistWindow.append(dist)
+                            if len(self.DistWindow) > 10:
+                                self.DistWindow.pop(0)
+
                     # save k-1 policy and qf
-                    if use_Regret:
-                        self.copy_params(self.option_policy, self.last_policy)
-                        self.copy_params(self.log_alpha, self.last_alpha)
-                        self.copy_params(self.qf1, self.last_qf1)
-                        self.copy_params(self.qf2, self.last_qf2)
-                        self.copyed = 1
+                    self.copy_params(self.option_policy, self.last_policy)
+                    self.copy_params(self.log_alpha, self.last_alpha)
+                    self.copy_params(self.qf1, self.last_qf1)
+                    self.copy_params(self.qf2, self.last_qf2)
+                    self.copyed = 1
             
                 psi_g = self.SampleZPolicy(self.input_token).sample().detach()
                 
-                
-                z_pool = psi_g
-                for j in range(len(self.DistWindow)):
-                    # method 1
-                    # random_index = random.randint(0, self.num_random_trajectories-1)
-                    # z_history = self.DistWindow[j].sample()[random_index]
-                    # random_index = random.randint(0, self.num_random_trajectories-1)
-                    # psi_g[random_index] = z_history
-                    
-                    # method 2
-                    z_pool = torch.cat((z_pool, self.DistWindow[j].sample()), 0)    
-                
-                # self.last_z = psi_g
-                random_index = np.random.randint(0, z_pool.shape[0], self.num_random_trajectories)
-                self.last_z = z_pool[random_index]
+                # sample SZN from window
+                random_index = np.random.randint(0, len(self.DistWindow))
+                print(random_index, 'of', len(self.DistWindow)-1)
+                dist = self.DistWindow[random_index]
+                self.last_z = dist.sample()
                 
                 np_z = self.last_z.cpu().numpy()
                 print("Sample Z: ", np_z)
                 extras = self._generate_option_extras(np_z, psi_g=psi_g.cpu().numpy())   
             
                 # viz the dist using mean and std;
-                if runner.step_itr % 20 == 0:
+                if runner.step_itr % 5 == 0:
                     path = wandb.run.dir + '/E' + str(runner.step_itr) + '-'
-                    viz_SZN_dist_circle(self.SampleZPolicy, self.input_token, path=path, psi_z=np_z)
+                    viz_dist_circle(self.DistWindow, path=path, psi_z=np_z)
+
 
             elif self.method['explore'] == 'uniform' and self.epoch_final is not None:
                 # w/o unit_length
@@ -595,8 +627,11 @@ class P_SZN_AU(IOD):
             return z
         
     
-    def Psi(self, phi_x):
-        return torch.tanh(1/300 * phi_x)
+    def Psi(self, phi_x, phi_x0=None):
+        if phi_x0 is None:
+            x0 = self.s0        # [1, dim_obs]; phi_x: [batch, dim_z]
+            phi_x0 = self.traj_encoder(x0).mean     # [1, dim_z]
+        return torch.tanh(1/300 * (phi_x-phi_x0))
     
     def norm(self, x, keepdim=False):
         return torch.norm(x, p=2, dim=-1, keepdim=keepdim)        

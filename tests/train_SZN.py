@@ -15,6 +15,8 @@ from sklearn.decomposition import PCA
 import matplotlib.cm as cm
 from tqdm import trange, tqdm
 
+import torch.optim as optim
+from iod.GradCLipper import GradClipper
 
 # save the traj. as fig
 def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_PCA=False, is_goal=True):
@@ -105,6 +107,36 @@ def EstimateValue(policy, alpha, qf1, qf2, option, state, num_samples=1):
     return E_V.squeeze(-1)
 
 
+def viz_dist_circle(window, path, psi_z=None):
+    from matplotlib.patches import Ellipse
+    fig = plt.figure(0)
+    ax = fig.add_subplot(111)
+    for i in range(len(window)):
+        dist = window[i]
+        for i in range(dist.mean.shape[0]):
+            mu_x = dist.mean[i][0].detach().cpu().numpy()
+            sigma_x = dist.stddev[i][0].detach().cpu().numpy()
+            mu_y = dist.mean[i][1].detach().cpu().numpy()
+            sigma_y = dist.stddev[i][1].detach().cpu().numpy()
+            e = Ellipse(xy = (mu_x,mu_y), width = sigma_x * 2, height = sigma_y * 2, angle=0)
+            ax.add_artist(e)
+        
+    if psi_z is not None:
+        ax.scatter(psi_z[:, 0], psi_z[:, 1], marker='*', alpha=1)
+
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.grid(True)
+    plt.xlim(-1, 1)
+    plt.ylim(-1, 1)
+    plt.savefig(path + '-c' + '.png')
+    print("save at:", path + '-c' + '.png')
+    plt.close()
+
+
+
+def norm(x, keepdim=False):
+    return torch.norm(x, p=2, dim=-1, keepdim=keepdim)     
 
 @torch.no_grad()
 def viz_Value_in_Psi(policy, alpha, qf1, qf2, state, num_samples=10, device='cpu', path='./', label='1'):
@@ -159,12 +191,12 @@ def viz_Regert_in_Psi(base1, base2, state, num_samples=10, device='cpu', path='.
     
     # value 1:
     qf1, qf2, alpha, policy = get_fuctions(base1)
-    V1 = EstimateValue(policy, alpha, qf1, qf2, option, state_batch, num_samples=num_samples)
+    V1 = EstimateValue(policy, alpha, qf1, qf2, option, state_batch, num_samples=num_samples)   # / (torch.clamp(norm(option), min=0.5))
     V1 = V1.view(pos.shape[0],pos.shape[1])
     
     # value 2:
     qf1, qf2, alpha, policy = get_fuctions(base2)
-    V2 = EstimateValue(policy, alpha, qf1, qf2, option, state_batch, num_samples=num_samples)
+    V2 = EstimateValue(policy, alpha, qf1, qf2, option, state_batch, num_samples=num_samples)   # / (torch.clamp(norm(option), min=0.5))
     V2 = V2.view(pos.shape[0],pos.shape[1])
     
     # Regret:
@@ -199,29 +231,29 @@ def viz_Regert_in_Psi(base1, base2, state, num_samples=10, device='cpu', path='.
     # print('save at: ' + path + '-Regret-scale' + '.png')
     # plt.close()
     
-    # # plot Value:
-    # fig = plt.figure(figsize=(18, 12), facecolor='w')
-    # ax = fig.add_subplot(111, projection='3d')
-    # ax.plot_surface(X, Y, V1.cpu().numpy(), rstride=1, cstride=1, cmap='viridis', edgecolor='none')
-    # ax.view_init(60, 35)
-    # ax.set_xlabel('X')          
-    # ax.set_ylabel('Y')
-    # ax.set_zlabel('V1')
-    # plt.savefig(path + '-Value1' + '.png')
-    # print('save at: ' + path + '-Value1' + '.png')
-    # plt.close()
+    # plot Value:
+    fig = plt.figure(figsize=(18, 12), facecolor='w')
+    ax = fig.add_subplot(111, projection='3d')
+    ax.plot_surface(X, Y, V1.cpu().numpy(), rstride=1, cstride=1, cmap='viridis', edgecolor='none')
+    ax.view_init(60, 35)
+    ax.set_xlabel('X')          
+    ax.set_ylabel('Y')
+    ax.set_zlabel('V1')
+    plt.savefig(path + '-Value1' + '.png')
+    print('save at: ' + path + '-Value1' + '.png')
+    plt.close()
     
-    # # plot Value:
-    # fig = plt.figure(figsize=(18, 12), facecolor='w')
-    # ax = fig.add_subplot(111, projection='3d')
-    # ax.plot_surface(X, Y, V2.cpu().numpy(), rstride=1, cstride=1, cmap='viridis', edgecolor='none')
-    # ax.view_init(60, 35)
-    # ax.set_xlabel('X')          l
-    # ax.set_ylabel('Y')
-    # ax.set_zlabel('V2')
-    # plt.savefig(path + '-Value2' + '.png')
-    # print('save at: ' + path + '-Value2' + '.png')
-    # plt.close()
+    # plot Value:
+    fig = plt.figure(figsize=(18, 12), facecolor='w')
+    ax = fig.add_subplot(111, projection='3d')
+    ax.plot_surface(X, Y, V2.cpu().numpy(), rstride=1, cstride=1, cmap='viridis', edgecolor='none')
+    ax.view_init(60, 35)
+    ax.set_xlabel('X')          
+    ax.set_ylabel('Y')
+    ax.set_zlabel('V2')
+    plt.savefig(path + '-Value2' + '.png')
+    print('save at: ' + path + '-Value2' + '.png')
+    plt.close()
     
     
     
@@ -231,10 +263,13 @@ def viz_Regert_in_Psi(base1, base2, state, num_samples=10, device='cpu', path='.
 
 ## load model
 # baseline 
-policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZN-R4-Window-1sd000_1729586807_ant_maze_P_SZN_AU/wandb/run-20241022_164649-hfwwbyxc/filesoption_policy-60.pt"
-policy_path2 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZN-R4-Window-1sd000_1729586807_ant_maze_P_SZN_AU/wandb/run-20241022_164649-hfwwbyxc/filesoption_policy-80.pt"
+policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/SaveModel/filesoption_policy-500.pt"
+policy_path2 = "/mnt/nfs2/zhanghe/NuAgent/exp/SaveModel/filesoption_policy-600.pt"
 traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PPAU-constraint7-uniform-3sd000_1729427323_ant_maze_P_SZN_AU/wandb/latest-run/filestaregt_traj_encoder-1000.pt"
-SZN_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PPAU-constraint7-uniform-3sd000_1729427323_ant_maze_P_SZN_AU/wandb/latest-run/filesSampleZPolicy-1000.pt"
+# SZN_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PPAU-constraint7-uniform-3sd000_1729427323_ant_maze_P_SZN_AU/wandb/latest-run/filesSampleZPolicy-1000.pt"
+
+
+SZN_path_0 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZN-R4-Window-4sd000_1729659070_ant_maze_P_SZN_AU/wandb/latest-run/filesSampleZPolicy-0.pt"
 
 # policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/SZN-Exp4sd000_1728446621_ant_maze_SZN_Z/option_policy3000.pt"
 # traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/SZN-Exp4sd000_1728446621_ant_maze_SZN_Z/traj_encoder3000.pt"
@@ -246,7 +281,7 @@ SZN_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PPAU-constraint7-uniform-3sd00
 load_option_policy_base = torch.load(policy_path)
 load_option_policy_base2 = torch.load(policy_path2)
 load_traj_encoder_base = torch.load(traj_encoder_path)
-load_SZN_path_base = torch.load(SZN_path)
+load_SZN_path_base = torch.load(SZN_path_0)
 agent_policy = load_option_policy_base['policy'].eval()
 if "target_traj_encoder" in load_traj_encoder_base.keys():
     agent_traj_encoder = load_traj_encoder_base['target_traj_encoder'].eval()
@@ -279,25 +314,90 @@ dim_option = 2
 type = 'random_z'
 
 
-
-
-
-
 s0 = torch.tensor(obs0).to(device).float()
 psi_s0 = Psi(agent_traj_encoder(s0).mean)
-viz_Regert_in_Psi(base1=load_option_policy_base, base2=load_option_policy_base2, state=s0, device=device, num_samples=100)
+viz_Regert_in_Psi(base1=load_option_policy_base, base2=load_option_policy_base2, state=s0, device=device, num_samples=10)
     
+def get_fuctions(base):
+    return base['qf1'], base['qf2'], base['alpha'], base['policy'] 
+
+def norm(x, keepdim=False):
+    return torch.norm(x, p=2, dim=-1, keepdim=keepdim)        
+
+qf1, qf2, alpha, policy = get_fuctions(load_option_policy_base2)
+last_qf1, last_qf2, last_alpha, last_policy = get_fuctions(load_option_policy_base)
+grad_clip = GradClipper(clip_type='clip_norm', threshold=3, norm_type=2)
+
+exit()
+
+train_SZN = 1
+DistWindow = [SZN(input_token)]
+for i in range(10):
+    # to do: 在SZN的loss中加入一个KL散度的loss，这个kl散度是当前z和window中的分布之间的kl散度；让kl散度尽可能增大，可以让window中的sample的方向尽可以能多，同时也能保证是Regert较大的分布；
+    SampleZPolicy_optim = optim.Adam(SZN.parameters(), lr=1e-1)
     
-    
-    
-    
-# s0 = torch.tensor(obs0).to(device).float()
-# psi_s0 = Psi(agent_traj_encoder(s0).mean)
-# qf1 = load_option_policy_base['qf1']
-# qf2 = load_option_policy_base['qf2']
-# alpha = load_option_policy_base['alpha']
-# policy = load_option_policy_base['policy']
-# viz_Value_in_Psi(policy, alpha, qf1, qf2, state=s0, num_samples=10, device=device, path=path)
+    for t in range(50):
+        # Reset the SZN:
+        dist_z = SZN(input_token)
+        z = dist_z.sample()
+        z_logp = dist_z.log_prob(z)
+        V_z = EstimateValue(policy=policy, alpha=alpha, qf1=qf1, qf2=qf2, option=z, state=s0.unsqueeze(0).repeat(z.shape[0], 1))
+        
+        V_z_last_iter = EstimateValue(policy=last_policy, alpha=last_alpha, qf1=last_qf1, qf2=last_qf2, option=z, state=s0.unsqueeze(0).repeat(z.shape[0], 1))
+
+        Regret = V_z - V_z_last_iter
+        # V_szn = (Regret - Regret.mean()) / (Regret.std() + 1e-3)\
+        V_szn = Regret
+
+        SampleZPolicy_optim.zero_grad()    
+        w = 0.01
+        Kl_sum = 0
+        for i in range(len(DistWindow)):
+            dist_i = DistWindow[i]
+            log_qz = dist_i.log_prob(z)
+            log_pz = z_logp
+            pz = torch.exp(log_pz)
+            Kl_sum += - pz * (log_pz - log_qz)
+        
+        kl_window = log_pz / len(DistWindow)
+        
+        loss_SZP = (-z_logp * V_szn - w * dist_z.entropy() - kl_window).mean()
+        loss_SZP.backward()
+        grad_clip.apply(SZN.parameters())
+        SampleZPolicy_optim.step()
+                
+    # window queue operation    
+    with torch.no_grad():
+        dist = SZN(input_token)    
+        is_different = 1
+        for j in range(len(DistWindow)):
+            dist_mean = dist.mean
+            window_j_mean = DistWindow[j].mean
+            if (norm(dist_mean - window_j_mean)).mean() < 0.1:
+                is_different = 0
+                break
+        if is_different == 1:               
+            DistWindow.append(dist)
+            if len(DistWindow) > 10:
+                DistWindow.pop(0)
+                
+    psi_g = SZN(input_token).sample().detach()
+
+    # sample SZN from window
+    random_index = np.random.randint(0, len(DistWindow))
+    print(random_index)
+    dist = DistWindow[random_index]
+    last_z = dist.sample()
+
+    np_z = last_z.cpu().numpy()
+    print("Sample Z: ", np_z)
+
+    from iod.P_SZN_AU import viz_SZN_dist_circle
+    viz_SZN_dist_circle(SZN, input_token, path=path, psi_z=np_z)
+
+viz_dist_circle(DistWindow, path=path+'window', psi_z=np_z)
+
+
 
 exit()
 
