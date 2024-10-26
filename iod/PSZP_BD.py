@@ -153,7 +153,7 @@ def viz_SZN_dist_circle(SZN, input_token, path, psi_z=None):
 
     
     
-class PSZP(IOD):
+class PSZP_BD(IOD):
     '''
     Projection Sample Z Pool;
     
@@ -437,7 +437,7 @@ class PSZP(IOD):
                         
                     return V_z - V_z_last_iter
                 
-                k = 5
+                k = 1
                 if self.NumSampleTimes == k * len(self.DistWindow):
                     # window pool operation    
                     with torch.no_grad():
@@ -518,7 +518,7 @@ class PSZP(IOD):
                             ax1 = fig.add_subplot(121, projection='3d')
                             ax2 = fig.add_subplot(122)
                             viz_Regert_in_Psi(state=self.s0, device=self.device, path=path, ax=ax1)
-                            viz_dist_circle(self.DistWindow, path=path, psi_z=self.last_z.cpu().numpy(), ax=ax2)
+                            viz_dist_circle(self.DistWindow, path=path, ax=ax2)
                             plt.savefig(path + '-Regret' + '.png')
                             print('save at: ' + path + '-Regret' + '.png')
                             plt.close()
@@ -532,19 +532,10 @@ class PSZP(IOD):
                     self.copyed = 1
             
                 # sample SZN from window
-                # random_index = np.random.randint(0, len(self.DistWindow))
-                # print(random_index, 'of', len(self.DistWindow)-1, "; NumSampleTimes:", self.NumSampleTimes)
-                # dist = self.DistWindow[random_index]
-                # self.last_z = dist.sample()
-                z_pool = None
-                for i in range(len(self.DistWindow)):
-                    dist_i = self.DistWindow[i]
-                    if z_pool is None:
-                        z_pool = dist_i.sample()        # [16, 2]
-                    else:
-                        z_pool = torch.cat((z_pool, dist_i.sample()), dim=0)    # [l*16, 2]
-                index_sample = np.random.choice(z_pool.shape[0], self.num_random_trajectories, replace=False)
-                self.last_z = z_pool[index_sample]
+                random_index = np.random.randint(0, len(self.DistWindow))
+                print(random_index, 'of', len(self.DistWindow)-1, "; NumSampleTimes:", self.NumSampleTimes)
+                dist = self.DistWindow[random_index]
+                self.last_z = dist.sample()
                 
                 np_z = self.last_z.cpu().numpy()
                 print("Sample Z: ", np_z)
@@ -699,7 +690,6 @@ class PSZP(IOD):
         
         if self.method["phi"] in ['Projection']:
             psi_g = v['options']
-            z_unit = self.vec_norm(psi_g)
             phi_s_0 = self.traj_encoder(v['s_0']).mean
             phi_s = cur_z
             phi_s_next = next_z
@@ -715,32 +705,14 @@ class PSZP(IOD):
 
             # 1. Similarity Reward
             delta_norm = self.norm((psi_s_next - psi_s))
-            # direction_sim = ((psi_s_next - psi_s) * self.vec_norm(psi_g)).sum(dim=-1)    # [-1,1]
-            # phi_obj = direction_sim
-            ## pos sample
-            matrix = ((psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
-            direction_sim = torch.diag(matrix)
-            ## neg smaple
-            # decay weight 
-            option_sim = (z_unit.unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
-            # 要把相同的z过滤掉，否则会削弱正样本的梯度；
-            # 加一个判断，如果g-与g特别接近，就用mask掉；
-            dist_theta = 1e-4
-            distance_pos_neg = torch.norm(z_unit.unsqueeze(0) - z_unit.unsqueeze(1), p=2, dim=-1)
-            mask = torch.where(distance_pos_neg < dist_theta, 0, 1)
-            decay_k = 3
-            decay_weight = mask * decay_k * torch.exp(decay_k * (option_sim - 1)).detach()
-            weight_matrix = decay_weight * matrix
-            contrastive_sim = - ((weight_matrix).mean(dim=-1) + (weight_matrix.T).mean(dim=-1)) / 2
-            ## pos and neg obj.
-            phi_obj = direction_sim + contrastive_sim
-            
+            direction_sim = ((psi_s_next - psi_s) * self.vec_norm(psi_g)).sum(dim=-1)    # [-1,1]
+            phi_obj = direction_sim
+
             # 2. Goal Arrival Reward
-            norm_z = torch.clamp(self.norm(psi_g), min=k*d)
             reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
             reward_g_arrival = torch.where(self.norm(psi_g - psi_s_next)<d, 1.0, 0.).to(self.device)
             reward_g_dir = (self.vec_norm(psi_s_next - psi_s) * self.vec_norm(psi_g - psi_s)).sum(dim=-1)
-            policy_rewards = 1 * reward_g_distance + 1 * reward_g_dir + 0 * reward_g_arrival
+            policy_rewards = 1 * reward_g_distance + 1 * reward_g_dir + 10 * reward_g_arrival
             
             v.update({
                 'cur_z': cur_z,
@@ -759,8 +731,6 @@ class PSZP(IOD):
                 'reward_g_dir': reward_g_dir.mean(),
                 'delta_norm': delta_norm.mean(),
                 'direction_sim': direction_sim.mean(),
-                'contrastive_sim': contrastive_sim.mean(),
-                'decay_weight': decay_weight.mean(),
             })
             
             return
