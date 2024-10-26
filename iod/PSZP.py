@@ -712,7 +712,8 @@ class PSZP(IOD):
             updated_next_option = psi_g
             k = 5
             d = 1 / self.max_path_length
-
+            reward_g_distance = torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
+            
             # 1. Similarity Reward
             delta_norm = self.norm((psi_s_next - psi_s))
             # direction_sim = ((psi_s_next - psi_s) * self.vec_norm(psi_g)).sum(dim=-1)    # [-1,1]
@@ -721,19 +722,33 @@ class PSZP(IOD):
             matrix = ((psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
             direction_sim = torch.diag(matrix)
             ## neg smaple
-            # decay weight 
-            option_sim = (z_unit.unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
-            # 要把相同的z过滤掉，否则会削弱正样本的梯度；
-            # 加一个判断，如果g-与g特别接近，就用mask掉；
-            dist_theta = 1e-4
-            distance_pos_neg = torch.norm(z_unit.unsqueeze(0) - z_unit.unsqueeze(1), p=2, dim=-1)
-            mask = torch.where(distance_pos_neg < dist_theta, 0, 1)
-            decay_k = 3
-            decay_weight = mask * decay_k * torch.exp(decay_k * (option_sim - 1)).detach()
-            weight_matrix = decay_weight * matrix
-            contrastive_sim = - ((weight_matrix).mean(dim=-1) + (weight_matrix.T).mean(dim=-1)) / 2
+            def cal_softmax_obj():
+                # decay weight 
+                option_sim = (z_unit.unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
+                # 要把相同的z过滤掉，否则会削弱正样本的梯度；
+                # 加一个判断，如果g-与g特别接近，就用mask掉；
+                dist_theta = 1e-4
+                distance_pos_neg = torch.norm(z_unit.unsqueeze(1) - z_unit.unsqueeze(0), p=2, dim=-1)
+                mask = torch.where(distance_pos_neg < dist_theta, 0, 1) + torch.eye(z_unit.shape[0], z_unit.shape[0]).to(self.device)
+                matrix = mask * matrix
+                t = 1
+                matrix = matrix / t
+                label = torch.arange(matrix.shape[0]).to(self.device)
+                contrastive_sim = - F.cross_entropy(matrix, label) - F.cross_entropy(matrix.T, label)
+                # decay_k = 5
+                # decay_weight = mask * decay_k * torch.exp(decay_k * (option_sim - 1)).detach()
+                # weight_matrix = decay_weight * matrix       # [1024, 1024]
+                # contrastive_sim = - ((weight_matrix).mean(dim=-1) + (weight_matrix.T).mean(dim=-1)) / 2     # [1024]
+                return contrastive_sim
+            
+            def cal_w_obj():
+                w = 0.1
+                contrastive_sim = - ((matrix).mean(dim=-1) + (matrix.T).mean(dim=-1)) / 2     # [1024]
+                return = w * contrastive_sim
+                
             ## pos and neg obj.
-            phi_obj = direction_sim + contrastive_sim
+            contrastive_sim = cal_w_obj()
+            phi_obj = direction_sim +  1 * contrastive_sim + 0 * reward_g_distance
             
             # 2. Goal Arrival Reward
             norm_z = torch.clamp(self.norm(psi_g), min=k*d)
@@ -760,7 +775,7 @@ class PSZP(IOD):
                 'delta_norm': delta_norm.mean(),
                 'direction_sim': direction_sim.mean(),
                 'contrastive_sim': contrastive_sim.mean(),
-                'decay_weight': decay_weight.mean(),
+                # 'decay_weight': decay_weight.mean(),
             })
             
             return
