@@ -744,7 +744,7 @@ class PSZP(IOD):
             def cal_w_obj():
                 w = 0.1
                 contrastive_sim = - ((matrix).mean(dim=-1) + (matrix.T).mean(dim=-1)) / 2     # [1024]
-                return = w * contrastive_sim
+                return w * contrastive_sim
                 
             ## pos and neg obj.
             contrastive_sim = cal_w_obj()
