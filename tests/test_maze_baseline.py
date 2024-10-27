@@ -136,8 +136,8 @@ def eval_cover_rate(ax, dim_option, agent_traj_encoder, agent_policy, device, ma
                 
                 psi_g = Psi(phi_g)
                 psi_obs0 = Psi(phi_obs0)
-                # option = psi_g - psi_obs0
-                # option = torch.randn_like(psi_g).to(device)
+                option = psi_g - psi_obs0
+                option = torch.randn_like(psi_g).to(device)
                 psi_g = vec_norm(torch.randn_like(psi_g).to(device))
                 
                 
@@ -463,8 +463,8 @@ def run(path, num_eval, type=['metrics']):
 
 
 if __name__ == '__main__':
-    # env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
-    env = MazeWrapper("antmaze-umaze-v0", random_init=False)
+    env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
+    # env = MazeWrapper("antmaze-umaze-v0", random_init=False)
     
 
     paths = [
@@ -482,7 +482,8 @@ if __name__ == '__main__':
         # "/mnt/nfs2/zhanghe/NuAgent/exp/LittleMaze/norm_psisd000_1728815280_ant_maze_SZN_P/option_policy1400.pt",
         
         
-        "/mnt/nfs2/zhanghe/NuAgent/exp/LittleMaze/norm_psisd000_1728918915_ant_maze_SZN_PPP/option_policy2300.pt",       
+        # "/mnt/nfs2/zhanghe/NuAgent/exp/LittleMaze/norm_psisd000_1728918915_ant_maze_SZN_PPP/option_policy2300.pt", 
+        "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PR-uniformsd000_1729956437_ant_maze_SZN_P/option_policy2500.pt"      
         
         # "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/PSZNsd000_1728725075_ant_maze_SZN_P/option_policy5000.pt", 
         # "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/PSZNsd000_1728725075_ant_maze_SZN_P/option_policy6000.pt", 

@@ -722,7 +722,7 @@ class PSZP(IOD):
             matrix = ((psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
             direction_sim = torch.diag(matrix)
             ## neg smaple
-            def cal_softmax_obj():
+            def cal_softmax_obj(matrix):
                 # decay weight 
                 option_sim = (z_unit.unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
                 # 要把相同的z过滤掉，否则会削弱正样本的梯度；
@@ -731,7 +731,7 @@ class PSZP(IOD):
                 distance_pos_neg = torch.norm(z_unit.unsqueeze(1) - z_unit.unsqueeze(0), p=2, dim=-1)
                 mask = torch.where(distance_pos_neg < dist_theta, 0, 1) + torch.eye(z_unit.shape[0], z_unit.shape[0]).to(self.device)
                 matrix = mask * matrix
-                t = 1
+                t = 10
                 matrix = matrix / t
                 label = torch.arange(matrix.shape[0]).to(self.device)
                 contrastive_sim = - F.cross_entropy(matrix, label) - F.cross_entropy(matrix.T, label)
@@ -747,7 +747,7 @@ class PSZP(IOD):
                 return w * contrastive_sim
                 
             ## pos and neg obj.
-            contrastive_sim = cal_w_obj()
+            contrastive_sim = cal_softmax_obj(matrix)
             phi_obj = direction_sim +  1 * contrastive_sim + 0 * reward_g_distance
             
             # 2. Goal Arrival Reward
