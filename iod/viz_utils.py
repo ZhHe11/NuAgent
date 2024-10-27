@@ -355,7 +355,7 @@ def PlotMazeTrajDist(env, SZN, input_token, agent_traj_encoder, qf1, qf2, alpha,
     AR = np.array(ArriveList).mean()
     print("FD:", FD, '\n', "AR:", AR)
     ax[0,0] = plot_trajectories(env, All_trajs_list, fig, ax[0,0])
-    ax[1,0] = PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=False, ax=ax[1,0])
+    ax[1,0] = PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=True, ax=ax[1,0])
     ax[1,1] = viz_SZN_dist_circle(SZN, input_token, path, psi_z=None, ax=ax[1,1])
 
     filepath = path + "-Maze_traj.png"
@@ -381,7 +381,7 @@ def PlotMazeTrajWindowDist(env, window, agent_traj_encoder, qf1, qf2, alpha, pol
     AR = np.array(ArriveList).mean()
     print("FD:", FD, '\n', "AR:", AR)
     ax[0,0] = plot_trajectories(env, All_trajs_list, fig, ax[0,0])
-    ax[1,0] = PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=False, ax=ax[1,0])
+    ax[1,0] = PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=True, ax=ax[1,0])
     ax[1,1] = viz_dist_circle(window, path, psi_z=None, ax=ax[1,1])
     
     filepath = path + "-Maze_traj.png"
