@@ -1,9 +1,9 @@
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=1
 export MUJOCO_GL="osmesa"
 
 # regret
-python tests/main.py --run_group MazeSZN --env ant_maze --max_path_length 300 --seed 0 --traj_batch_size 16 --n_parallel 1 --normalizer_type off --sac_max_buffer_size 3000000  --n_epochs_per_log 25 --n_epochs_per_eval 100 --n_epochs_per_save 100 --n_epochs_per_pt_save 100 --discrete 0 --dim_option 2 --sac_scale_reward 1 \
-    --algo PSZP --exp_name PSZP-4-z_pool-Contrastive_logsoftmax_t10 --phi_type Projection --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 50 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 --common_lr 1e-3 --model_master_num_layers 2
+python tests/main.py --run_group MazeSZN --env ant_maze --max_path_length 300 --seed 0 --traj_batch_size 16 --n_parallel 2 --normalizer_type off --sac_max_buffer_size 3000000  --n_epochs_per_log 25 --n_epochs_per_eval 100 --n_epochs_per_save 100 --n_epochs_per_pt_save 100 --discrete 0 --dim_option 2 --sac_scale_reward 1 \
+    --algo PSZP --exp_name PSZP-5-reward_g_dir_ori --phi_type Projection --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 50 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 --common_lr 1e-3 --model_master_num_layers 2
 
 
 

@@ -748,13 +748,13 @@ class PSZP(IOD):
                 
             ## pos and neg obj.
             contrastive_sim = cal_softmax_obj(matrix)
-            phi_obj = direction_sim +  1 * contrastive_sim + 0 * reward_g_distance
+            phi_obj = direction_sim +  0 * contrastive_sim + 0 * reward_g_distance
             
             # 2. Goal Arrival Reward
             norm_z = torch.clamp(self.norm(psi_g), min=k*d)
             reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
             reward_g_arrival = torch.where(self.norm(psi_g - psi_s_next)<d, 1.0, 0.).to(self.device)
-            reward_g_dir = (self.vec_norm(psi_s_next - psi_s) * self.vec_norm(psi_g - psi_s)).sum(dim=-1)
+            reward_g_dir = (self.vec_norm(psi_s_next - psi_s) * self.vec_norm(psi_g)).sum(dim=-1)
             policy_rewards = 1 * reward_g_distance + 1 * reward_g_dir + 0 * reward_g_arrival
             
             v.update({
@@ -767,6 +767,7 @@ class PSZP(IOD):
                 'updated_option': updated_option,
                 "updated_next_option": updated_next_option,
             })
+            
             tensors.update({
                 'phi_obj': phi_obj.mean(),
                 'reward_g_distance': reward_g_distance.mean(),

@@ -118,28 +118,29 @@ def eval_cover_rate(ax, dim_option, agent_traj_encoder, agent_policy, device, ma
             #                 [0.9, 4.7],
             #             ]
             goal_list = []
-            for j in trange(len(GoalList)):
-                goal = GoalList[j]
+            options = np.random.uniform(-1,1, (25, 2))
+            for j in trange(len(options)):
+                # goal = GoalList[j]
                 # print(goal)
                 # get goal
-                goal_list.append(goal)
-                ax.scatter(goal[0], goal[1], s=25, marker='o', alpha=1, edgecolors='black')
-                tensor_goal = torch.tensor(goal).to('cuda')
+                # goal_list.append(goal)
+                # ax.scatter(goal[0], goal[1], s=25, marker='o', alpha=1, edgecolors='black')
+                # tensor_goal = torch.tensor(goal).to('cuda')
                 # get obs
                 obs = env.reset()
                 obs = torch.tensor(obs).unsqueeze(0).to(device).float()
-                obs_goal = copy.deepcopy(obs)
-                obs_goal = env.get_target_obs(obs_goal, tensor_goal)
-                phi_g = agent_traj_encoder(obs_goal).mean
+                # obs_goal = copy.deepcopy(obs)
+                # obs_goal = env.get_target_obs(obs_goal, tensor_goal)
+                # phi_g = agent_traj_encoder(obs_goal).mean
                 phi_obs_ = agent_traj_encoder(obs).mean
-                phi_obs0 = copy.deepcopy(phi_obs_)
+                # phi_obs0 = copy.deepcopy(phi_obs_)
                 
-                psi_g = Psi(phi_g)
-                psi_obs0 = Psi(phi_obs0)
-                option = psi_g - psi_obs0
-                option = torch.randn_like(psi_g).to(device)
-                psi_g = vec_norm(torch.randn_like(psi_g).to(device))
-                
+                # psi_g = Psi(phi_g)
+                # psi_obs0 = Psi(phi_obs0)
+                # option = psi_g - psi_obs0
+                # option = torch.randn_like(psi_g).to(device)
+                # psi_g = vec_norm(torch.randn_like(psi_g).to(device))
+                option = 1 * torch.tensor(options[j]).unsqueeze(0).to(device)
                 
                 Repr_obs_list = []
                 Repr_goal_list = []
@@ -151,17 +152,20 @@ def eval_cover_rate(ax, dim_option, agent_traj_encoder, agent_policy, device, ma
                     phi_obs_ = agent_traj_encoder(obs).mean
                     # option = vec_norm(phi_g - phi_obs_)
                     # option = psi_g - Psi(phi_obs_)
-                    option = 2 * psi_g
-                    print(option)
+                    # option = 2 * psi_g
+                    # print(option)
+                    
+                    
                     obs_option = torch.cat((obs, option), -1).float()
                     # for viz
                     Repr_obs_list.append(phi_obs_.cpu().numpy()[0])
-                    Repr_goal_list.append(phi_g.cpu().numpy()[0])
+                    Repr_goal_list.append(option.cpu().numpy()[0])
                     # get actions from policy
                     action, agent_info = agent_policy.get_action(obs_option)
                     # interact with the env
                     obs, reward, dones, info = env.step(action)
-                    gt_dist = np.linalg.norm(goal - obs[:2])
+                    # gt_dist = np.linalg.norm(goal - obs[:2])
+                    gt_dist = 0
                     # for recording traj.2
                     traj_list["observation"].append(obs)
                     info['x'], info['y'] = env.env.get_xy()
@@ -483,7 +487,7 @@ if __name__ == '__main__':
         
         
         # "/mnt/nfs2/zhanghe/NuAgent/exp/LittleMaze/norm_psisd000_1728918915_ant_maze_SZN_PPP/option_policy2300.pt", 
-        "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PR-uniformsd000_1729956437_ant_maze_SZN_P/option_policy2500.pt"      
+        "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PR-uniformsd000_1729956628_ant_maze_SZN_P/option_policy2600.pt"      
         
         # "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/PSZNsd000_1728725075_ant_maze_SZN_P/option_policy5000.pt", 
         # "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/PSZNsd000_1728725075_ant_maze_SZN_P/option_policy6000.pt", 
@@ -494,7 +498,7 @@ if __name__ == '__main__':
 
     metrics_list = []
     for path in paths:
-        metrics, save_path = run(path, type=['eval_cover_rate'], num_eval=20)
+        metrics, save_path = run(path, type=['eval_cover_rate'], num_eval=100)
         if metrics != -1:
             metrics_list.append(metrics)
     
