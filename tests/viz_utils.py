@@ -357,7 +357,6 @@ def viz_dist_circle(window, path, psi_z=None, ax=None):
     else:
         return ax
     
-
 @torch.no_grad()
 def PlotMazeTrajDist(env, SZN, input_token, agent_traj_encoder, qf1, qf2, alpha, policy, device, dim_option=2, max_path_length=300, path='./'):    
     obs0 = env.reset()
@@ -382,8 +381,6 @@ def PlotMazeTrajDist(env, SZN, input_token, agent_traj_encoder, qf1, qf2, alpha,
     filepath = path + "-Maze_traj.png"
     plt.savefig(filepath) 
     print(filepath)
-
-
 
 @torch.no_grad()
 def PlotMazeTrajWindowDist(env, window, agent_traj_encoder, qf1, qf2, alpha, policy, device, dim_option=2, max_path_length=300, path='./', isCover=0):    
@@ -416,44 +413,59 @@ def PlotMazeTrajWindowDist(env, window, agent_traj_encoder, qf1, qf2, alpha, pol
     
 
     
-
 if __name__ == '__main__':
     
-    policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-5-reward_g_dir_orisd000_1729999324_ant_maze_PSZP/wandb/run-20241027_112205-zunnyrbu/filesoption_policy-400.pt"
-    traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-5-reward_g_dir_orisd000_1729999324_ant_maze_PSZP/wandb/run-20241027_112205-zunnyrbu/filestaregt_traj_encoder-400.pt"
-    SZN_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-5-reward_g_dir_orisd000_1729999324_ant_maze_PSZP/wandb/run-20241027_112205-zunnyrbu/filesSampleZPolicy-400.pt"
+    # policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-5-reward_g_dir_orisd000_1729999324_ant_maze_PSZP/wandb/run-20241027_112205-zunnyrbu/filesoption_policy-400.pt"
+    # traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-5-reward_g_dir_orisd000_1729999324_ant_maze_PSZP/wandb/run-20241027_112205-zunnyrbu/filestaregt_traj_encoder-400.pt"
+    # SZN_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-5-reward_g_dir_orisd000_1729999324_ant_maze_PSZP/wandb/run-20241027_112205-zunnyrbu/filesSampleZPolicy-400.pt"
 
-    load_option_policy_base = torch.load(policy_path)
-    load_traj_encoder_base = torch.load(traj_encoder_path)
-    load_SZN_path_base = torch.load(SZN_path)
+    # load_option_policy_base = torch.load(policy_path)
+    # load_traj_encoder_base = torch.load(traj_encoder_path)
+    # load_SZN_path_base = torch.load(SZN_path)
     
-    model_name = policy_path.split('/')[-4]
-    path = './test/' + model_name   
-    dim_option = 2
-    device = 'cuda'
+    # model_name = policy_path.split('/')[-4]
+    # path = './test/' + model_name   
+    # dim_option = 2
+    # device = 'cuda'
     
-    if "target_traj_encoder" in load_traj_encoder_base.keys():
-        agent_traj_encoder = load_traj_encoder_base['target_traj_encoder'].eval()
-    else:
-        agent_traj_encoder = load_traj_encoder_base['traj_encoder'].eval()
-    SZN = load_SZN_path_base['goal_sample_network'].eval()
-    input_token = load_SZN_path_base['input_token']
+    # if "target_traj_encoder" in load_traj_encoder_base.keys():
+    #     agent_traj_encoder = load_traj_encoder_base['target_traj_encoder'].eval()
+    # else:
+    #     agent_traj_encoder = load_traj_encoder_base['traj_encoder'].eval()
+    # SZN = load_SZN_path_base['goal_sample_network'].eval()
+    # input_token = load_SZN_path_base['input_token']
     
-    qf1 = load_option_policy_base['qf1']
-    qf2 = load_option_policy_base['qf2']
-    alpha = load_option_policy_base['alpha']
-    policy = load_option_policy_base['policy']
-
-    env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
-
-    PlotMazeTrajDist(env, SZN, input_token, agent_traj_encoder, qf1, qf2, alpha, policy, device, dim_option=dim_option, path=path)
+    # qf1 = load_option_policy_base['qf1']
+    # qf2 = load_option_policy_base['qf2']
+    # alpha = load_option_policy_base['alpha']
+    # policy = load_option_policy_base['policy']
 
     # env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
-    # fig, ax = plt.subplots(2,2)
-    # fig.subplots_adjust(wspace=0.4, hspace=0.4) 
-    # env.draw(ax[0,0])
-    # ax[0,0].set_title('State of Traj. in Maze')
-    # GoalList = env.env.goal_sampler(np.random.default_rng(seed=0), freq=2)
-    # np_GoalList = np.array(GoalList)
-    # ax[0,0].scatter(np_GoalList[:,0], np_GoalList[:,1])
-    # plt.savefig('test.png')
+
+    # PlotMazeTrajDist(env, SZN, input_token, agent_traj_encoder, qf1, qf2, alpha, policy, device, dim_option=dim_option, path=path)
+
+    # # env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
+    # # fig, ax = plt.subplots(2,2)
+    # # fig.subplots_adjust(wspace=0.4, hspace=0.4) 
+    # # env.draw(ax[0,0])
+    # # ax[0,0].set_title('State of Traj. in Maze')
+    # # GoalList = env.env.goal_sampler(np.random.default_rng(seed=0), freq=2)
+    # # np_GoalList = np.array(GoalList)
+    # # ax[0,0].scatter(np_GoalList[:,0], np_GoalList[:,1])
+    # # plt.savefig('test.png')
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    

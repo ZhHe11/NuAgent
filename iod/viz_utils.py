@@ -10,6 +10,7 @@ import torch
 from sklearn.decomposition import PCA
 import matplotlib.cm as cm
 from tqdm import trange, tqdm
+import copy
 
 from iod.utils import get_torch_concat_obs
 
@@ -73,21 +74,25 @@ def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_P
 def vec_norm(vec):
     return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
 
-def gen_z(sub_goal, obs, traj_encoder, device="cpu", ret_emb: bool = False):
-    goal_z = traj_encoder(sub_goal).mean
-    target_cur_z = traj_encoder(obs).mean
+# def gen_z(sub_goal, obs, traj_encoder, device="cpu", ret_emb: bool = False):
+#     goal_z = traj_encoder(sub_goal).mean
+#     target_cur_z = traj_encoder(obs).mean
 
-    z = vec_norm(goal_z - target_cur_z)
-    if ret_emb:
-        return z, target_cur_z, goal_z
-    else:
-        return z
+#     z = vec_norm(goal_z - target_cur_z)
+#     if ret_emb:
+#         return z, target_cur_z, goal_z
+#     else:
+#         return z
 
 def _get_concat_obs(obs, option):
     return get_torch_concat_obs(obs, option)
 
-def Psi(phi_x):
-    return torch.tanh(1/300 * phi_x)
+def _Psi(phi_x, phi_x0=None):
+    if phi_x0 is None:
+        return torch.tanh(1/150 * phi_x)
+    else:
+        return torch.tanh(1/150 * (phi_x-phi_x0))
+        # return torch.tanh((phi_x-phi_x0))
 
 def EstimateValue(policy, alpha, qf1, qf2, option, state, num_samples=1):
     '''
@@ -204,7 +209,7 @@ def viz_Regert_in_Psi(base1, base2, state, num_samples=10, device='cpu', path='.
     plt.close()
     
 @torch.no_grad()
-def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, freq=5, ax=None, max_path_length=300):
+def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, freq=5, ax=None, max_path_length=300, Psi=_Psi):
     
     FinallDistanceList = []
     All_Repr_obs_list = []
@@ -216,16 +221,27 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, f
     np_random = np.random.default_rng(seed=0) 
     GoalList = env.env.goal_sampler(np_random)
     # GoalList = (13, 3) + 2 * np.random.uniform(-1, 1, (10, dim_option))
+    options = np.random.uniform(-1,1, (len(GoalList), dim_option))
     
     for j in trange(len(GoalList)):
         goal = GoalList[j]
         ax.scatter(goal[0], goal[1], s=25, marker='o', alpha=1, edgecolors='black')
-        tensor_goal = torch.tensor(goal).to('cuda')
-        obs = env.reset()
-        obs = torch.tensor(obs).unsqueeze(0).to(device).float()
-        target_obs = env.get_target_obs(obs, tensor_goal)
-        phi_target_obs = agent_traj_encoder(target_obs).mean
+        tensor_goal = torch.tensor(goal).to(device)
+        # s0
+        obs_0 = env.reset()
+        obs_0 = torch.tensor(obs_0).unsqueeze(0).to(device).float()
+        obs = copy.deepcopy(obs_0)
         phi_obs_ = agent_traj_encoder(obs).mean
+        phi_obs0 = copy.deepcopy(phi_obs_)
+        # goal
+        target_obs = env.get_target_obs(obs_0, tensor_goal)
+        phi_target_obs = agent_traj_encoder(target_obs).mean
+        # option
+        # 1. use map goal
+        option = Psi(phi_target_obs, phi_obs0)
+        # 2. use uniform z
+        # option = torch.tensor(options[j]).unsqueeze(0).to(device).float()
+        
         Repr_obs_list = []
         Repr_goal_list = []
         gt_return_list = []
@@ -234,11 +250,13 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, f
         traj_list["info"] = []
         Cover_list = {}
         for t in range(max_path_length):
-            option, phi_obs_, phi_target_obs = gen_z(target_obs, obs, traj_encoder=agent_traj_encoder, device=device, ret_emb=True)
+            # option, phi_obs_, phi_target_obs = gen_z(target_obs, obs, traj_encoder=agent_traj_encoder, device=device, ret_emb=True)
+            phi_obs_ = agent_traj_encoder(obs).mean
             obs_option = torch.cat((obs, option), -1).float()
             # for viz
-            Repr_obs_list.append(Psi(phi_obs_).cpu().numpy()[0])
-            Repr_goal_list.append(Psi(phi_target_obs).cpu().numpy()[0])
+            # import pdb; pdb.set_trace()
+            Repr_obs_list.append(Psi(phi_obs_, phi_obs0).cpu().numpy()[0])
+            Repr_goal_list.append(option.cpu().numpy()[0])
             # get actions from policy
             action, agent_info = agent_policy.get_action(obs_option)
             # interact with the env
@@ -257,7 +275,6 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, f
             gt_reward = - gt_dist / (30 * max_path_length)
             gt_return_list.append(gt_reward)
             
-
         All_Repr_obs_list.append(Repr_obs_list)
         All_Goal_obs_list.append(Repr_goal_list)
         All_trajs_list.append(traj_list)
@@ -338,7 +355,7 @@ def viz_dist_circle(window, path, psi_z=None, ax=None):
     
 
 @torch.no_grad()
-def PlotMazeTrajDist(env, SZN, input_token, agent_traj_encoder, qf1, qf2, alpha, policy, device, dim_option=2, max_path_length=300, path='./'):    
+def PlotMazeTrajDist(env, SZN, input_token, agent_traj_encoder, qf1, qf2, alpha, policy, device, Psi, dim_option=2, max_path_length=300, path='./'):    
     obs0 = env.reset()
     s0 = torch.tensor(obs0).to(device).float()
     fig, ax = plt.subplots(2,2)
@@ -349,7 +366,7 @@ def PlotMazeTrajDist(env, SZN, input_token, agent_traj_encoder, qf1, qf2, alpha,
     ax[0,1].set_axis_off()
     ax[0,1].set_title('Estimate Value in Z Space')
     fig = viz_Value_in_Psi(policy, alpha, qf1, qf2, state=s0, num_samples=10, device=device, path=path, fig=fig)
-    ax[0,0], FinallDistanceList, All_Repr_obs_list, All_Goal_obs_list, All_trajs_list, FinallDistanceList, ArriveList = eval_cover_rate(env, agent_traj_encoder, policy, dim_option, device, freq=2, ax=ax[0,0], max_path_length=max_path_length)
+    ax[0,0], FinallDistanceList, All_Repr_obs_list, All_Goal_obs_list, All_trajs_list, FinallDistanceList, ArriveList = eval_cover_rate(env, agent_traj_encoder, policy, dim_option, device, freq=2, ax=ax[0,0], max_path_length=max_path_length, Psi=Psi)
     # calculate metrics
     FD = np.array(FinallDistanceList).mean()
     AR = np.array(ArriveList).mean()
@@ -365,7 +382,7 @@ def PlotMazeTrajDist(env, SZN, input_token, agent_traj_encoder, qf1, qf2, alpha,
 
 
 @torch.no_grad()
-def PlotMazeTrajWindowDist(env, window, agent_traj_encoder, qf1, qf2, alpha, policy, device, dim_option=2, max_path_length=300, path='./', isCover=0):    
+def PlotMazeTrajWindowDist(env, window, agent_traj_encoder, qf1, qf2, alpha, policy, device, Psi, dim_option=2, max_path_length=300, path='./'):    
     obs0 = env.reset()
     s0 = torch.tensor(obs0).to(device).float()
     fig, ax = plt.subplots(2,2)
@@ -375,7 +392,7 @@ def PlotMazeTrajWindowDist(env, window, agent_traj_encoder, qf1, qf2, alpha, pol
     ax[0,1].set_axis_off()
     ax[0,1].set_title('Estimate Value in Z Space')
     fig = viz_Value_in_Psi(policy, alpha, qf1, qf2, state=s0, num_samples=10, device=device, path=path, fig=fig)
-    ax[0,0], FinallDistanceList, All_Repr_obs_list, All_Goal_obs_list, All_trajs_list, FinallDistanceList, ArriveList, All_Cover_list = eval_cover_rate(env, agent_traj_encoder, policy, dim_option, device, freq=2, ax=ax[0,0], max_path_length=max_path_length)
+    ax[0,0], FinallDistanceList, All_Repr_obs_list, All_Goal_obs_list, All_trajs_list, FinallDistanceList, ArriveList, All_Cover_list = eval_cover_rate(env, agent_traj_encoder, policy, dim_option, device, freq=2, ax=ax[0,0], max_path_length=max_path_length, Psi=Psi)
     # calculate metrics
     FD = np.array(FinallDistanceList).mean()
     AR = np.array(ArriveList).mean()
@@ -398,8 +415,8 @@ def PlotMazeTrajWindowDist(env, window, agent_traj_encoder, qf1, qf2, alpha, pol
 
 if __name__ == '__main__':
     
-    policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-1-k_3sd000_1729773482_ant_maze_PSZP/wandb/latest-run/filesoption_policy-1500.pt"
-    traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-1-k_3sd000_1729773482_ant_maze_PSZP/wandb/latest-run/filestaregt_traj_encoder-1500.pt"
+    policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PR-uniformsd000_1729956628_ant_maze_SZN_P/option_policy4200.pt"
+    traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PR-uniformsd000_1729956628_ant_maze_SZN_P/traj_encoder4200.pt"
     SZN_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-1-k_3sd000_1729773482_ant_maze_PSZP/wandb/latest-run/filesSampleZPolicy-1500.pt"
 
     load_option_policy_base = torch.load(policy_path)

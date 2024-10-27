@@ -78,9 +78,12 @@ def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_P
 def vec_norm(vec):
     return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
 
-def Psi(phi_x):
-    # return 2 * (torch.sigmoid(k * (phi_x - phi_x0) / max_path_length) - 0.5)
-    return torch.tanh(phi_x)
+def Psi(phi_x, phi_x0=None):
+    # return 2 * (torch.sigmoid(k * (phi_x - phi_x0) / self.max_path_length) - 0.5)
+    # if phi_x0 is None:
+    #     x0 = self.s0        # [1, dim_obs]; phi_x: [batch, dim_z]
+    #     phi_x0 = self.traj_encoder(x0).mean     # [1, dim_z]
+    return torch.tanh(phi_x - phi_x0)
 
 def norm(x, keepdim=False):
     return torch.norm(x, p=2, dim=-1, keepdim=keepdim)        
@@ -118,29 +121,28 @@ def eval_cover_rate(ax, dim_option, agent_traj_encoder, agent_policy, device, ma
             #                 [0.9, 4.7],
             #             ]
             goal_list = []
-            options = np.random.uniform(-1,1, (25, 2))
-            for j in trange(len(options)):
-                # goal = GoalList[j]
-                # print(goal)
+            # options = np.random.uniform(-1,1, (25, 2))
+            for j in trange(len(GoalList)):
+                goal = GoalList[j]
+                print(goal)
                 # get goal
-                # goal_list.append(goal)
-                # ax.scatter(goal[0], goal[1], s=25, marker='o', alpha=1, edgecolors='black')
-                # tensor_goal = torch.tensor(goal).to('cuda')
+                goal_list.append(goal)
+                ax.scatter(goal[0], goal[1], s=25, marker='o', alpha=1, edgecolors='black')
+                tensor_goal = torch.tensor(goal).to('cuda')
                 # get obs
                 obs = env.reset()
                 obs = torch.tensor(obs).unsqueeze(0).to(device).float()
-                # obs_goal = copy.deepcopy(obs)
-                # obs_goal = env.get_target_obs(obs_goal, tensor_goal)
-                # phi_g = agent_traj_encoder(obs_goal).mean
+                obs_goal = copy.deepcopy(obs)
+                obs_goal = env.get_target_obs(obs_goal, tensor_goal)
+                phi_g = agent_traj_encoder(obs_goal).mean
                 phi_obs_ = agent_traj_encoder(obs).mean
-                # phi_obs0 = copy.deepcopy(phi_obs_)
+                phi_obs0 = copy.deepcopy(phi_obs_)
                 
-                # psi_g = Psi(phi_g)
+                psi_g = Psi(phi_g, phi_obs0)
                 # psi_obs0 = Psi(phi_obs0)
-                # option = psi_g - psi_obs0
+                option = psi_g
                 # option = torch.randn_like(psi_g).to(device)
-                # psi_g = vec_norm(torch.randn_like(psi_g).to(device))
-                option = 1 * torch.tensor(options[j]).unsqueeze(0).to(device)
+                # option = 1 * torch.tensor(options[j]).unsqueeze(0).to(device)
                 
                 Repr_obs_list = []
                 Repr_goal_list = []
@@ -158,7 +160,7 @@ def eval_cover_rate(ax, dim_option, agent_traj_encoder, agent_policy, device, ma
                     
                     obs_option = torch.cat((obs, option), -1).float()
                     # for viz
-                    Repr_obs_list.append(phi_obs_.cpu().numpy()[0])
+                    Repr_obs_list.append(Psi(phi_obs_, phi_obs0).cpu().numpy()[0])
                     Repr_goal_list.append(option.cpu().numpy()[0])
                     # get actions from policy
                     action, agent_info = agent_policy.get_action(obs_option)
@@ -487,7 +489,7 @@ if __name__ == '__main__':
         
         
         # "/mnt/nfs2/zhanghe/NuAgent/exp/LittleMaze/norm_psisd000_1728918915_ant_maze_SZN_PPP/option_policy2300.pt", 
-        "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PR-uniformsd000_1729956628_ant_maze_SZN_P/option_policy2600.pt"      
+        "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PR-uniformsd000_1729956628_ant_maze_SZN_P/option_policy4200.pt"      
         
         # "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/PSZNsd000_1728725075_ant_maze_SZN_P/option_policy5000.pt", 
         # "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/PSZNsd000_1728725075_ant_maze_SZN_P/option_policy6000.pt", 

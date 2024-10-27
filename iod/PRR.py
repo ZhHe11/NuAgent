@@ -41,6 +41,9 @@ import random
 from iod.viz_utils import PlotMazeTrajDist, PlotMazeTrajWindowDist, viz_dist_circle
 from matplotlib.patches import Ellipse
 
+from functools import partial
+
+
 
 def calc_eval_metrics(trajectories, is_option_trajectories, coord_dims=[0,1]):
     eval_metrics = {}
@@ -151,9 +154,8 @@ def viz_SZN_dist_circle(SZN, input_token, path, psi_z=None):
     print("save at:", path + '-c' + '.png')
     plt.close()
 
-    
-    
-class PSZP(IOD):
+
+class PRR(IOD):
     '''
     Projection Sample Z Pool;
     
@@ -680,10 +682,10 @@ class PSZP(IOD):
             return z
         
     def Psi(self, phi_x, phi_x0=None):
-        # if phi_x0 is None:
-        #     x0 = self.s0        # [1, dim_obs]; phi_x: [batch, dim_z]
-        #     phi_x0 = self.traj_encoder(x0).mean     # [1, dim_z]
-        return torch.tanh(1/150 * (phi_x))
+        if phi_x0 is None:
+            x0 = self.s0        # [1, dim_obs]; phi_x: [batch, dim_z]
+            phi_x0 = self.traj_encoder(x0).mean     # [1, dim_z]
+        return torch.tanh(1/150 * (phi_x - phi_x0))
     
     def norm(self, x, keepdim=False):
         return torch.norm(x, p=2, dim=-1, keepdim=keepdim)        
@@ -704,15 +706,15 @@ class PSZP(IOD):
             phi_s = cur_z
             phi_s_next = next_z
             
-            psi_s = self.Psi(phi_s)
-            psi_s_next = self.Psi(phi_s_next)
-            psi_s_0 = self.Psi(phi_s_0)
+            psi_s = self.Psi(phi_s, phi_s_0)
+            psi_s_next = self.Psi(phi_s_next, phi_s_0)
+            grad_psi_s = 1/150 * (1 - self.Psi(phi_s, phi_s_0)**2).detach()
+            
             # 0. updated option
             updated_option = psi_g
             updated_next_option = psi_g
-            k = 3
+            k = 5
             d = 1 / self.max_path_length
-            reward_g_distance = torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
             
             # 1. Similarity Reward
             delta_norm = self.norm((psi_s_next - psi_s))
@@ -741,24 +743,24 @@ class PSZP(IOD):
                 # contrastive_sim = - ((weight_matrix).mean(dim=-1) + (weight_matrix.T).mean(dim=-1)) / 2     # [1024]
                 return contrastive_sim
             
-            def cal_w_obj(matrix):
+            def cal_w_obj():
                 w = 0.1
-                dist_theta = 1e-4
-                distance_pos_neg = torch.norm(z_unit.unsqueeze(1) - z_unit.unsqueeze(0), p=2, dim=-1)
-                mask = torch.where(distance_pos_neg < dist_theta, 0, 1)
-                contrastive_sim = - ((matrix).m ean(dim=-1) + (matrix.T).mean(dim=-1)) / 2     # [1024]
+                contrastive_sim = - ((matrix).mean(dim=-1) + (matrix.T).mean(dim=-1)) / 2     # [1024]
                 return w * contrastive_sim
                 
             ## pos and neg obj.
-            contrastive_sim = cal_w_obj(matrix)
-            phi_obj = direction_sim +  0 * contrastive_sim + 0 * reward_g_distance
+            contrastive_sim = cal_softmax_obj(matrix)
+            phi_obj = direction_sim
             
             # 2. Goal Arrival Reward
+            w = 1 / self.norm(grad_psi_s)
+            
             norm_z = torch.clamp(self.norm(psi_g), min=k*d)
-            reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
+            # reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
+            reward_g_distance = w * (self.norm(psi_s - psi_g) - self.norm(psi_s_next - psi_g))
             reward_g_arrival = torch.where(self.norm(psi_g - psi_s_next)<d, 1.0, 0.).to(self.device)
             reward_g_dir = (self.vec_norm(psi_s_next - psi_s) * self.vec_norm(psi_g - psi_s)).sum(dim=-1)
-            policy_rewards = 1 * reward_g_distance + 5 * reward_g_dir + 0 * reward_g_arrival
+            policy_rewards = 1 * reward_g_distance + 0 * reward_g_dir + 0 * reward_g_arrival
             
             v.update({
                 'cur_z': cur_z,
@@ -769,6 +771,7 @@ class PSZP(IOD):
                 'psi_s_next': psi_s_next,
                 'updated_option': updated_option,
                 "updated_next_option": updated_next_option,
+                'grad_psi_s': grad_psi_s, 
             })
             
             tensors.update({
@@ -855,9 +858,8 @@ class PSZP(IOD):
             else:
                 raise NotImplementedError
             
-            cst_penalty_1 = 1/self.max_path_length -  (self.norm(v['psi_s']-v['psi_s_next']))
-                        
-            cst_penalty = torch.clamp(cst_penalty_1, max=self.dual_slack)
+            cst_penalty = 1 - (1 / self.norm(v['grad_psi_s'])) * self.norm(v['psi_s']-v['psi_s_next'])               
+            cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)
             te_obj = rewards + dual_lam.detach() * cst_penalty
                     
             v.update({
@@ -975,6 +977,7 @@ class PSZP(IOD):
                 path = wandb.run.dir + '/E' + str(runner.step_itr) + '-'
             else:
                 path = '.'
+                    
             FD, AR, eval_metrics = PlotMazeTrajWindowDist(runner._env, self.DistWindow, self.target_traj_encoder, self.qf1, self.qf2, self.log_alpha, self.option_policy, self.device, Psi=partial(self.Psi), dim_option=self.dim_option, max_path_length=self.max_path_length, path=path)
     
             wandb.log(  
