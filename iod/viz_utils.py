@@ -328,7 +328,7 @@ def viz_SZN_dist_circle(SZN, input_token, path, psi_z=None, ax=None):
     else:
         return ax
 
-def viz_dist_circle(window, path, psi_z=None, ax=None):
+def viz_dist_circle(window, path=None, psi_z=None, ax=None):
     from matplotlib.patches import Ellipse
     if ax is None:
         fig = plt.figure(0)
@@ -341,6 +341,9 @@ def viz_dist_circle(window, path, psi_z=None, ax=None):
             mu_y = dist.mean[i][1].detach().cpu().numpy()
             sigma_y = dist.stddev[i][1].detach().cpu().numpy()
             e = Ellipse(xy = (mu_x,mu_y), width = sigma_x * 2, height = sigma_y * 2, angle=0)
+            e.set_edgecolor("blue")      
+            e.set_linewidth(1.5)          
+            e.set_facecolor((1, 1, 1, 0)) 
             ax.add_artist(e)
         
     if psi_z is not None:
