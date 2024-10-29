@@ -468,7 +468,7 @@ class PSZP(IOD):
                     self.copy_params(self.ResetSZPolicy, self.SampleZPolicy)
                     self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=1e-1)
                     
-                    for t in range(50):
+                    for t in range(200):
                         # Reset the SZN:
                         dist_z = self.SampleZPolicy(self.input_token)
                         z = dist_z.sample()
@@ -483,23 +483,22 @@ class PSZP(IOD):
                         V_szn = cal_regeret(z, self.init_obs)
                     
                         self.SampleZPolicy_optim.zero_grad()    
-                        w1 = 0.1
+                        w1 = 0
                         
                         Kl_sum = 0
                         for i in range(len(self.DistWindow)):
                             dist_i = self.DistWindow[i]
-                            log_qz = dist_i.log_prob(z)
-                            log_pz = z_logp
+                            log_pz = dist_i.log_prob(z)
                             pz = torch.exp(log_pz)
-                            Kl_sum += - pz * (log_pz - log_qz)
+                            log_qz = z_logp
+                            Kl_sum += pz * (log_pz - log_qz)
                             
-                        if len(self.DistWindow) > 0 :
-                            kl_window = log_pz / len(self.DistWindow)
+                        if len(self.DistWindow) > 0:
+                            kl_window = Kl_sum / len(self.DistWindow)
                         else:
-                            kl_window = torch.zeros(z_logp.shape).to(self.device)
+                            kl_window = torch.zeros(Kl_sum.shape).to(self.device)
                         
-                        w2 = 5
-                        # import pdb; pdb.set_trace()
+                        w2 = 1
                         loss_SZP = (-z_logp * V_szn - w1 * dist_z.entropy() - w2 * kl_window).mean()
                         loss_SZP.backward()
                         self.grad_clip.apply(self.SampleZPolicy.parameters())
@@ -606,6 +605,11 @@ class PSZP(IOD):
                 break
             v = {key: value.type(torch.float32).to(self.device) for key, value in v.items()}
             self._optimize_te(tensors, v)
+            
+        for epoch_i, v in enumerate(dataloader):
+            if epoch_i > self._trans_optimization_epochs * 2:
+                break
+            v = {key: value.type(torch.float32).to(self.device) for key, value in v.items()}
             with torch.no_grad():
                 self._update_rewards(tensors, v)
             self._optimize_op(tensors, v)   
@@ -1138,6 +1142,7 @@ class PSZP(IOD):
             'dim_option': self.dim_option,
             'input_token': self.input_token,
             'goal_sample_network': self.SampleZPolicy,
+            'window': self.DistWindow,
         }, file_name)
         
 

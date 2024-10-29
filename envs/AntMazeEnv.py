@@ -406,3 +406,4 @@ def plot_trajectories(env, trajectories, fig, ax, color_list=None):
         count += 1
 
     env.draw(ax)
+    return ax

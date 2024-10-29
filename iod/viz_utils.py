@@ -43,7 +43,14 @@ def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_P
         pca = PCA(n_components=2)
         # 对数据进行 PCA
         Repr_obs_2d = pca.fit_transform(Repr_obs_array)
-    else:
+    else:# # # Window Dist：
+
+# filepath = path + "-Maze_traj.png"
+# plt.savefig(filepath) 
+# print(filepath)
+
+# eval_metrics = calc_eval_metrics(All_Cover_list, is_option_trajectories=True)
+# print('[eval_metrics]:', eval_metrics)
         Repr_obs_2d = Repr_obs_array
         if is_goal:
             All_Goal_obs_2d = All_Goal_obs_array

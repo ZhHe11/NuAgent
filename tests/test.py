@@ -1,7 +1,7 @@
 from iod.viz_utils import *
 
 @torch.no_grad()
-def viz_Regert_in_Psi(base1, base2, state, Repr_goal_array=None, State_goal_array=None, ax=None, color=None, num_samples=10, device='cpu', path='./'):
+def viz_Regert_in_Psi(base1, base2, state, Repr_goal_array=None, State_goal_array=None, ax=None, cmap=None, color=None, num_samples=10, device='cpu', path='./'):
     def get_fuctions(base):
         return base['qf1'], base['qf2'], base['alpha'], base['policy'] 
     
@@ -32,9 +32,7 @@ def viz_Regert_in_Psi(base1, base2, state, Repr_goal_array=None, State_goal_arra
     # Regret:
     Regret = V2 - V1
     print('Regret:', Regret.max(), Regret.min())
-    # ax = fig.add_subplot(111, projection='3d')
-    # ax.plot_surface(X, Y, Regret.cpu().numpy(), rstride=1, cstride=1, cmap='viridis', edgecolor='none')
-
+    
     # Special Points:
     if Repr_goal_array is None:
         Repr_goal_array = np.load('/mnt/nfs2/zhanghe/NuAgent/test/PSZP-6-cal_softmaxsd000_1730088991_ant_maze_PSZP-Repr_goal_list.npy')
@@ -56,17 +54,7 @@ def viz_Regert_in_Psi(base1, base2, state, Repr_goal_array=None, State_goal_arra
 
     # 计算对应的 Regret 值
     Regret_points = (V2_points - V1_points).cpu().numpy()
-    # ax.scatter(x_points, y_points, Regret_points, color='r', s=150, alpha=1.0, edgecolor='k', label='Important Points')
 
-    # for i in range(10):
-        
-    #     ax.view_init(30, 270+20*i)
-    #     ax.set_xlabel('X')          
-    #     ax.set_ylabel('Y')
-    #     ax.set_zlabel('Regret')
-    #     plt.savefig(path + '-Regret' + str(i) + '.png')
-    #     print('save at: ' + path + '-Regret' + str(i) + '.png')
-    
     if ax is None:  
         fig, ax = plt.subplots(figsize=(10, 8))
 
@@ -74,20 +62,17 @@ def viz_Regert_in_Psi(base1, base2, state, Repr_goal_array=None, State_goal_arra
     c = ax.contourf(X, Y, Regret.cpu().numpy(), levels=50, cmap='viridis')
 
     # 添加颜色条，用于表示 Regret 的数值大小
-    ax.colorbar(c, ax=ax, label='Regret')
+    fig.colorbar(c, ax=ax, label='Regret')
 
     # 绘制特定点，颜色与前面不同以便区分
-    ax.scatter(x_points, y_points, color='red', s=100, label='Important Points', edgecolor='k')
+    ax.scatter(x_points, y_points, c=color, cmap=cmap, s=50, label='Important Points', edgecolor='k')
 
     # 设置标签和标题
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.legend()
-    plt.savefig(path + '-Regret-2D' + '.png')
-    print('save at: ' + path + '-Regret-2D' + '.png')
-    plt.close()
-        
-    plt.close()
+    # plt.savefig(path + '-Regret-2D' + '.png')
+    # print('save at: ' + path + '-Regret-2D' + '.png')
 
 
 
@@ -97,7 +82,7 @@ policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-6-PopDeque_windowsize1
 policy_path1 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-6-PopDeque_windowsize10-softmax1-w101w25sd000_1730116659_ant_maze_PSZP/wandb/latest-run/filesoption_policy-900.pt"
 
 traj_encoder_path = policy_path.replace("option_policy", "traj_encoder")
-# SZN_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-1-k_3sd000_1729773482_ant_maze_PSZP/wandb/latest-run/filesSampleZPolicy-1500.pt"
+SZN_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-6-PopDeque_windowsize10-softmax1-w101w25sd000_1730116659_ant_maze_PSZP/wandb/latest-run/filesSampleZPolicy-1000.pt"
 
 load_option_policy_base = torch.load(policy_path)
 load_traj_encoder_base = torch.load(traj_encoder_path)
@@ -144,18 +129,16 @@ def Psi(phi_x, phi_x0=None):
 #     return torch.tanh((phi_x - phi_x0))
 
 
-# FD, AR, eval_metrics = PlotMazeTrajWindowDist(env, DistWindow=None, self.target_traj_encoder, self.qf1, self.qf2, self.log_alpha, self.option_policy, self.device, Psi=partial(self.Psi), dim_option=self.dim_option, max_path_length=self.max_path_length, path=path)
+# FD, AR, eval_metrics = PlotMazeTrajWindowDist(env, DistWindow, self.target_traj_encoder, self.qf1, self.qf2, self.log_alpha, self.option_policy, self.device, Psi=partial(self.Psi), dim_option=self.dim_option, max_path_length=self.max_path_length, path=path)
 
 
+# Value Map: 
+fig = viz_Value_in_Psi(policy, alpha, qf1, qf2, state=s0, num_samples=10, device=device, path=path, fig=fig)
 
-
-# Value Map：
-# fig = viz_Value_in_Psi(policy, alpha, qf1, qf2, state=s0, num_samples=10, device=device, path=path, fig=fig)
-
-# # Traj. Map:
-# ax[0,0], FinallDistanceList, All_Repr_obs_list, All_Goal_obs_list, All_trajs_list, FinallDistanceList, ArriveList, All_Cover_list = eval_cover_rate(env, agent_traj_encoder, policy, dim_option, device, Psi=Psi, freq=2, ax=ax[0,0], max_path_length=max_path_length)
-# ax[0,0] = plot_trajectories(env, All_trajs_list, fig, ax[0,0])
-# ax[1,0] = PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=True, ax=ax[1,0])
+# Traj. Map:
+ax[0,0], FinallDistanceList, All_Repr_obs_list, All_Goal_obs_list, All_trajs_list, FinallDistanceList, ArriveList, All_Cover_list = eval_cover_rate(env, agent_traj_encoder, policy, dim_option, device, Psi=Psi, freq=2, ax=ax[0,0], max_path_length=max_path_length)
+ax[0,0] = plot_trajectories(env, All_trajs_list, fig, ax[0,0])
+ax[1,0] = PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=True, ax=ax[1,0])
 
 ## save special points
 # filepath = path + "-Repr_obs_list.npy"
@@ -165,48 +148,47 @@ def Psi(phi_x, phi_x0=None):
 
 
 
+# # # Window Dist：
+
+filepath = path + "-Maze_traj.png"
+plt.savefig(filepath) 
+print(filepath)
+
+eval_metrics = calc_eval_metrics(All_Cover_list, is_option_trajectories=True)
+print('[eval_metrics]:', eval_metrics)
+
 
 # def draw_goal_map(State_goal_array, ax):
 #     ax.scatter(State_goal_array, color='red', )
 
 
 # Regret Map：
-def RegretMap(ReprGoalPath=None): 
+def RegretMap(ax, ReprGoalPath=None): 
     base1 = torch.load(policy_path1)
     base2 = load_option_policy_base
     if ReprGoalPath is not None:
         Repr_goal_array = np.load(ReprGoalPath)
         State_goal_array = np.load('/mnt/nfs2/zhanghe/NuAgent/AnalysisData/goal_list.npy')
         
-        colors = np.random.rand(len(State_goal_array))  
-        ax[0,0].scatter(State_goal_array, c=colors)
+        colors = np.arange(len(State_goal_array))   
+        cmap = plt.get_cmap("tab20", len(State_goal_array))  # 使用 tab20 调色板，并指定 26 个离散颜色
         
-        viz_Regert_in_Psi(base1, base2, state=s0, num_samples=10, device=device, path=path, Repr_goal_array=Repr_goal_array, State_goal_array=State_goal_array, ax=ax[1,1], color=colors)
+        ax[0,0].scatter(State_goal_array[:,0], State_goal_array[:,1], c=colors, cmap=cmap)
+        
+        viz_Regert_in_Psi(base1, base2, state=s0, num_samples=10, device=device, path=path, Repr_goal_array=Repr_goal_array, State_goal_array=State_goal_array, ax=ax[1,1], color=colors, cmap=cmap)
         
     else:
         viz_Regert_in_Psi(base1, base2, state=s0, num_samples=10, device=device, path=path, Repr_goal_array=np.array(All_Goal_obs_list)[:,0,:])
         
         
     filepath = path + "-RegertMap.png"
-    plt.savefig(filepath) 
+    fig.savefig(filepath) 
     print(filepath)
-
-
-
-# # # Window Dist：
-
-# filepath = path + "-Maze_traj.png"
-# plt.savefig(filepath) 
-# print(filepath)
-
-# eval_metrics = calc_eval_metrics(All_Cover_list, is_option_trajectories=True)
-# print('[eval_metrics]:', eval_metrics)
-
 
 
 if __name__ == '__main__':
     
-    ReprGoalPath = '/mnt/nfs2/zhanghe/NuAgent/AnalysisData/PSZP-6-PopDeque_windowsize10-softmax1-w101w25sd000_1730116659_ant_maze_PSZP-Repr_goal_list.npy'
+    # ReprGoalPath = '/mnt/nfs2/zhanghe/NuAgent/AnalysisData/PSZP-6-PopDeque_windowsize10-softmax1-w101w25sd000_1730116659_ant_maze_PSZP-Repr_goal_list.npy'
     
-    RegretMap(ReprGoalPath)
+    RegretMap(ax, ReprGoalPath)
 
