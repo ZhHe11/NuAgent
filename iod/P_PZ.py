@@ -154,7 +154,7 @@ def viz_SZN_dist_circle(SZN, input_token, path, psi_z=None):
 
     
     
-class PSZP(IOD):
+class P_PZ(IOD):
     '''
     Projection Sample Z Pool;
     
@@ -289,7 +289,7 @@ class PSZP(IOD):
             self.DistWindow = [self.SampleZPolicy(self.input_token)]
             
         self.NumSampleTimes = 0
-        
+        self.epoch = 0
     
     @property
     def policy(self):
@@ -439,6 +439,7 @@ class PSZP(IOD):
                     return V_z - V_z_last_iter
                 
                 k = 5
+                self.epoch = runner.step_itr
                 if self.NumSampleTimes == k * len(self.DistWindow):
                     # window pool operation: PopDist   
                     with torch.no_grad():
@@ -459,10 +460,9 @@ class PSZP(IOD):
                             if len(self.DistWindow) >= window_size:
                                 self.DistWindow.pop(0)
                             return self.DistWindow
-
                         
                         # Choose one method to get Popped DistWindow;
-                        self.DistWindow = PopDistDeque(10)
+                        self.DistWindow = PopDistLessZero()
                         
                     self.NumSampleTimes = 0
                     self.copy_params(self.ResetSZPolicy, self.SampleZPolicy)
@@ -483,7 +483,7 @@ class PSZP(IOD):
                         V_szn = cal_regeret(z, self.init_obs)
                     
                         self.SampleZPolicy_optim.zero_grad()    
-                        w1 = 0.1
+                        w1 = 0.05
                         
                         Kl_sum = 0
                         for i in range(len(self.DistWindow)):
@@ -498,8 +498,8 @@ class PSZP(IOD):
                         else:
                             kl_window = torch.zeros(z_logp.shape).to(self.device)
                         
-                        w2 = 5
-                        # import pdb; pdb.set_trace()
+                        w2 = 1
+                        
                         loss_SZP = (-z_logp * V_szn - w1 * dist_z.entropy() - w2 * kl_window).mean()
                         loss_SZP.backward()
                         self.grad_clip.apply(self.SampleZPolicy.parameters())
@@ -601,11 +601,17 @@ class PSZP(IOD):
         dataset = BufferDataset(self.replay_buffer._buffer, len=self.replay_buffer.n_transitions_stored)
         dataloader = DataLoader(dataset, batch_size=self._trans_minibatch_size, shuffle=True, num_workers=2, multiprocessing_context='fork')
         
+        if self.epoch % 25 == 0:
+            for epoch_i, v in enumerate(dataloader):
+                if epoch_i > self._trans_optimization_epochs * 25:
+                    break
+                v = {key: value.type(torch.float32).to(self.device) for key, value in v.items()}
+                self._optimize_te(tensors, v)
+        
         for epoch_i, v in enumerate(dataloader):
             if epoch_i > self._trans_optimization_epochs:
                 break
             v = {key: value.type(torch.float32).to(self.device) for key, value in v.items()}
-            self._optimize_te(tensors, v)
             with torch.no_grad():
                 self._update_rewards(tensors, v)
             self._optimize_op(tensors, v)   
@@ -777,7 +783,7 @@ class PSZP(IOD):
             
             ## pos and neg obj.
             contrastive_sim = cal_softmax_obj(matrix)
-            phi_obj = 0 * direction_sim +  1 * contrastive_sim + 0 * reward_g_distance
+            phi_obj = 1 * direction_sim +  0 * contrastive_sim + 0 * reward_g_distance
             
             # 2. Goal Arrival Reward
             norm_z = torch.clamp(self.norm(psi_g), min=k*d)

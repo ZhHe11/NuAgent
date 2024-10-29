@@ -200,7 +200,7 @@ def viz_Regert_in_Psi(base1, base2, state, num_samples=10, device='cpu', path='.
     ax = fig.add_subplot(111, projection='3d')
     # ax.plot_surface(X, Y, Z, rstride=1, cstride=1, cmap='viridis', edgecolor='none')
     ax.plot_surface(X, Y, Regret.cpu().numpy(), rstride=1, cstride=1, cmap='viridis', edgecolor='none')
-    ax.view_init(60, 35)
+    ax.view_init(60, 270+20)
     ax.set_xlabel('X')          
     ax.set_ylabel('Y')
     ax.set_zlabel('Regret')
@@ -220,7 +220,7 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, f
     All_Cover_list = []
     np_random = np.random.default_rng(seed=0) 
     GoalList = env.env.goal_sampler(np_random)
-    # GoalList = (13, 3) + 2 * np.random.uniform(-1, 1, (10, dim_option))
+    # GoalList = (7, 8) + 2 * np.random.uniform(-1, 1, (10, dim_option))
     options = np.random.uniform(-1,1, (len(GoalList), dim_option))
     
     for j in trange(len(GoalList)):
