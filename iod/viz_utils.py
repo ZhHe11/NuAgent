@@ -298,11 +298,12 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, f
       
 def viz_SZN_dist_circle(SZN, input_token, path, psi_z=None, ax=None):
     dist = SZN(input_token)
+    auto_save = 0
     from matplotlib.patches import Ellipse
-    num = dist.mean.shape[0]
     if ax is None:
         fig = plt.figure(0)
         ax = fig.add_subplot(111)
+        auto_save = 1
     for i in range(1):
         mu_x = dist.mean[i][0].detach().cpu().numpy()
         sigma_x = dist.stddev[i][0].detach().cpu().numpy()
@@ -320,7 +321,7 @@ def viz_SZN_dist_circle(SZN, input_token, path, psi_z=None, ax=None):
     ax.set_xlim(-1, 1)
     ax.set_ylim(-1, 1)
     ax.set_title('Dist. of SZN in Z Space')
-    if ax is None:
+    if auto_save:
         plt.savefig(path + '-c' + '.png')
         print("save at:", path + '-c' + '.png')
         plt.close()
@@ -330,9 +331,11 @@ def viz_SZN_dist_circle(SZN, input_token, path, psi_z=None, ax=None):
 
 def viz_dist_circle(window, path=None, psi_z=None, ax=None):
     from matplotlib.patches import Ellipse
+    auto_save = 0
     if ax is None:
         fig = plt.figure(0)
         ax = fig.add_subplot(111)
+        auto_save = 1
     for i in range(len(window)):
         dist = window[i]
         for i in range(1):
@@ -355,14 +358,54 @@ def viz_dist_circle(window, path=None, psi_z=None, ax=None):
     ax.set_xlim(-1, 1)
     ax.set_ylim(-1, 1)
     ax.set_title('Dist. of SZN in Z Space')
-    if ax is None:
+    if auto_save:
         plt.savefig(path + '-c' + '.png')
         print("save at:", path + '-c' + '.png')
         plt.close()
         return 
     else:
         return ax
-    
+
+
+def viz_GMM_circle(GMM, path='./', psi_z=None, ax=None):
+    from matplotlib.patches import Ellipse
+    means_from_component = GMM.component_distribution.base_dist.loc
+    stddevs_from_component = GMM.component_distribution.base_dist.scale
+
+    auto_save = 0
+    if ax is None:
+        fig = plt.figure(0)
+        ax = fig.add_subplot(111)
+        auto_save = 1
+    for i in range(len(means_from_component)):
+        mu_x = means_from_component[i][0].detach().cpu().numpy()
+        sigma_x = stddevs_from_component[i][0].detach().cpu().numpy()
+        mu_y = means_from_component[i][1].detach().cpu().numpy()
+        sigma_y = stddevs_from_component[i][1].detach().cpu().numpy()
+        e = Ellipse(xy = (mu_x,mu_y), width = sigma_x * 2, height = sigma_y * 2, angle=0)
+        e.set_edgecolor("blue")      
+        e.set_linewidth(1.5)          
+        e.set_facecolor((1, 1, 1, 0)) 
+        ax.add_artist(e)
+        
+    if psi_z is not None:
+        ax.scatter(psi_z[:, 0], psi_z[:, 1], marker='*', alpha=1)
+
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.grid(True)
+    ax.set_xlim(-1, 1)
+    ax.set_ylim(-1, 1)
+    ax.set_title('Dist. of SZN in Z Space')
+    if auto_save:
+        plt.savefig(path + '-c' + '.png')
+        print("save at:", path + '-c' + '.png')
+        plt.close()
+        return 
+    else:
+        return ax
+
+
 
 @torch.no_grad()
 def PlotMazeTrajDist(env, SZN, input_token, agent_traj_encoder, qf1, qf2, alpha, policy, device, Psi, dim_option=2, max_path_length=300, path='./'):    

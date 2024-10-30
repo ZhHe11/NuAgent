@@ -415,6 +415,9 @@ def PlotMazeTrajWindowDist(env, window, agent_traj_encoder, qf1, qf2, alpha, pol
     
 if __name__ == '__main__':
     
+    pass
+
+
     # policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-5-reward_g_dir_orisd000_1729999324_ant_maze_PSZP/wandb/run-20241027_112205-zunnyrbu/filesoption_policy-400.pt"
     # traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-5-reward_g_dir_orisd000_1729999324_ant_maze_PSZP/wandb/run-20241027_112205-zunnyrbu/filestaregt_traj_encoder-400.pt"
     # SZN_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-5-reward_g_dir_orisd000_1729999324_ant_maze_PSZP/wandb/run-20241027_112205-zunnyrbu/filesSampleZPolicy-400.pt"

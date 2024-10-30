@@ -18,6 +18,13 @@ from tqdm import trange, tqdm
 import torch.optim as optim
 from iod.GradCLipper import GradClipper
 
+from torch.distributions import Normal, Categorical, MixtureSameFamily
+
+from iod.viz_utils import viz_SZN_dist_circle, viz_dist_circle, viz_GMM_circle
+import torch.distributions as dist
+
+
+
 # save the traj. as fig
 def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_PCA=False, is_goal=True):
     Repr_obs_array = np.array(All_Repr_obs_list[0])
@@ -107,34 +114,6 @@ def EstimateValue(policy, alpha, qf1, qf2, option, state, num_samples=1):
     return E_V.squeeze(-1)
 
 
-def viz_dist_circle(window, path, psi_z=None):
-    from matplotlib.patches import Ellipse
-    fig = plt.figure(0)
-    ax = fig.add_subplot(111)
-    for i in range(len(window)):
-        dist = window[i]
-        for i in range(dist.mean.shape[0]):
-            mu_x = dist.mean[i][0].detach().cpu().numpy()
-            sigma_x = dist.stddev[i][0].detach().cpu().numpy()
-            mu_y = dist.mean[i][1].detach().cpu().numpy()
-            sigma_y = dist.stddev[i][1].detach().cpu().numpy()
-            e = Ellipse(xy = (mu_x,mu_y), width = sigma_x * 2, height = sigma_y * 2, angle=0)
-            ax.add_artist(e)
-        
-    if psi_z is not None:
-        ax.scatter(psi_z[:, 0], psi_z[:, 1], marker='*', alpha=1)
-
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.grid(True)
-    plt.xlim(-1, 1)
-    plt.ylim(-1, 1)
-    plt.savefig(path + '-c' + '.png')
-    print("save at:", path + '-c' + '.png')
-    plt.close()
-
-
-
 def norm(x, keepdim=False):
     return torch.norm(x, p=2, dim=-1, keepdim=keepdim)     
 
@@ -218,8 +197,8 @@ def viz_Regert_in_Psi(base1, base2, state, num_samples=10, device='cpu', path='.
 
 ## load model
 # baseline 
-policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-6-PopDistMin10sd000_1730252832_ant_maze_PSZP/wandb/run-20241030_094714-qykp5jdq/filesoption_policy-200.pt"
-policy_path1 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-6-PopDistMin10sd000_1730252832_ant_maze_PSZP/wandb/run-20241030_094714-qykp5jdq/filesoption_policy-100.pt"
+policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-6-PopDistMin5sd000_1730275254_ant_maze_PSZP/wandb/latest-run/filesoption_policy-500.pt"
+policy_path1 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-6-PopDistMin5sd000_1730275254_ant_maze_PSZP/wandb/latest-run/filesoption_policy-400.pt"
 
 traj_encoder_path = policy_path.replace("option_policy", "traj_encoder")
 SZN_path = policy_path1.replace("option_policy", "SampleZPolicy")
@@ -242,8 +221,71 @@ else:
 SZN = load_SZN_path_base['goal_sample_network']
 ResetSZPolicy = torch.load(SZN_path0)['goal_sample_network']
 input_token = load_SZN_path_base['input_token']
-print(input_token)    
+DistWindowList = load_SZN_path_base['window']
+device = 'cuda'
+
+
+def UpdateGMM(dists, GMM=None, device='cuda'):
+    if GMM is None:
+        component_distribution = dist.Independent(
+            dist.Normal(
+                loc=torch.stack([g.mean[0] for g in dists]),
+                scale=torch.stack([g.stddev[0] for g in dists])
+            ),
+            reinterpreted_batch_ndims=1
+        )
+
+        # 创建均匀的 mixture_distribution
+        mixture_distribution = dist.Categorical(
+            probs=(torch.ones(len(dists)) / len(dists)).to(device)
+        )
+
+        # 组合成一个 MixtureSameFamily 分布
+        window_dist = dist.MixtureSameFamily(
+            mixture_distribution=mixture_distribution,
+            component_distribution=component_distribution
+        )
+
+        return window_dist
     
+    else:
+
+        means_from_component = GMM.component_distribution.base_dist.loc
+        stddevs_from_component = GMM.component_distribution.base_dist.scale
+
+        # 队列方法更新GMM
+        num_new = len(dists)
+        window_len = len(means_from_component)
+
+        means_tmp = torch.zeros_like(means_from_component).to(device)
+        means_tmp[:window_len-num_new] = means_from_component[num_new:]
+        stddev_tmp = torch.zeros_like(stddevs_from_component).to(device)
+        stddev_tmp[:window_len-num_new] = stddevs_from_component[num_new:]
+        for i in range(num_new):
+            means_tmp[window_len-num_new+i] = dists[i].mean[0]
+            stddev_tmp[window_len-num_new+i] = dists[i].stddev[0]
+        
+
+        component_distribution = dist.Independent(
+            dist.Normal(
+                loc=means_tmp,
+                scale=stddev_tmp
+            ),
+            reinterpreted_batch_ndims=1
+        )
+        mixture_distribution = dist.Categorical(
+            probs=(torch.ones(window_len) / window_len).to(device)
+        )
+        window_dist = dist.MixtureSameFamily(
+            mixture_distribution=mixture_distribution,
+            component_distribution=component_distribution
+        )
+
+        return window_dist
+
+
+window_dist = UpdateGMM(DistWindowList)
+viz_GMM_circle(window_dist, path='./1')
 
 # set up env
 env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
@@ -267,7 +309,7 @@ model_name = policy_path.split('/')[-4]
 path = './test/' + model_name
 dim_option = 2
 type = 'random_z'
-
+GMM = 0
 
 s0 = torch.tensor(obs0).to(device).float()
 psi_s0 = Psi(agent_traj_encoder(s0).mean)
@@ -287,44 +329,15 @@ grad_clip = GradClipper(clip_type='clip_norm', threshold=3, norm_type=2)
 init_obs = s0.unsqueeze(0).repeat(input_token.shape[0], 1)
 SampleZPolicy = SZN
 train_SZN = 1
+
 with torch.no_grad():
-    DistWindow = [SZN(input_token)]
+    DistWindow = DistWindowList
+
 option_policy = policy
 log_alpha = alpha
 for i in range(10):
-    # to do: 在SZN的loss中加入一个KL散度的loss，这个kl散度是当前z和window中的分布之间的kl散度；让kl散度尽可能增大，可以让window中的sample的方向尽可以能多，同时也能保证是Regert较大的分布；
     SampleZPolicy_optim = optim.Adam(SZN.parameters(), lr=3e-2)
-    
-    # for t in range(50):
-    #     # Reset the SZN:
-    #     dist_z = SZN(input_token)
-    #     z = dist_z.sample()
-    #     z_logp = dist_z.log_prob(z)
-    #     V_z = EstimateValue(policy=policy, alpha=alpha, qf1=qf1, qf2=qf2, option=z, state=s0.unsqueeze(0).repeat(z.shape[0], 1))
-        
-    #     V_z_last_iter = EstimateValue(policy=last_policy, alpha=last_alpha, qf1=last_qf1, qf2=last_qf2, option=z, state=s0.unsqueeze(0).repeat(z.shape[0], 1))
 
-    #     Regret = V_z - V_z_last_iter
-    #     V_szn = (Regret - Regret.mean()) / (Regret.std() + 1e-3)
-    #     V_szn = Regret
-
-    #     SampleZPolicy_optim.zero_grad()    
-    #     w = 0.01
-    #     # Kl_sum = 0
-    #     # for i in range(len(DistWindow)):
-    #     #     dist_i = DistWindow[i]
-    #     #     log_qz = dist_i.log_prob(z)
-    #     #     log_pz = z_logp
-    #     #     pz = torch.exp(log_pz)
-    #     #     Kl_sum += - pz * (log_pz - log_qz)
-        
-    #     # kl_window = log_pz / len(DistWindow)
-    #     kl_window = 0
-        
-    #     loss_SZP = (-z_logp * V_szn - w * dist_z.entropy() - kl_window).mean()
-    #     loss_SZP.backward()
-    #     grad_clip.apply(SZN.parameters())
-    #     SampleZPolicy_optim.step()
     def copy_params(ori_model, target_model):
         for t_param, param in zip(target_model.parameters(), ori_model.parameters()):
             t_param.data.copy_(param.data)
@@ -340,257 +353,83 @@ for i in range(10):
         z_logp_repeat = dist_z.log_prob(z_repeat)
         z = z_repeat.view(-1,dim_option)
         z_logp = z_logp_repeat.view(-1)
-        ## Sample Z from uniform
-        # z = np.random.uniform(-1,1, (16, 2))
-        # z = torch.tensor(z).to(device)
-        # z_logp = dist_z.log_prob(z)
         
         V_z =  EstimateValue(policy= option_policy, alpha=log_alpha, qf1=qf1, qf2=qf2, option=z, state=s0.unsqueeze(0).repeat(z.shape[0], 1))
         V_z_last_iter = EstimateValue(policy=last_policy, alpha=last_alpha, qf1=last_qf1, qf2=last_qf2, option=z, state=s0.unsqueeze(0).repeat(z.shape[0], 1))
 
-        V_szn = (V_z - V_z_last_iter)
+        V_szn = (V_z - V_z_last_iter) 
         V_szn = (V_szn - V_szn.mean()) / (V_szn.std() + 1e-6)
     
-        SampleZPolicy_optim.zero_grad()    
-        w1 = 0
-        
-        Kl_sum = 0
-        for i in range(len(DistWindow)):
-            dist_i = DistWindow[i]
-            log_pz = dist_i.log_prob(z)
+        SampleZPolicy_optim.zero_grad()
+        w1 = 0.1
+
+        if GMM:
+            log_pz = window_dist.log_prob(z)
             pz = torch.exp(log_pz)
             log_qz = z_logp
-            Kl_sum += pz * (log_pz - log_qz)
-            
-        if len(DistWindow) > 0:
-            kl_window = Kl_sum / len(DistWindow)
+            kl_window = pz * (log_pz - log_qz)
+
         else:
-            kl_window = torch.zeros(Kl_sum.shape).to(device)
+            Kl_sum = 0
+            for i in range(len(DistWindow)):
+                dist_i = DistWindow[i]
+                log_pz = dist_i.log_prob(z)
+                pz = torch.exp(log_pz)
+                log_qz = z_logp
+                Kl_sum += pz * (log_pz - log_qz)
+                
+            if len(DistWindow) > 0:
+                kl_window = Kl_sum / len(DistWindow)
+            else:
+                kl_window = torch.zeros(Kl_sum.shape).to(device)
         
-        print(kl_window.detach().cpu().mean().item())
-        
-        w2 = 1
-        loss_SZP = (-z_logp * V_szn - w1 * dist_z.entropy() - w2 * kl_window).mean()
+
+            
+        w2 = 10
+        loss_SZP = (1 * -z_logp * V_szn.detach() - w1 * dist_z.entropy() - w2 * kl_window).mean()
         # loss_SZP = (-z_logp * V_szn).mean()
         loss_SZP.backward()
         grad_clip.apply(SampleZPolicy.parameters())
         SampleZPolicy_optim.step()
 
-    # window queue operation    
+    # # window queue operation    
     with torch.no_grad():
-        dist = SZN(input_token)    
-        # is_different = 1
-        # for j in range(len(DistWindow)):
-        #     dist_mean = dist.mean
-        #     window_j_mean = DistWindow[j].mean
-        #     if (norm(dist_mean - window_j_mean)).mean() < 0.1:
-        #         is_different = 0
-        #         break
-        # if is_different == 1:               
-        #     DistWindow.append(dist)
-        #     if len(DistWindow) > 10:
-        #         DistWindow.pop(0)
-        DistWindow.append(dist)
-        
+        dist_SZN = SZN(input_token)    
+
+        if GMM: 
+            DistWindow = [dist_SZN]
+            if len(DistWindow) > window_dist.component_distribution.base_dist.loc.shape[0]:
+                DistWindow.pop(0)
+
+        else: 
+            is_different = 1
+            for j in range(len(DistWindow)):
+                dist_mean = dist_SZN.mean
+                window_j_mean = DistWindow[j].mean
+                if (norm(dist_mean - window_j_mean)).mean() < 0.1:
+                    is_different = 0
+                    break
+            if is_different == 1:               
+                DistWindow.append(dist_SZN)
+                if len(DistWindow) > 10:
+                    DistWindow.pop(0)
+
+    if GMM:
+        with torch.no_grad():
+            window_dist = UpdateGMM(DistWindow, window_dist)
+        viz_GMM_circle(window_dist, path='./1')
+
     psi_g = SZN(input_token).sample().detach()
+
 
     # sample SZN from window
     random_index = np.random.randint(0, len(DistWindow))
-    dist = DistWindow[random_index]
-    last_z = dist.sample()
+    if not GMM:
+        viz_SZN_dist_circle(SZN, input_token, path=path)
 
-    np_z = last_z.cpu().numpy()
-
-    from iod.P_SZN_AU import viz_SZN_dist_circle
-    viz_SZN_dist_circle(SZN, input_token, path=path, psi_z=np_z)
-
-viz_dist_circle(DistWindow, path=path+'window', psi_z=np_z)
+if not GMM:
+    viz_dist_circle(DistWindow, path=path+'window')
 
 
 
-exit()
-
-# FinallDistanceList = []
-# All_Repr_obs_list = []
-# All_Goal_obs_list = []
-# All_Return_list = []
-# All_GtReturn_list = []
-# All_trajs_list = []
-# FinallDistanceList = []
-# ArriveList=[]
-
-# def eval_cover_rate(freq=5):
-#     with torch.no_grad():
-#         for i in range(num_goals):
-#             GoalList = env.env.goal_sampler(np_random, freq=freq)
-#             for j in trange(len(GoalList)):
-#                 goal = GoalList[j]
-#                 # print(goal)
-#                 # get goal
-#                 goal_list.append(goal)
-#                 ax.scatter(goal[0], goal[1], s=25, marker='o', alpha=1, edgecolors='black')
-#                 if Eval == 0:
-#                     continue
-#                 tensor_goal = torch.tensor(goal).to('cuda')
-#                 # get obs
-#                 if RandomInit:
-#                     # to do:
-#                     pass
-#                 else:
-#                     obs = env.reset()
-                
-#                 obs = torch.tensor(obs).unsqueeze(0).to(device).float()
-#                 target_obs = env.get_target_obs(obs, tensor_goal)
-#                 phi_target_obs = agent_traj_encoder(target_obs).mean
-#                 phi_obs_ = agent_traj_encoder(obs).mean
-#                 Repr_obs_list = []
-#                 Repr_goal_list = []
-#                 gt_return_list = []
-#                 traj_list = {}
-#                 traj_list["observation"] = []
-#                 traj_list["info"] = []
-#                 for t in range(max_path_length):
-#                     option, phi_obs_, phi_target_obs = gen_z(target_obs, obs, traj_encoder=agent_traj_encoder, device=device, ret_emb=True)
-#                     obs_option = torch.cat((obs, option), -1).float()
-#                     # for viz
-#                     Repr_obs_list.append(phi_obs_.cpu().numpy()[0])
-#                     Repr_goal_list.append(phi_target_obs.cpu().numpy()[0])
-#                     # get actions from policy
-#                     action, agent_info = agent_policy.get_action(obs_option)
-#                     # interact with the env
-#                     obs, reward, dones, info = env.step(action)
-#                     gt_dist = np.linalg.norm(goal - obs[:2])
-#                     # for recording traj.2
-#                     traj_list["observation"].append(obs)
-#                     info['x'], info['y'] = env.env.get_xy()
-#                     traj_list["info"].append(info)
-#                     # calculate the repr phi
-#                     obs = torch.tensor(obs).unsqueeze(0).to(device).float()
-#                     gt_reward = - gt_dist / (30 * max_path_length)
-#                     gt_return_list.append(gt_reward)
-                    
-
-#                 All_Repr_obs_list.append(Repr_obs_list)
-#                 All_Goal_obs_list.append(Repr_goal_list)
-#                 All_GtReturn_list.append(gt_return_list)
-#                 All_trajs_list.append(traj_list)
-#                 FinallDistanceList.append(-gt_dist)
-#                 if -gt_dist > -1:
-#                     ArriveList.append(1)
-#                 else:
-#                     ArriveList.append(0)
-
-
-# def eval_random_z(num_eval): 
-#     with torch.no_grad(): 
-#         options = np.random.randn(num_eval, dim_option)
-#         for i in trange(len(options)):
-#             obs = env.reset()
-#             option = torch.tensor(options[i]).unsqueeze(0).to(device)
-#             option = vec_norm(option)
-#             obs = torch.tensor(obs).unsqueeze(0).to(device).float()
-#             phi_obs_ = agent_traj_encoder(obs).mean
-#             Repr_obs_list = []
-#             gt_return_list = []
-#             traj_list = {}
-#             traj_list["observation"] = []
-#             traj_list["info"] = []
-#             for t in range(max_path_length):
-#                 # option, phi_obs_, phi_target_obs = gen_z(target_obs, obs, traj_encoder=agent_traj_encoder, device=device, ret_emb=True)
-                
-#                 phi_obs_ = agent_traj_encoder(obs).mean
-#                 obs_option = torch.cat((obs, option), -1).float()
-#                 # for viz
-#                 Repr_obs_list.append(phi_obs_.cpu().numpy()[0])
-#                 # get actions from policy
-#                 action, agent_info = agent_policy.get_action(obs_option)
-#                 # interact with the env
-#                 obs, reward, dones, info = env.step(action)
-#                 # for recording traj.2
-#                 traj_list["observation"].append(obs)
-#                 info['x'], info['y'] = env.env.get_xy()
-#                 traj_list["info"].append(info)
-#                 # calculate the repr phi
-#                 obs = torch.tensor(obs).unsqueeze(0).to(device).float()
-                
-
-#             All_Repr_obs_list.append(Repr_obs_list)
-#             All_trajs_list.append(traj_list)
-
-
-# def viz_SZN_dist(num_sample=10):
-#     dist = SZN(input_token)
-#     # Data
-#     x = np.linspace(-5, 5, 500)
-#     y = np.linspace(-5, 5, 500)
-#     X, Y = np.meshgrid(x,y)
-    
-#     from scipy.stats import multivariate_normal
-
-#     for i in range(dist.mean.shape[0]):
-#         # Multivariate Normal
-#         mu_x = dist.mean[i][0].detach().cpu().numpy()
-#         sigma_x = dist.stddev[i][0].detach().cpu().numpy()
-#         mu_y = dist.mean[i][1].detach().cpu().numpy()
-#         sigma_y = dist.stddev[i][1].detach().cpu().numpy()
-#         rv = multivariate_normal([mu_x, mu_y], [[sigma_x, 0], [0, sigma_y]])
-
-#         # Probability Density
-#         pos = np.empty(X.shape + (2,))
-#         pos[:, :, 0] = X
-#         pos[:, :, 1] = Y
-#         pd = rv.pdf(pos)
-
-#         # Plot
-#         fig = plt.figure()
-#         ax = fig.add_subplot(projection='3d')
-#         ax.plot_surface(X, Y, pd, cmap='viridis', linewidth=0)
-#         ax.set_xlabel('X')
-#         ax.set_ylabel('Y')
-#         ax.set_zlabel('Probability Density')
-#         plt.title("Multivariate Normal Distribution")
-#         plt.savefig('test' + str(i) + '.png')
-#         plt.close()
-#         print(mu_x, mu_y, sigma_x, sigma_y)
-    
-
-# if __name__ == '__main__':
-#     # exe:
-#     if type == 'cover':
-#         eval_cover_rate(freq=2)
-#         filepath = path + '-cover_goals.png'
-#         plt.savefig(filepath)
-#         print("save:", filepath)
-#         # calculate metrics
-#         FD = np.array(FinallDistanceList).mean()
-#         AR = np.array(ArriveList).mean()
-#         print("FD:", FD, '\n', "AR:", AR)
-#         # plot: traj.
-#         plot_trajectories(env, All_trajs_list, fig, ax)
-#         # ax.legend(loc='lower right')
-#         filepath = path + "-Maze_traj.png"
-#         plt.savefig(filepath) 
-#         print(filepath)
-#         # plot: repr_traj.
-#         PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=False)
-#         print('Repr_Space_traj saved')
-
-
-#     elif type == 'random_z':
-#         eval_random_z(num_eval)
-#         # plot: traj.
-#         plot_trajectories(env, All_trajs_list, fig, ax)
-#         # ax.legend(loc='lower right')
-#         filepath = path + "-Maze_traj.png"
-#         plt.savefig(filepath) 
-#         print(filepath)
-#         # plot: repr_traj.
-#         PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=False)
-#         print('Repr_Space_traj saved')
-
-
-#     elif type == 'SZN_dist':
-#         viz_SZN_dist()
-        
-        
 

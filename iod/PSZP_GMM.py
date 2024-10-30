@@ -41,69 +41,6 @@ import random
 from iod.viz_utils import PlotMazeTrajDist, PlotMazeTrajWindowDist, viz_dist_circle
 from matplotlib.patches import Ellipse
 from functools import partial
-import torch.distributions as dist
-from torch.distributions import Normal, Categorical, MixtureSameFamily
-
-
-def UpdateGMM(dists, GMM=None, device='cuda'):
-    if GMM is None:
-        component_distribution = dist.Independent(
-            dist.Normal(
-                loc=torch.stack([g.mean[0] for g in dists]),
-                scale=torch.stack([g.stddev[0] for g in dists])
-            ),
-            reinterpreted_batch_ndims=1
-        )
-
-        # 创建均匀的 mixture_distribution
-        mixture_distribution = dist.Categorical(
-            probs=(torch.ones(len(dists)) / len(dists)).to(device)
-        )
-
-        # 组合成一个 MixtureSameFamily 分布
-        window_dist = dist.MixtureSameFamily(
-            mixture_distribution=mixture_distribution,
-            component_distribution=component_distribution
-        )
-
-        return window_dist
-    
-    else:
-
-        means_from_component = GMM.component_distribution.base_dist.loc
-        stddevs_from_component = GMM.component_distribution.base_dist.scale
-
-        # 队列方法更新GMM
-        num_new = len(dists)
-        window_len = len(means_from_component)
-
-        means_tmp = torch.zeros_like(means_from_component).to(device)
-        means_tmp[:window_len-num_new] = means_from_component[num_new:]
-        stddev_tmp = torch.zeros_like(stddevs_from_component).to(device)
-        stddev_tmp[:window_len-num_new] = stddevs_from_component[num_new:]
-        for i in range(num_new):
-            means_tmp[window_len-num_new+i] = dists[i].mean[0]
-            stddev_tmp[window_len-num_new+i] = dists[i].stddev[0]
-        
-
-        component_distribution = dist.Independent(
-            dist.Normal(
-                loc=means_tmp,
-                scale=stddev_tmp
-            ),
-            reinterpreted_batch_ndims=1
-        )
-        mixture_distribution = dist.Categorical(
-            probs=(torch.ones(window_len) / window_len).to(device)
-        )
-        window_dist = dist.MixtureSameFamily(
-            mixture_distribution=mixture_distribution,
-            component_distribution=component_distribution
-        )
-
-        return window_dist
-
-
 
 
 def calc_eval_metrics(trajectories, is_option_trajectories, coord_dims=[0,1]):
@@ -158,65 +95,8 @@ def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_P
     # plt.legend()
     plt.savefig(path_file_traj)
 
-def viz_SZN_dist(SZN, input_token, path):
-    dist = SZN(input_token)
-    # Data
-    x = np.linspace(-1, 1, 50)
-    y = np.linspace(-1, 1, 50)
-    X, Y = np.meshgrid(x,y)
-    from scipy.stats import multivariate_normal
-    num = dist.mean.shape[0]
-    fig = plt.figure(figsize=(18, 12), facecolor='w')
-    for i in range(dist.mean.shape[0]):
-        # Multivariate Normal
-        mu_x = dist.mean[i][0].detach().cpu().numpy()
-        sigma_x = dist.stddev[i][0].detach().cpu().numpy()
-        mu_y = dist.mean[i][1].detach().cpu().numpy()
-        sigma_y = dist.stddev[i][1].detach().cpu().numpy()
-        rv = multivariate_normal([mu_x, mu_y], [[sigma_x, 0], [0, sigma_y]])
-        # Probability Density
-        pos = np.empty(X.shape + (2,))
-        pos[:, :, 0] = X
-        pos[:, :, 1] = Y
-        pd = rv.pdf(pos)
-        # Plot
-        ax = fig.add_subplot(2, num//2, i+1, projection='3d')
-        ax.plot_surface(X, Y, pd, cmap='viridis', linewidth=0)
-        ax.set_xlabel('X')
-        ax.set_ylabel('Y')
-        ax.set_zlabel('Probability Density')
-        ax.set_title(label = str(mu_x)[:3] + '-' + str(sigma_x)[:3] + '\n' + str(mu_y)[:3] + '-' + str(sigma_y)[:3])
-    plt.savefig(path + '-all' + '.png')
-    plt.close()
-    
-def viz_SZN_dist_circle(SZN, input_token, path, psi_z=None):
-    dist = SZN(input_token)
-    from matplotlib.patches import Ellipse
-    num = dist.mean.shape[0]
-    fig = plt.figure(0)
-    ax = fig.add_subplot(111)
-    for i in range(dist.mean.shape[0]):
-        mu_x = dist.mean[i][0].detach().cpu().numpy()
-        sigma_x = dist.stddev[i][0].detach().cpu().numpy()
-        mu_y = dist.mean[i][1].detach().cpu().numpy()
-        sigma_y = dist.stddev[i][1].detach().cpu().numpy()
-        e = Ellipse(xy = (mu_x,mu_y), width = sigma_x * 2, height = sigma_y * 2, angle=0)
-        ax.add_artist(e)
-        
-    if psi_z is not None:
-        ax.scatter(psi_z[:, 0], psi_z[:, 1], marker='*', alpha=1)
 
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.grid(True)
-    plt.xlim(-1, 1)
-    plt.ylim(-1, 1)
-    plt.savefig(path + '-c' + '.png')
-    print("save at:", path + '-c' + '.png')
-    plt.close()
 
-    
-    
 class PSZP(IOD):
     '''
     Projection Sample Z Pool;
@@ -540,7 +420,7 @@ class PSZP(IOD):
                                         
                         # Choose one method to get Popped DistWindow;
                         # self.DistWindow = PopDistDeque(10)
-                        self.DistWindow = PopDistDeque(10)
+                        self.DistWindow = PopDistMin(5)
                         
                     self.NumSampleTimes = 0
                     self.copy_params(self.ResetSZPolicy, self.SampleZPolicy)
@@ -556,29 +436,23 @@ class PSZP(IOD):
                         V_szn = cal_regeret(z, self.init_obs)
                         # BN: 增加训练稳定性；
                         V_szn = (V_szn - V_szn.mean()) / (V_szn.std() + 1e-6)
-
+                    
                         self.SampleZPolicy_optim.zero_grad()    
                         w1 = 0
                         
-                        # Kl_sum = 0
-                        # for i in range(len(self.DistWindow)):
-                        #     dist_i = self.DistWindow[i]
-                        #     log_pz = dist_i.log_prob(z)
-                        #     pz = torch.exp(log_pz)
-                        #     log_qz = z_logp
-                        #     Kl_sum += pz * (log_pz - log_qz)
+                        Kl_sum = 0
+                        for i in range(len(self.DistWindow)):
+                            dist_i = self.DistWindow[i]
+                            log_pz = dist_i.log_prob(z)
+                            pz = torch.exp(log_pz)
+                            log_qz = z_logp
+                            Kl_sum += pz * (log_pz - log_qz)
                             
-                        # if len(self.DistWindow) > 0:
-                        #     kl_window = Kl_sum / len(self.DistWindow)
-                        # else:
-                        #     kl_window = torch.zeros(Kl_sum.shape).to(self.device)
-                    
-                        window_dist = UpdateGMM(self.DistWindow, device=self.device)
-                        log_pz = window_dist.log_prob(z)
-                        pz = torch.exp(log_pz)
-                        log_qz = z_logp
-                        kl_window = pz * (log_pz - log_qz)
-
+                        if len(self.DistWindow) > 0:
+                            kl_window = Kl_sum / len(self.DistWindow)
+                        else:
+                            kl_window = torch.zeros(Kl_sum.shape).to(self.device)
+                        
                         w2 = 1
                         loss_SZP = (-z_logp * V_szn - w1 * dist_z.entropy() - w2 * kl_window).mean()
                         loss_SZP.backward()
