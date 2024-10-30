@@ -477,7 +477,7 @@ class PSZP(IOD):
                                         
                         # Choose one method to get Popped DistWindow;
                         # self.DistWindow = PopDistDeque(10)
-                        self.DistWindow = PopDistMin(10)
+                        self.DistWindow = PopDistMin(5)
                         
                     self.NumSampleTimes = 0
                     self.copy_params(self.ResetSZPolicy, self.SampleZPolicy)
@@ -486,7 +486,7 @@ class PSZP(IOD):
                     for t in range(100):
                         # Reset the SZN:
                         dist_z = self.SampleZPolicy(self.input_token)
-                        z = dist_z.sample()
+                        z = dist_z.rsample()
                         z_logp = dist_z.log_prob(z)
                         V_z = self.EstimateValue(policy=self.option_policy, alpha=self.log_alpha, qf1=self.qf1, qf2=self.qf2, option=z, state=self.init_obs)
                         
