@@ -60,10 +60,30 @@ def viz_Regert_in_Psi(base1, base2, state, Repr_goal_array=None, State_goal_arra
 
     # 绘制 2D 平面图，颜色表示 Regret 值
     c = ax.contourf(X, Y, Regret.cpu().numpy(), levels=50, cmap='viridis')
-    zero_contour = ax.contour(X, Y, Regret.cpu().numpy(), levels=[0], colors='red', linewidths=1.5)
+    zero_contour = ax.contour(X, Y, Regret.cpu().numpy(), levels=[0], colors='black', linewidths=1.5)
     # 添加颜色条，用于表示 Regret 的数值大小
     fig.colorbar(c, ax=ax, label='Regret')
+    
+    # 计算 Regret 的梯度
+    Regret_np = Regret.cpu().numpy()
+    grad_x, grad_y = np.gradient(Regret_np)
 
+    # 计算梯度大小
+    magnitude = np.sqrt(grad_x**2 + grad_y**2)
+
+
+    # 调整颜色映射和线条宽度以增强对比
+    # ax.contour(X, Y, magnitude, levels=10, colors='black', linewidths=1, alpha=0.8)
+
+    # 使用颜色渐变表示梯度大小，并选择更高对比度的颜色映射
+    contour_grad = ax.contour(X, Y, magnitude, levels=10, cmap='hot', linewidths=1.2, alpha=0.8)
+
+    # 添加颜色条显示梯度大小
+    plt.colorbar(contour_grad, ax=ax, label='Gradient Magnitude')
+    
+    # 用矢量场显示梯度方向并增强颜色显示
+    # quiver = ax.quiver(X, Y, grad_x, grad_y, magnitude, scale=100, cmap='plasma', alpha=0.8)
+    
     # 绘制特定点，颜色与前面不同以便区分
     ax.scatter(x_points, y_points, c=color, cmap=cmap, s=50, edgecolor='k')
 
@@ -78,11 +98,11 @@ def viz_Regert_in_Psi(base1, base2, state, Repr_goal_array=None, State_goal_arra
 
 env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
 
-policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-6-PopDeque_windowsize10-softmax1-w101w25sd000_1730181671_ant_maze_PSZP/wandb/latest-run/filesoption_policy-1000.pt"
-policy_path1 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-6-PopDeque_windowsize10-softmax1-w101w25sd000_1730181671_ant_maze_PSZP/wandb/latest-run/filesoption_policy-900.pt"
+policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-7-std-window_kl_ququesd000_1730190627_ant_maze_PSZP/wandb/latest-run/filesoption_policy-500.pt"
+policy_path1 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-6-PopDeque_windowsize10-softmax1-w101w25sd000_1730181671_ant_maze_PSZP/wandb/latest-run/filesoption_policy-400.pt"
 
 traj_encoder_path = policy_path.replace("option_policy", "traj_encoder")
-SZN_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-6-PopDeque_windowsize10-softmax1-w101w25sd000_1730181671_ant_maze_PSZP/wandb/latest-run/filesSampleZPolicy-1000.pt"
+SZN_path = policy_path.replace("option_policy", "SampleZPolicy")
 
 load_option_policy_base = torch.load(policy_path)
 load_traj_encoder_base = torch.load(traj_encoder_path)
@@ -138,9 +158,10 @@ def Psi(phi_x, phi_x0=None):
 # fig = viz_Value_in_Psi(policy, alpha, qf1, qf2, state=s0, num_samples=10, device=device, path=path, fig=fig)
 
 # # Traj. Map:
-# ax[0,0], FinallDistanceList, All_Repr_obs_list, All_Goal_obs_list, All_trajs_list, FinallDistanceList, ArriveList, All_Cover_list = eval_cover_rate(env, agent_traj_encoder, policy, dim_option, device, Psi=Psi, freq=2, ax=ax[0,0], max_path_length=max_path_length)
-# ax[0,0] = plot_trajectories(env, All_trajs_list, fig, ax[0,0])
-# ax[1,0] = PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=True, ax=ax[1,0])
+All_Goal_obs_list = []
+ax[0,0], FinallDistanceList, All_Repr_obs_list, All_Goal_obs_list, All_trajs_list, FinallDistanceList, ArriveList, All_Cover_list = eval_cover_rate(env, agent_traj_encoder, policy, dim_option, device, Psi=Psi, freq=2, ax=ax[0,0], max_path_length=max_path_length)
+ax[0,0] = plot_trajectories(env, All_trajs_list, fig, ax[0,0])
+ax[1,0] = PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=True, ax=ax[1,0])
 
 ## save special points
 # filepath = path + "-Repr_obs_list.npy"
@@ -193,4 +214,10 @@ def RegretMap(ax, ReprGoalPath=None, All_Goal_obs_list=None):
 if __name__ == '__main__':
     
     # ReprGoalPath = '/mnt/nfs2/zhanghe/NuAgent/AnalysisData/PSZP-6-PopDeque_windowsize10-softmax1-w101w25sd000_1730116659_ant_maze_PSZP-Repr_goal_list.npy'    
-    RegretMap(ax, ReprGoalPath='/mnt/nfs2/zhanghe/NuAgent/tests/savenp/testRepr_goal_array.npy', All_Goal_obs_list=None)
+    
+    if len(All_Goal_obs_list) == 0:
+        ReprGoalPath = "/mnt/nfs2/zhanghe/NuAgent/tests/savenp/testRepr_goal_array.npy"
+    else:
+        ReprGoalPath = None
+        
+    RegretMap(ax, ReprGoalPath=ReprGoalPath, All_Goal_obs_list=All_Goal_obs_list)

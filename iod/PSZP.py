@@ -460,15 +460,30 @@ class PSZP(IOD):
                                 self.DistWindow.pop(0)
                             return self.DistWindow
 
-                        
+                        def PopDistMin(window_size=10):
+                            if len(self.DistWindow) >= window_size:
+                                min = 0
+                                pop_index = 0
+                                for j in range(len(self.DistWindow)):
+                                    dist_j = self.DistWindow[j]
+                                    # Pop depanding on the regret of dist; 
+                                    # Attention! you should calculate the regret before updating the k-1 policy;      
+                                    Regret_j = cal_regeret(dist_j.sample(), self.init_obs).mean()
+                                    if min < Regret_j:
+                                        pop_index = j
+                                        min = Regret_j
+                                self.DistWindow.pop(pop_index)
+                            return self.DistWindow
+                                        
                         # Choose one method to get Popped DistWindow;
-                        self.DistWindow = PopDistDeque(10)
+                        # self.DistWindow = PopDistDeque(10)
+                        self.DistWindow = PopDistMin(10)
                         
                     self.NumSampleTimes = 0
                     self.copy_params(self.ResetSZPolicy, self.SampleZPolicy)
-                    self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=1e-1)
+                    self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=3e-2)
                     
-                    for t in range(200):
+                    for t in range(100):
                         # Reset the SZN:
                         dist_z = self.SampleZPolicy(self.input_token)
                         z = dist_z.sample()
@@ -481,6 +496,8 @@ class PSZP(IOD):
                             V_z_last_iter = 0
                             
                         V_szn = cal_regeret(z, self.init_obs)
+                        # BN: 增加训练稳定性；
+                        V_szn = (V_szn - V_szn.mean()) / (V_szn.std() + 1e-6)
                     
                         self.SampleZPolicy_optim.zero_grad()    
                         w1 = 0
@@ -605,11 +622,6 @@ class PSZP(IOD):
                 break
             v = {key: value.type(torch.float32).to(self.device) for key, value in v.items()}
             self._optimize_te(tensors, v)
-            
-        for epoch_i, v in enumerate(dataloader):
-            if epoch_i > self._trans_optimization_epochs * 2:
-                break
-            v = {key: value.type(torch.float32).to(self.device) for key, value in v.items()}
             with torch.no_grad():
                 self._update_rewards(tensors, v)
             self._optimize_op(tensors, v)   
@@ -740,7 +752,7 @@ class PSZP(IOD):
             matrix = ((psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
             direction_sim = torch.diag(matrix)
             ## neg smaple
-            def cal_softmax_obj(matrix):
+            def cal_softmax_obj(matrix, t=1):
                 # decay weight 
                 option_sim = (z_unit.unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
                 # 要把相同的z过滤掉，否则会削弱正样本的梯度；
@@ -749,7 +761,6 @@ class PSZP(IOD):
                 distance_pos_neg = torch.norm(z_unit.unsqueeze(1) - z_unit.unsqueeze(0), p=2, dim=-1)
                 mask = torch.where(distance_pos_neg < dist_theta, 0, 1) + torch.eye(z_unit.shape[0], z_unit.shape[0]).to(self.device)
                 matrix = mask * matrix
-                t = 0.5
                 matrix = matrix / t
                 label = torch.arange(matrix.shape[0]).to(self.device)
                 contrastive_sim = - F.cross_entropy(matrix, label) - F.cross_entropy(matrix.T, label)
@@ -780,7 +791,7 @@ class PSZP(IOD):
                 return contrastive_sim
             
             ## pos and neg obj.
-            contrastive_sim = cal_softmax_obj(matrix)
+            contrastive_sim = cal_softmax_obj(matrix, t=0.5)
             phi_obj = 0 * direction_sim +  1 * contrastive_sim + 0 * reward_g_distance
             
             # 2. Goal Arrival Reward

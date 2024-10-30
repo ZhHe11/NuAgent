@@ -218,13 +218,12 @@ def viz_Regert_in_Psi(base1, base2, state, num_samples=10, device='cpu', path='.
 
 ## load model
 # baseline 
-policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-6-PopDeque_windowsize10-softmax1-w101w25sd000_1730116659_ant_maze_PSZP/wandb/latest-run/filesoption_policy-600.pt"
-policy_path1 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-6-PopDeque_windowsize10-softmax1-w101w25sd000_1730116659_ant_maze_PSZP/wandb/latest-run/filesoption_policy-500.pt"
+policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-6-PopDistMin10sd000_1730252832_ant_maze_PSZP/wandb/run-20241030_094714-qykp5jdq/filesoption_policy-200.pt"
+policy_path1 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-6-PopDistMin10sd000_1730252832_ant_maze_PSZP/wandb/run-20241030_094714-qykp5jdq/filesoption_policy-100.pt"
 
 traj_encoder_path = policy_path.replace("option_policy", "traj_encoder")
-SZN_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-6-PopDeque_windowsize10-softmax1-w101w25sd000_1730116659_ant_maze_PSZP/wandb/latest-run/filesSampleZPolicy-500.pt"
-
-
+SZN_path = policy_path1.replace("option_policy", "SampleZPolicy")
+SZN_path0 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-6-PopDistMin10sd000_1730252832_ant_maze_PSZP/wandb/run-20241030_094714-qykp5jdq/filesSampleZPolicy-0.pt"
 # policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/SZN-Exp4sd000_1728446621_ant_maze_SZN_Z/option_policy3000.pt"
 # traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/SZN-Exp4sd000_1728446621_ant_maze_SZN_Z/traj_encoder3000.pt"
 
@@ -241,7 +240,7 @@ if "target_traj_encoder" in load_traj_encoder_base.keys():
 else:
     agent_traj_encoder = load_traj_encoder_base['traj_encoder'].eval()
 SZN = load_SZN_path_base['goal_sample_network']
-ResetSZPolicy = torch.load('/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-6-PopDeque_windowsize10-softmax1-w101w21-std05sd000_1730188005_ant_maze_PSZP/wandb/latest-run/filesSampleZPolicy-0.pt')['goal_sample_network']
+ResetSZPolicy = torch.load(SZN_path0)['goal_sample_network']
 input_token = load_SZN_path_base['input_token']
 print(input_token)    
     
@@ -294,7 +293,7 @@ option_policy = policy
 log_alpha = alpha
 for i in range(10):
     # to do: 在SZN的loss中加入一个KL散度的loss，这个kl散度是当前z和window中的分布之间的kl散度；让kl散度尽可能增大，可以让window中的sample的方向尽可以能多，同时也能保证是Regert较大的分布；
-    SampleZPolicy_optim = optim.Adam(SZN.parameters(), lr=1e-2)
+    SampleZPolicy_optim = optim.Adam(SZN.parameters(), lr=3e-2)
     
     # for t in range(50):
     #     # Reset the SZN:
@@ -332,17 +331,24 @@ for i in range(10):
 
     copy_params(ResetSZPolicy, SampleZPolicy)
 
-    for t in range(200):
+    for t in range(100):
         # Reset the SZN:
+
         dist_z = SampleZPolicy(input_token)
+        ## Sample Z from dist_z
         z_repeat = dist_z.sample((1,))
         z_logp_repeat = dist_z.log_prob(z_repeat)
         z = z_repeat.view(-1,dim_option)
         z_logp = z_logp_repeat.view(-1)
+        ## Sample Z from uniform
+        # z = np.random.uniform(-1,1, (16, 2))
+        # z = torch.tensor(z).to(device)
+        # z_logp = dist_z.log_prob(z)
+        
         V_z =  EstimateValue(policy= option_policy, alpha=log_alpha, qf1=qf1, qf2=qf2, option=z, state=s0.unsqueeze(0).repeat(z.shape[0], 1))
         V_z_last_iter = EstimateValue(policy=last_policy, alpha=last_alpha, qf1=last_qf1, qf2=last_qf2, option=z, state=s0.unsqueeze(0).repeat(z.shape[0], 1))
 
-        V_szn = V_z - V_z_last_iter
+        V_szn = (V_z - V_z_last_iter)
         V_szn = (V_szn - V_szn.mean()) / (V_szn.std() + 1e-6)
     
         SampleZPolicy_optim.zero_grad()    
@@ -360,6 +366,8 @@ for i in range(10):
             kl_window = Kl_sum / len(DistWindow)
         else:
             kl_window = torch.zeros(Kl_sum.shape).to(device)
+        
+        print(kl_window.detach().cpu().mean().item())
         
         w2 = 1
         loss_SZP = (-z_logp * V_szn - w1 * dist_z.entropy() - w2 * kl_window).mean()
