@@ -573,14 +573,14 @@ class PSZP(IOD):
                         # weight of entropy
                         w1 = 0
                         # weight of GMM KL
-                        w2 = 1
+                        w2 = 10
                         window_dist = UpdateGMM(self.DistWindow, device=self.device)
                         log_pz = window_dist.log_prob(z)
                         pz = torch.exp(log_pz)
                         log_qz = z_logp
                         kl_window = pz * (log_pz - log_qz)
                         # # weight of Confidence Factor
-                        w3 = 10
+                        w3 = 0
                         # sf_repr_buffer_tensor = torch.tensor(np.array(self.SfReprBuffer)).to(self.device)
                         # confidence = torch.norm(z.unsqueeze(1) - sf_repr_buffer_tensor.unsqueeze(0), dim=-1).min(dim=-1)[0]
                         confidence = torch.zeros_like(kl_window).to(self.device)
