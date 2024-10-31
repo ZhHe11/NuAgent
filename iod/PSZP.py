@@ -549,8 +549,8 @@ class PSZP(IOD):
                     for t in range(100):
                         # Reset the SZN:
                         dist_z = self.SampleZPolicy(self.input_token)
-                        z = dist_z.sample()
-                        z_logp = dist_z.log_prob(z)
+                        z = dist_z.rsample()
+                        z_logp = dist_z.log_prob(z.detach())
                         V_z = self.EstimateValue(policy=self.option_policy, alpha=self.log_alpha, qf1=self.qf1, qf2=self.qf2, option=z, state=self.init_obs)
                         
                         V_szn = cal_regeret(z, self.init_obs)
@@ -572,15 +572,17 @@ class PSZP(IOD):
                         #     kl_window = Kl_sum / len(self.DistWindow)
                         # else:
                         #     kl_window = torch.zeros(Kl_sum.shape).to(self.device)
-                    
+                        w2 = 3
                         window_dist = UpdateGMM(self.DistWindow, device=self.device)
                         log_pz = window_dist.log_prob(z)
                         pz = torch.exp(log_pz)
                         log_qz = z_logp
                         kl_window = pz * (log_pz - log_qz)
 
-                        w2 = 1
-                        loss_SZP = (-z_logp * V_szn - w1 * dist_z.entropy() - w2 * kl_window).mean()
+                        w3 = 5
+                        confidence = torch.norm(z.unsqueeze(1) - torch.tensor(SfReprBuffer).to(device).unsqueeze(0), dim=-1).min(dim=-1)[0]
+                            
+                        loss_SZP = (-z_logp * V_szn.detach() - w1 * dist_z.entropy() - w2 * kl_window).mean()
                         loss_SZP.backward()
                         self.grad_clip.apply(self.SampleZPolicy.parameters())
                         self.SampleZPolicy_optim.step()

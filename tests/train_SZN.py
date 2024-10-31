@@ -197,12 +197,20 @@ def viz_Regert_in_Psi(base1, base2, state, num_samples=10, device='cpu', path='.
 
 ## load model
 # baseline 
-policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-6-PopDistMin5sd000_1730275254_ant_maze_PSZP/wandb/latest-run/filesoption_policy-500.pt"
-policy_path1 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-6-PopDistMin5sd000_1730275254_ant_maze_PSZP/wandb/latest-run/filesoption_policy-400.pt"
+import argparse
+parser = argparse.ArgumentParser(description="A simple example of argparse usage")
+parser.add_argument('-e', '--epoch_num', type=int, default=700)
+args = parser.parse_args()
+
+env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
+epoch_num = args.epoch_num
+policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-8-GMM1-Deque10-std1_3e1_1e1sd000_1730290115_ant_maze_PSZP/wandb/latest-run/filesoption_policy-" + str(epoch_num) +'.pt'
+policy_path1 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-8-GMM1-Deque10-std1_3e1_1e1sd000_1730290115_ant_maze_PSZP/wandb/latest-run/filesoption_policy-" + str(epoch_num-100) +'.pt'
+policy_path2 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-8-GMM1-Deque10-std1_3e1_1e1sd000_1730290115_ant_maze_PSZP/wandb/latest-run/filesoption_policy-" + str(epoch_num-200) +'.pt'
 
 traj_encoder_path = policy_path.replace("option_policy", "traj_encoder")
 SZN_path = policy_path1.replace("option_policy", "SampleZPolicy")
-SZN_path0 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-6-PopDistMin10sd000_1730252832_ant_maze_PSZP/wandb/run-20241030_094714-qykp5jdq/filesSampleZPolicy-0.pt"
+SZN_path0 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-8-GMM1-Deque10-std1_3e1_1e1sd000_1730290115_ant_maze_PSZP/wandb/latest-run/filesSampleZPolicy-0.pt"
 # policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/SZN-Exp4sd000_1728446621_ant_maze_SZN_Z/option_policy3000.pt"
 # traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/SZN-Exp4sd000_1728446621_ant_maze_SZN_Z/traj_encoder3000.pt"
 
@@ -309,7 +317,13 @@ model_name = policy_path.split('/')[-4]
 path = './test/' + model_name
 dim_option = 2
 type = 'random_z'
-GMM = 0
+GMM = 1
+
+ConfidenceFactor = 1
+ReprBuffer = np.load("/mnt/nfs2/zhanghe/NuAgent/AnalysisData/PSZP-8-GMM1-Deque10-std1_3e1_1e1sd000_1730290115_ant_maze_PSZP-Repr_obs_list.npy")
+SfReprBuffer = ReprBuffer[:,-1]
+
+
 
 s0 = torch.tensor(obs0).to(device).float()
 psi_s0 = Psi(agent_traj_encoder(s0).mean)
@@ -349,8 +363,9 @@ for i in range(10):
 
         dist_z = SampleZPolicy(input_token)
         ## Sample Z from dist_z
-        z_repeat = dist_z.sample((1,))
-        z_logp_repeat = dist_z.log_prob(z_repeat)
+        z_repeat = dist_z.rsample((1,))
+        ## [fatal bug !!!!!] if using rsmaple, z in log p must be detach, because logp owns grads itself.
+        z_logp_repeat = dist_z.log_prob(z_repeat.detach())
         z = z_repeat.view(-1,dim_option)
         z_logp = z_logp_repeat.view(-1)
         
@@ -361,8 +376,10 @@ for i in range(10):
         V_szn = (V_szn - V_szn.mean()) / (V_szn.std() + 1e-6)
     
         SampleZPolicy_optim.zero_grad()
-        w1 = 0.1
+        w1 = 0
 
+
+        w2 = 3
         if GMM:
             log_pz = window_dist.log_prob(z)
             pz = torch.exp(log_pz)
@@ -384,13 +401,21 @@ for i in range(10):
                 kl_window = torch.zeros(Kl_sum.shape).to(device)
         
 
+
+        w3 = 5
+        confidence = 0
+        if ConfidenceFactor == 1:
+            confidence = torch.norm(z.unsqueeze(1) - torch.tensor(SfReprBuffer).to(device).unsqueeze(0), dim=-1).min(dim=-1)[0]
             
-        w2 = 10
-        loss_SZP = (1 * -z_logp * V_szn.detach() - w1 * dist_z.entropy() - w2 * kl_window).mean()
+        
+        loss_SZP = (1 * -z_logp * V_szn.detach() - w1 * dist_z.entropy() - w2 * kl_window + w3 * confidence).mean()
         # loss_SZP = (-z_logp * V_szn).mean()
         loss_SZP.backward()
         grad_clip.apply(SampleZPolicy.parameters())
         SampleZPolicy_optim.step()
+
+
+        print(confidence.mean())
 
     # # window queue operation    
     with torch.no_grad():
@@ -417,7 +442,7 @@ for i in range(10):
     if GMM:
         with torch.no_grad():
             window_dist = UpdateGMM(DistWindow, window_dist)
-        viz_GMM_circle(window_dist, path='./1')
+        viz_GMM_circle(window_dist, path='./1', psi_z=SfReprBuffer)
 
     psi_g = SZN(input_token).sample().detach()
 
