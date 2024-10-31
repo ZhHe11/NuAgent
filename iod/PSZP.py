@@ -287,6 +287,7 @@ class PSZP(IOD):
         self.tau = tau
 
         self.replay_buffer = replay_buffer
+        self.SfReprBuffer = []
         self.min_buffer_size = min_buffer_size
         self.inner = inner
 
@@ -331,6 +332,7 @@ class PSZP(IOD):
         self.s0 = torch.tensor(init_obs).unsqueeze(0).to(self.device)
         self.exp_z = None   
         self.epoch_final = None
+        self.buffer_ready = 0
         self._trans_phi_optimization_epochs = _trans_phi_optimization_epochs
         self._trans_policy_optimization_epochs = _trans_policy_optimization_epochs
         self.target_theta = target_theta
@@ -399,6 +401,7 @@ class PSZP(IOD):
 
     def _update_replay_buffer(self, data):
         if self.replay_buffer is not None:
+            sfs = []
             for i in range(len(data['actions'])):
                 path = {}
                 for key in data.keys():
@@ -406,7 +409,18 @@ class PSZP(IOD):
                     if cur_list.ndim == 1:
                         cur_list = cur_list[..., np.newaxis]
                     path[key] = cur_list
+                
                 self.replay_buffer.add_path(path)
+                sfs.append(path['obs'][-1])
+
+            sfs = np.stack(sfs, axis=0)
+            with torch.no_grad():
+                SfRepr = self.traj_encoder(torch.tensor(sfs).to(self.device)).mean.cpu().numpy()
+            for i in range(SfRepr.shape[0]):
+                self.SfReprBuffer.append(SfRepr[i])
+                if len(self.SfReprBuffer) > 800:
+                    self.SfReprBuffer.pop(0)
+
 
     def _sample_replay_buffer(self, batch_size=None): 
         if batch_size == None:
@@ -461,7 +475,7 @@ class PSZP(IOD):
             if self.unit_length:
                 random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
             
-            if self.method['explore'] == 'SZN' and self.epoch_final is not None:
+            if self.method['explore'] == 'SZN' and self.buffer_ready:
                 # viz the Regert Map
                 def viz_Regert_in_Psi(state, device='cpu', path='./', ax=None):
                     density = 100
@@ -558,31 +572,23 @@ class PSZP(IOD):
                         V_szn = (V_szn - V_szn.mean()) / (V_szn.std() + 1e-6)
 
                         self.SampleZPolicy_optim.zero_grad()    
+                        # weight of entropy
                         w1 = 0
-                        
-                        # Kl_sum = 0
-                        # for i in range(len(self.DistWindow)):
-                        #     dist_i = self.DistWindow[i]
-                        #     log_pz = dist_i.log_prob(z)
-                        #     pz = torch.exp(log_pz)
-                        #     log_qz = z_logp
-                        #     Kl_sum += pz * (log_pz - log_qz)
-                            
-                        # if len(self.DistWindow) > 0:
-                        #     kl_window = Kl_sum / len(self.DistWindow)
-                        # else:
-                        #     kl_window = torch.zeros(Kl_sum.shape).to(self.device)
+                        # weight of GMM KL
                         w2 = 3
                         window_dist = UpdateGMM(self.DistWindow, device=self.device)
                         log_pz = window_dist.log_prob(z)
                         pz = torch.exp(log_pz)
                         log_qz = z_logp
                         kl_window = pz * (log_pz - log_qz)
+                        # # weight of Confidence Factor
+                        w3 = 10
+                        # n = 512
+                        # SfReprdata = random.sample(self.SfReprBuffer, n)
+                        sf_repr_buffer_tensor = torch.tensor(np.array(self.SfReprBuffer)).to(self.device)
+                        confidence = torch.norm(z.unsqueeze(1) - sf_repr_buffer_tensor.unsqueeze(0), dim=-1).min(dim=-1)[0]
 
-                        w3 = 5
-                        confidence = torch.norm(z.unsqueeze(1) - torch.tensor(SfReprBuffer).to(device).unsqueeze(0), dim=-1).min(dim=-1)[0]
-                            
-                        loss_SZP = (-z_logp * V_szn.detach() - w1 * dist_z.entropy() - w2 * kl_window).mean()
+                        loss_SZP = (-z_logp * V_szn.detach() - w1 * dist_z.entropy() - w2 * kl_window + w3 * confidence).mean()
                         loss_SZP.backward()
                         self.grad_clip.apply(self.SampleZPolicy.parameters())
                         self.SampleZPolicy_optim.step()
@@ -593,6 +599,7 @@ class PSZP(IOD):
                                 "SZN/V_z": V_z.mean(),
                                 "SZN/entropy": dist_z.entropy().mean(),
                                 "SZN/kl_window": kl_window.mean(),
+                                "SZN/confidence": confidence.mean(),
                                 "epoch": runner.step_itr,
                             })
                               
@@ -648,7 +655,7 @@ class PSZP(IOD):
                 self.NumSampleTimes += 1
         
 
-            elif self.method['explore'] == 'uniform' and self.epoch_final is not None:
+            elif self.method['explore'] == 'uniform' and self.buffer_ready:
                 # w/o unit_length
                 # random_options = np.random.randn(runner._train_args.batch_size, self.dim_option)
                 random_options = np.random.uniform(-1,1, (runner._train_args.batch_size, self.dim_option))
@@ -669,16 +676,17 @@ class PSZP(IOD):
     '''
     def _train_once_inner(self, path_data):
         self._update_replay_buffer(path_data)       
-        epoch_data = self._flatten_data(path_data)
-        tensors = self._train_components(epoch_data)  
+        # epoch_data = self._flatten_data(path_data)
+        tensors = self._train_components()  
         return tensors
     
     '''
     Main Function;
     '''
-    def _train_components(self, epoch_data):
+    def _train_components(self, epoch_data=None):
         if self.replay_buffer is not None and self.replay_buffer.n_transitions_stored < self.min_buffer_size:
             return {}
+        self.buffer_ready = 1
         tensors = {}
         dataset = BufferDataset(self.replay_buffer._buffer, len=self.replay_buffer.n_transitions_stored)
         dataloader = DataLoader(dataset, batch_size=self._trans_minibatch_size, shuffle=True, num_workers=2, multiprocessing_context='fork')
@@ -861,7 +869,7 @@ class PSZP(IOD):
             phi_obj = 0 * direction_sim +  1 * contrastive_sim + 0 * reward_g_distance
             
             # 2. Goal Arrival Reward
-            norm_z = torch.clamp(self.norm(psi_g), min=k*d)
+            # norm_z = torch.clamp(self.norm(psi_g), min=k*d)
             reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
             reward_g_arrival = torch.where(self.norm(psi_g - psi_s_next)<d, 1.0, 0.).to(self.device)
             reward_g_dir = (self.vec_norm(psi_s_next - psi_s) * self.vec_norm(psi_g - psi_s)).sum(dim=-1)

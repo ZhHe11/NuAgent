@@ -152,7 +152,7 @@ ax[0,0].set_title('State of Traj. in Maze')
 ax[0,1].set_axis_off()
 ax[0,1].set_title('Estimate Value in Z Space')
 
-max_path_length=300
+max_path_length=1000
 isCover=0
 
 def Psi(phi_x, phi_x0=None):
