@@ -418,8 +418,6 @@ class PSZP(IOD):
                 SfRepr = self.traj_encoder(torch.tensor(sfs).to(self.device)).mean.cpu().numpy()
             for i in range(SfRepr.shape[0]):
                 self.SfReprBuffer.append(SfRepr[i])
-                if len(self.SfReprBuffer) > 800:
-                    self.SfReprBuffer.pop(0)
 
 
     def _sample_replay_buffer(self, batch_size=None): 
@@ -575,7 +573,7 @@ class PSZP(IOD):
                         # weight of entropy
                         w1 = 0
                         # weight of GMM KL
-                        w2 = 3
+                        w2 = 1
                         window_dist = UpdateGMM(self.DistWindow, device=self.device)
                         log_pz = window_dist.log_prob(z)
                         pz = torch.exp(log_pz)
@@ -583,10 +581,9 @@ class PSZP(IOD):
                         kl_window = pz * (log_pz - log_qz)
                         # # weight of Confidence Factor
                         w3 = 10
-                        # n = 512
-                        # SfReprdata = random.sample(self.SfReprBuffer, n)
-                        sf_repr_buffer_tensor = torch.tensor(np.array(self.SfReprBuffer)).to(self.device)
-                        confidence = torch.norm(z.unsqueeze(1) - sf_repr_buffer_tensor.unsqueeze(0), dim=-1).min(dim=-1)[0]
+                        # sf_repr_buffer_tensor = torch.tensor(np.array(self.SfReprBuffer)).to(self.device)
+                        # confidence = torch.norm(z.unsqueeze(1) - sf_repr_buffer_tensor.unsqueeze(0), dim=-1).min(dim=-1)[0]
+                        confidence = torch.zeros_like(kl_window).to(self.device)
 
                         loss_SZP = (-z_logp * V_szn.detach() - w1 * dist_z.entropy() - w2 * kl_window + w3 * confidence).mean()
                         loss_SZP.backward()
@@ -633,6 +630,7 @@ class PSZP(IOD):
                     self.copy_params(self.qf1, self.last_qf1)
                     self.copy_params(self.qf2, self.last_qf2)
                     self.copyed = 1
+                    self.SfReprBuffer = []
             
                 # sample SZN from window
                 # random_index = np.random.randint(0, len(self.DistWindow))
@@ -838,10 +836,7 @@ class PSZP(IOD):
                 matrix = matrix / t
                 label = torch.arange(matrix.shape[0]).to(self.device)
                 contrastive_sim = - F.cross_entropy(matrix, label) - F.cross_entropy(matrix.T, label)
-                # decay_k = 5
-                # decay_weight = mask * decay_k * torch.exp(decay_k * (option_sim - 1)).detach()
-                # weight_matrix = decay_weight * matrix       # [1024, 1024]
-                # contrastive_sim = - ((weight_matrix).mean(dim=-1) + (weight_matrix.T).mean(dim=-1)) / 2     # [1024]
+
                 return contrastive_sim
             
             def cal_w_obj(matrix):
