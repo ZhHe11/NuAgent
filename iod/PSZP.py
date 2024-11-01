@@ -45,7 +45,7 @@ import torch.distributions as dist
 from torch.distributions import Normal, Categorical, MixtureSameFamily
 
 
-def UpdateGMM(dists, GMM=None, device='cuda'):
+def UpdateGMM(dists, GMM=None, mix_dist_prob=None, device='cuda'):
     if GMM is None:
         component_distribution = dist.Independent(
             dist.Normal(
@@ -55,10 +55,15 @@ def UpdateGMM(dists, GMM=None, device='cuda'):
             reinterpreted_batch_ndims=1
         )
 
-        # 创建均匀的 mixture_distribution
-        mixture_distribution = dist.Categorical(
-            probs=(torch.ones(len(dists)) / len(dists)).to(device)
-        )
+        if mix_dist_prob is None:
+            # 创建均匀的 mixture_distribution
+            mixture_distribution = dist.Categorical(
+                probs=(torch.ones(len(dists)) / len(dists)).to(device)
+            )
+        else: 
+            mixture_distribution = dist.Categorical(
+                probs=mix_dist_prob
+            )
 
         # 组合成一个 MixtureSameFamily 分布
         window_dist = dist.MixtureSameFamily(
@@ -69,33 +74,9 @@ def UpdateGMM(dists, GMM=None, device='cuda'):
         return window_dist
     
     else:
+        component_distribution = GMM.component_distribution
+        mixture_distribution = mixture_distribution
 
-        means_from_component = GMM.component_distribution.base_dist.loc
-        stddevs_from_component = GMM.component_distribution.base_dist.scale
-
-        # 队列方法更新GMM
-        num_new = len(dists)
-        window_len = len(means_from_component)
-
-        means_tmp = torch.zeros_like(means_from_component).to(device)
-        means_tmp[:window_len-num_new] = means_from_component[num_new:]
-        stddev_tmp = torch.zeros_like(stddevs_from_component).to(device)
-        stddev_tmp[:window_len-num_new] = stddevs_from_component[num_new:]
-        for i in range(num_new):
-            means_tmp[window_len-num_new+i] = dists[i].mean[0]
-            stddev_tmp[window_len-num_new+i] = dists[i].stddev[0]
-        
-
-        component_distribution = dist.Independent(
-            dist.Normal(
-                loc=means_tmp,
-                scale=stddev_tmp
-            ),
-            reinterpreted_batch_ndims=1
-        )
-        mixture_distribution = dist.Categorical(
-            probs=(torch.ones(window_len) / window_len).to(device)
-        )
         window_dist = dist.MixtureSameFamily(
             mixture_distribution=mixture_distribution,
             component_distribution=component_distribution
@@ -558,6 +539,8 @@ class PSZP(IOD):
                     self.copy_params(self.ResetSZPolicy, self.SampleZPolicy)
                     self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=3e-2)
                     
+                    window_dist = UpdateGMM(self.DistWindow, device=self.device)
+                
                     for t in range(100):
                         # Reset the SZN:
                         dist_z = self.SampleZPolicy(self.input_token)
@@ -573,17 +556,19 @@ class PSZP(IOD):
                         # weight of entropy
                         w1 = 0
                         # weight of GMM KL
-                        w2 = 10
-                        window_dist = UpdateGMM(self.DistWindow, device=self.device)
+                        w2 = 3
                         log_pz = window_dist.log_prob(z)
                         pz = torch.exp(log_pz)
                         log_qz = z_logp
                         kl_window = pz * (log_pz - log_qz)
                         # # weight of Confidence Factor
                         w3 = 0
-                        # sf_repr_buffer_tensor = torch.tensor(np.array(self.SfReprBuffer)).to(self.device)
-                        # confidence = torch.norm(z.unsqueeze(1) - sf_repr_buffer_tensor.unsqueeze(0), dim=-1).min(dim=-1)[0]
-                        confidence = torch.zeros_like(kl_window).to(self.device)
+                        if  w3 > 0:
+                            sf_repr_buffer_tensor = torch.tensor(np.array(self.SfReprBuffer)).to(self.device)
+                            confidence = torch.norm(z.unsqueeze(1) - sf_repr_buffer_tensor.unsqueeze(0), dim=-1).min(dim=-1)[0]
+                            confidence = torch.clamp(confidence, min=0.1)
+                        else:   
+                            confidence = torch.zeros_like(kl_window).to(self.device)
 
                         loss_SZP = (-z_logp * V_szn.detach() - w1 * dist_z.entropy() - w2 * kl_window + w3 * confidence).mean()
                         loss_SZP.backward()
@@ -630,6 +615,7 @@ class PSZP(IOD):
                     self.copy_params(self.qf1, self.last_qf1)
                     self.copy_params(self.qf2, self.last_qf2)
                     self.copyed = 1
+                    SfReprBuffer = self.SfReprBuffer
                     self.SfReprBuffer = []
             
                 # sample SZN from window
@@ -637,16 +623,37 @@ class PSZP(IOD):
                 # print(random_index, 'of', len(self.DistWindow)-1, "; NumSampleTimes:", self.NumSampleTimes)
                 # dist = self.DistWindow[random_index]
                 # self.last_z = dist.sample()
-                z_pool = None
-                for i in range(len(self.DistWindow)):
-                    dist_i = self.DistWindow[i]
-                    if z_pool is None:
-                        z_pool = dist_i.sample()        # [16, 2]
-                    else:
-                        z_pool = torch.cat((z_pool, dist_i.sample()), dim=0)    # [l*16, 2]
-                index_sample = np.random.choice(z_pool.shape[0], self.num_random_trajectories, replace=False)
-                self.last_z = z_pool[index_sample]
+
+                ## naive sample
+                # z_pool = None
+                # for i in range(len(self.DistWindow)):
+                #     dist_i = self.DistWindow[i]
+                #     if z_pool is None:
+                #         z_pool = dist_i.sample()        # [16, 2]
+                #     else:
+                #         z_pool = torch.cat((z_pool, dist_i.sample()), dim=0)    # [l*16, 2]
+                # index_sample = np.random.choice(z_pool.shape[0], self.num_random_trajectories, replace=False)
+                # self.last_z = z_pool[index_sample]
                 
+                ## GMM samples
+                if len(self.SfReprBuffer) > 0:
+                    SfReprBuffer = self.SfReprBuffer
+
+                sf_repr_buffer_tensor = torch.tensor(np.array(SfReprBuffer)).to(self.device)
+                WinLen = len(self.DistWindow)
+                confidence = torch.zeros(WinLen).to(self.device)
+                for i in range(WinLen):
+                    dist_i_mean = self.DistWindow[i].mean[0]
+                    confidence_i = torch.norm(dist_i_mean.unsqueeze(0) - sf_repr_buffer_tensor.unsqueeze(0), dim=-1).min(dim=-1)[0]
+                    confidence[i] = confidence_i
+
+                
+                confidence = torch.clamp(confidence, min=0.1)
+                mix_dist_prob = (1 / confidence) / (1 / confidence).sum() 
+                print(mix_dist_prob)
+                window_dist = UpdateGMM(self.DistWindow, mix_dist_prob=mix_dist_prob, device=self.device)
+                self.last_z = window_dist.sample((self.num_random_trajectories,))
+
                 np_z = self.last_z.cpu().numpy()
                 print("Sample Z: ", np_z)
                 extras = self._generate_option_extras(np_z, psi_g=np_z)   

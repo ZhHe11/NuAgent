@@ -164,11 +164,13 @@ def get_argparser():
     parser.add_argument('--num_her', type=int, default=0)
     
     parser.add_argument('--is_wandb', type=int, default=0)
-    
+    parser.add_argument('--wandb_note', type=str, default='none')
+
     parser.add_argument('--_trans_phi_optimization_epochs', type=int, default=1)
     parser.add_argument('--_trans_policy_optimization_epochs', type=int, default=1)
     parser.add_argument('--_trans_online_sample_epochs', type=int, default=1)
     parser.add_argument('--target_theta', type=float, default=1.)
+
     
     
     return parser
@@ -264,7 +266,7 @@ def get_gaussian_module_construction(args,
 def run(ctxt=None):
     if args.is_wandb:
         wandb_output_dir = get_log_dir()
-        wandb.init(group=args.run_group, name=get_exp_name()[0],
+        wandb.init(group=args.run_group, name=get_exp_name()[0], notes=args.wandb_note,
                     config=vars(args), dir=wandb_output_dir)
 
     dowel.logger.log('ARGS: ' + str(args))
