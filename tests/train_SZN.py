@@ -180,6 +180,7 @@ def viz_Regert_in_Psi(base1, base2, state, num_samples=10, device='cpu', path='.
     
     # Regret:
     Regret = V2 - V1
+    Regret = V2
     
     print(Regret.max(), Regret.min())
     
@@ -372,14 +373,13 @@ for i in range(10):
         V_z =  EstimateValue(policy= option_policy, alpha=log_alpha, qf1=qf1, qf2=qf2, option=z, state=s0.unsqueeze(0).repeat(z.shape[0], 1))
         V_z_last_iter = EstimateValue(policy=last_policy, alpha=last_alpha, qf1=last_qf1, qf2=last_qf2, option=z, state=s0.unsqueeze(0).repeat(z.shape[0], 1))
 
-        V_szn = (V_z - V_z_last_iter) 
-        V_szn = (V_szn - V_szn.mean()) / (V_szn.std() + 1e-6)
+        V_szn = 0 * (V_z - V_z_last_iter) + V_z_last_iter
+        # V_szn = (V_szn - V_szn.mean()) / (V_szn.std() + 1e-6)
     
         SampleZPolicy_optim.zero_grad()
         w1 = 0
-
-
         w2 = 3
+
         if GMM:
             log_pz = window_dist.log_prob(z)
             pz = torch.exp(log_pz)
@@ -402,10 +402,15 @@ for i in range(10):
         
 
 
-        w3 = 5
+        w3 = 0
         confidence = 0
         if ConfidenceFactor == 1:
-            confidence = torch.norm(z.unsqueeze(1) - torch.tensor(SfReprBuffer).to(device).unsqueeze(0), dim=-1).min(dim=-1)[0]
+            confidence = torch.clamp(torch.norm(z.unsqueeze(1) - torch.tensor(SfReprBuffer).to(device).unsqueeze(0), dim=-1).min(dim=-1)[0], min=0.1)
+
+        print(confidence[0])
+        V_szn = V_szn / confidence
+        V_szn = (V_szn - V_szn.mean()) / (V_szn.std() + 1e-6)
+
             
         
         loss_SZP = (1 * -z_logp * V_szn.detach() - w1 * dist_z.entropy() - w2 * kl_window + w3 * confidence).mean()
@@ -415,7 +420,7 @@ for i in range(10):
         SampleZPolicy_optim.step()
 
 
-        print(confidence.mean())
+        # print(confidence.mean())
 
     # # window queue operation    
     with torch.no_grad():

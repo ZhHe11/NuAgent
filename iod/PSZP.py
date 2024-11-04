@@ -396,9 +396,8 @@ class PSZP(IOD):
 
             sfs = np.stack(sfs, axis=0)
             with torch.no_grad():
-                SfRepr = self.traj_encoder(torch.tensor(sfs).to(self.device)).mean.cpu().numpy()
-            for i in range(SfRepr.shape[0]):
-                self.SfReprBuffer.append(SfRepr[i])
+                SfRepr = self.Psi(self.traj_encoder(torch.tensor(sfs).to(self.device)).mean)
+            self.SfReprBuffer.extend(SfRepr.cpu().numpy())
 
 
     def _sample_replay_buffer(self, batch_size=None): 
@@ -418,15 +417,11 @@ class PSZP(IOD):
 
     @torch.no_grad()
     def EstimateValue(self, policy, alpha, qf1, qf2, option, state, num_samples=1):
-        '''
-        num_samles越大,方差越小,偏差不会更小;
-        '''
         batch = option.shape[0]     # [s0, z]
         processed_cat_obs = self._get_concat_obs(policy.process_observations(state), option.float())     # [b,dim_s+dim_z]
         dist, info = policy(processed_cat_obs)    # [b, dim]
         actions = dist.sample((num_samples,))          # [n, b, dim]
         log_probs = dist.log_prob(actions).squeeze(-1)  # [n, b]
-        # [fatal bug!!!!]: repeat wrong dim
         processed_cat_obs_flatten = processed_cat_obs.repeat(num_samples, 1, 1).view(batch * num_samples, -1)      # [n*b, dim_s+z]
         actions_flatten = actions.view(batch * num_samples, -1)     # [n*b, dim_a]
         q_values = torch.min(qf1(processed_cat_obs_flatten, actions_flatten), qf2(processed_cat_obs_flatten, actions_flatten))      # [n*b, dim_1]
@@ -456,7 +451,7 @@ class PSZP(IOD):
             
             if self.method['explore'] == 'SZN' and self.buffer_ready:
                 # viz the Regert Map
-                def viz_Regert_in_Psi(state, device='cpu', path='./', ax=None):
+                def viz_Regert_in_Psi(state, device='cpu', path='./', ax=None, confidence=None):
                     density = 100
                     x = np.linspace(-1, 1, density)
                     y = np.linspace(-1, 1, density)
@@ -468,11 +463,15 @@ class PSZP(IOD):
                     pos_flatten = pos.view(-1,2)
                     option = pos_flatten
                     state_batch = state.repeat(option.shape[0], 1)
-                    Regret = cal_regeret(option, state_batch).view(pos.shape[0],pos.shape[1])
+                    Regret = cal_regeret(option, state_batch)[0].view(pos.shape[0],pos.shape[1])
                     if ax is None:
                         fig = plt.figure(figsize=(18, 12), facecolor='w')
                         ax = fig.add_subplot(111, projection='3d')
-                    ax.plot_surface(X, Y, Regret.cpu().numpy(), rstride=1, cstride=1, cmap='viridis', edgecolor='none')
+                    if confidence is None:  
+                        ax.plot_surface(X, Y, Regret.cpu().numpy(), rstride=1, cstride=1, cmap='viridis', edgecolor='none')
+                    else:
+                        CR = Regret / confidence
+                        ax.plot_surface(X, Y, CR.cpu().numpy(), rstride=1, cstride=1, cmap='viridis', edgecolor='none')
                     ax.view_init(60, 270+20)
                     ax.set_xlabel('X')          
                     ax.set_ylabel('Y')
@@ -492,7 +491,7 @@ class PSZP(IOD):
                     else:
                         V_z_last_iter = 0
                         
-                    return V_z - V_z_last_iter
+                    return V_z - V_z_last_iter, V_z
                 
                 k = 5
                 if self.NumSampleTimes == k * len(self.DistWindow):
@@ -505,7 +504,7 @@ class PSZP(IOD):
                                 dist_j = self.DistWindow[j]
                                 # Pop depanding on the regret of dist; 
                                 # Attention! you should calculate the regret before updating the k-1 policy;      
-                                Regret_j = cal_regeret(dist_j.sample(), self.init_obs)
+                                Regret_j, _ = cal_regeret(dist_j.sample(), self.init_obs)
                                 if Regret_j.mean() > 0:
                                     new_window.append(dist_j)
                             return new_window
@@ -524,7 +523,7 @@ class PSZP(IOD):
                                     dist_j = self.DistWindow[j]
                                     # Pop depanding on the regret of dist; 
                                     # Attention! you should calculate the regret before updating the k-1 policy;      
-                                    Regret_j = cal_regeret(dist_j.sample(), self.init_obs).mean()
+                                    Regret_j, _ = cal_regeret(dist_j.sample(), self.init_obs).mean()
                                     if min < Regret_j:
                                         pop_index = j
                                         min = Regret_j
@@ -540,17 +539,15 @@ class PSZP(IOD):
                     self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=3e-2)
                     
                     window_dist = UpdateGMM(self.DistWindow, device=self.device)
-                
-                    for t in range(100):
+                    for t in trange(100):
                         # Reset the SZN:
                         dist_z = self.SampleZPolicy(self.input_token)
                         z = dist_z.rsample()
                         z_logp = dist_z.log_prob(z.detach())
-                        V_z = self.EstimateValue(policy=self.option_policy, alpha=self.log_alpha, qf1=self.qf1, qf2=self.qf2, option=z, state=self.init_obs)
-                        
-                        V_szn = cal_regeret(z, self.init_obs)
-                        # BN: 增加训练稳定性；
-                        V_szn = (V_szn - V_szn.mean()) / (V_szn.std() + 1e-6)
+
+                        V_szn, V_z = cal_regeret(z, self.init_obs)
+                        V_z = (V_z - V_z.mean()) / (V_z.std() + 1e-6)       # BN: 增加训练稳定性；
+                        V_szn = (V_szn - V_szn.mean()) / (V_szn.std() + 1e-6)       # BN: 增加训练稳定性；
 
                         self.SampleZPolicy_optim.zero_grad()    
                         # weight of entropy
@@ -562,15 +559,17 @@ class PSZP(IOD):
                         log_qz = z_logp
                         kl_window = pz * (log_pz - log_qz)
                         # # weight of Confidence Factor
-                        w3 = 0
+                        w3 = 30
                         if  w3 > 0:
                             sf_repr_buffer_tensor = torch.tensor(np.array(self.SfReprBuffer)).to(self.device)
                             confidence = torch.norm(z.unsqueeze(1) - sf_repr_buffer_tensor.unsqueeze(0), dim=-1).min(dim=-1)[0]
-                            confidence = torch.clamp(confidence, min=0.1)
-                        else:   
+                            confidence = torch.clamp(confidence, min=0.05)
+                            # confidence = torch.exp(confidence)
+                        else:
                             confidence = torch.zeros_like(kl_window).to(self.device)
 
-                        loss_SZP = (-z_logp * V_szn.detach() - w1 * dist_z.entropy() - w2 * kl_window + w3 * confidence).mean()
+                        loss_SZP = (-z_logp * (V_szn.detach() + 1 * V_z.detach()) - w1 * dist_z.entropy() - w2 * kl_window + w3 * confidence).mean()
+
                         loss_SZP.backward()
                         self.grad_clip.apply(self.SampleZPolicy.parameters())
                         self.SampleZPolicy_optim.step()
@@ -578,18 +577,16 @@ class PSZP(IOD):
                             wandb.log({
                                 "SZN/loss_SZP": loss_SZP,
                                 "SZN/logp": z_logp.mean(),
-                                "SZN/V_z": V_z.mean(),
                                 "SZN/entropy": dist_z.entropy().mean(),
                                 "SZN/kl_window": kl_window.mean(),
                                 "SZN/confidence": confidence.mean(),
+                                "SZN/V_z": V_z.mean(),
                                 "epoch": runner.step_itr,
                             })
-                              
                     # window queue operation    
                     with torch.no_grad():
                         dist = self.SampleZPolicy(self.input_token)    
                         is_different = 1
-                        new_window = []
                         for j in range(len(self.DistWindow)):
                             dist_j = self.DistWindow[j]
                             if (self.norm(dist.mean- dist_j.mean)).mean() < 0.1:
@@ -603,7 +600,7 @@ class PSZP(IOD):
                             ax1 = fig.add_subplot(121, projection='3d')
                             ax2 = fig.add_subplot(122)
                             viz_Regert_in_Psi(state=self.s0, device=self.device, path=path, ax=ax1)
-                            viz_dist_circle(self.DistWindow, path=path, psi_z=self.last_z.cpu().numpy(), ax=ax2)
+                            viz_dist_circle(self.DistWindow, path=path, psi_z=np.array(self.SfReprBuffer), ax=ax2)
                             plt.savefig(path + '-Regret' + '.png')
                             print('save at: ' + path + '-Regret' + '.png')
                             plt.close()
@@ -615,54 +612,32 @@ class PSZP(IOD):
                     self.copy_params(self.qf1, self.last_qf1)
                     self.copy_params(self.qf2, self.last_qf2)
                     self.copyed = 1
-                    SfReprBuffer = self.SfReprBuffer
                     self.SfReprBuffer = []
-            
-                # sample SZN from window
-                # random_index = np.random.randint(0, len(self.DistWindow))
-                # print(random_index, 'of', len(self.DistWindow)-1, "; NumSampleTimes:", self.NumSampleTimes)
-                # dist = self.DistWindow[random_index]
-                # self.last_z = dist.sample()
-
-                ## naive sample
-                # z_pool = None
-                # for i in range(len(self.DistWindow)):
-                #     dist_i = self.DistWindow[i]
-                #     if z_pool is None:
-                #         z_pool = dist_i.sample()        # [16, 2]
-                #     else:
-                #         z_pool = torch.cat((z_pool, dist_i.sample()), dim=0)    # [l*16, 2]
-                # index_sample = np.random.choice(z_pool.shape[0], self.num_random_trajectories, replace=False)
-                # self.last_z = z_pool[index_sample]
                 
                 ## GMM samples
-                if len(self.SfReprBuffer) > 0:
-                    SfReprBuffer = self.SfReprBuffer
 
-                sf_repr_buffer_tensor = torch.tensor(np.array(SfReprBuffer)).to(self.device)
-                WinLen = len(self.DistWindow)
-                confidence = torch.zeros(WinLen).to(self.device)
-                for i in range(WinLen):
-                    dist_i_mean = self.DistWindow[i].mean[0]
-                    confidence_i = torch.norm(dist_i_mean.unsqueeze(0) - sf_repr_buffer_tensor.unsqueeze(0), dim=-1).min(dim=-1)[0]
-                    confidence[i] = confidence_i
-
-                
-                confidence = torch.clamp(confidence, min=0.1)
-                mix_dist_prob = (1 / confidence) / (1 / confidence).sum() 
-                print(mix_dist_prob)
-                window_dist = UpdateGMM(self.DistWindow, mix_dist_prob=mix_dist_prob, device=self.device)
+                # if len(self.SfReprBuffer) > 0:
+                #     SfReprBuffer = self.SfReprBuffer
+                # sf_repr_buffer_tensor = torch.tensor(np.array(SfReprBuffer)).to(self.device)
+                # WinLen = len(self.DistWindow)
+                # confidence = torch.zeros(WinLen).to(self.device)
+                # for i in range(WinLen):
+                #     dist_i_mean = self.DistWindow[i].mean[0]
+                #     confidence_i = torch.norm(dist_i_mean.unsqueeze(0) - sf_repr_buffer_tensor.unsqueeze(0), dim=-1).min(dim=-1)[0]
+                #     confidence[i] = confidence_i
+                # confidence = torch.clamp(confidence, min=0.1)
+                # mix_dist_prob = (1 / confidence) / (1 / confidence).sum() 
+                # print(confidence)
+                # print(mix_dist_prob)
+                window_dist = UpdateGMM(self.DistWindow, device=self.device)
                 self.last_z = window_dist.sample((self.num_random_trajectories,))
 
                 np_z = self.last_z.cpu().numpy()
-                print("Sample Z: ", np_z)
                 extras = self._generate_option_extras(np_z, psi_g=np_z)   
                 self.NumSampleTimes += 1
-        
+
 
             elif self.method['explore'] == 'uniform' and self.buffer_ready:
-                # w/o unit_length
-                # random_options = np.random.randn(runner._train_args.batch_size, self.dim_option)
                 random_options = np.random.uniform(-1,1, (runner._train_args.batch_size, self.dim_option))
                 print(random_options)
                 extras = self._generate_option_extras(random_options, psi_g=random_options)
@@ -680,8 +655,7 @@ class PSZP(IOD):
     Train Process;
     '''
     def _train_once_inner(self, path_data):
-        self._update_replay_buffer(path_data)       
-        # epoch_data = self._flatten_data(path_data)
+        self._update_replay_buffer(path_data)      
         tensors = self._train_components()  
         return tensors
     
@@ -694,9 +668,9 @@ class PSZP(IOD):
         self.buffer_ready = 1
         tensors = {}
         dataset = BufferDataset(self.replay_buffer._buffer, len=self.replay_buffer.n_transitions_stored)
-        dataloader = DataLoader(dataset, batch_size=self._trans_minibatch_size, shuffle=True, num_workers=2, multiprocessing_context='fork')
-        
-        for epoch_i, v in enumerate(dataloader):
+        dataloader = DataLoader(dataset, batch_size=self._trans_minibatch_size, shuffle=True, num_workers=4, multiprocessing_context='fork', persistent_workers=True, pin_memory=True, prefetch_factor=4)
+
+        for epoch_i, v in tqdm(enumerate(dataloader), total=self._trans_optimization_epochs, desc="Training Batches"):
             if epoch_i > self._trans_optimization_epochs:
                 break
             v = {key: value.type(torch.float32).to(self.device) for key, value in v.items()}
