@@ -2,8 +2,71 @@ export CUDA_VISIBLE_DEVICES=4
 export MUJOCO_GL="osmesa"
 
 # regret
-python tests/main.py --run_group Maze --env ant_maze --max_path_length 100 --seed 0 --traj_batch_size 8 --n_parallel 1 --normalizer_type off --sac_max_buffer_size 300000  --n_epochs_per_log 50 --n_epochs_per_eval 100 --n_epochs_per_save 100 --n_epochs_per_pt_save 100 --discrete 0 --dim_option 2 --sac_scale_reward 1 \
-    --algo SZN_Z --exp_name baseline --phi_type baseline --policy_type baseline --explore_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 50 --target_theta 1 --is_wandb 1 --trans_minibatch_size 256 
+python tests/main.py --run_group MazeSZN --env ant_maze --max_path_length 300 --seed 0 --traj_batch_size 16 --n_parallel 4 --normalizer_type off --sac_max_buffer_size 3000000  --n_epochs_per_log 50 --n_epochs_per_eval 100 --n_epochs_per_save 100 --n_epochs_per_pt_save 100 --discrete 0 --dim_option 2 --sac_scale_reward 1 \
+    --algo PSZP --exp_name PSZP-14-Faster --phi_type Projection --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 75 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 --common_lr 1e-3 --model_master_num_layers 2 --wandb_note 'I want it using large batch size; to compare with original model, and epoch 75'  
+
+
+    --algo P_PZ --exp_name P_PZ-1 --phi_type Projection --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 75 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 --common_lr 1e-3 --model_master_num_layers 2
+
+
+
+
+
+    --algo PSZP --exp_name PSZP-6-PopDeque_windowsize5 --phi_type Projection --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 75 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 --common_lr 1e-3 --model_master_num_layers 2
+
+    --algo PRR --exp_name PRR-SZN --phi_type Projection --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 50 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 --common_lr 1e-3 --model_master_num_layers 2
+
+
+
+
+
+
+
+
+    --algo PSZP --exp_name PSZP-6-tanh150 --phi_type Projection --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 50 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 --common_lr 1e-3 --model_master_num_layers 2
+
+
+
+    --algo PSZP --exp_name PSZP-4-z_pool-PhiDistance-SameScale --phi_type Projection --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 50 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 --common_lr 1e-3 --model_master_num_layers 2
+
+
+
+
+
+
+
+
+
+
+    --algo SZN_PPAU --exp_name PPAU-constraint7-uniform-3 --phi_type Projection --explore_type uniform --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 50 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 --common_lr 1e-3
+
+
+    # --algo SZN_P --exp_name P-SZN-4 --phi_type Projection --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 50 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 --common_lr 1e-4
+
+
+
+    --algo SZN_PPAU --exp_name PPAU-constraint-1 --phi_type Projection --explore_type uniform --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 75 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 --common_lr 1e-3
+
+
+
+    --algo SZN_P --exp_name P-SZN-1 --phi_type Projection --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 75 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 
+
+
+
+    --algo SZN_PPAU --exp_name PPAU-u-PolicyReward-3 --phi_type Projection --explore_type uniform --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 75 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 
+
+
+    --algo SZN_Z --exp_name baseline-path300 --phi_type baseline --explore_type baseline --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 75 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 
+
+
+    --algo SZN_P --exp_name SZN_epoch50 --phi_type Projection --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 75 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 
+
+    # --algo SZN_Z --exp_name cos-Exp5-update --phi_type baseline --explore_type baseline --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 50 --target_theta 1 --is_wandb 1 --trans_minibatch_size 256 
+
+    # --algo SZN_Z --exp_name SZN-Exp4 --phi_type baseline --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 50 --target_theta 1 --is_wandb 1 --trans_minibatch_size 256 
+
+
+    # --algo SZN_Z --exp_name Cv3-Exp9 --phi_type contrastive_v3 --explore_type baseline --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 50 --target_theta 1 --is_wandb 1 --trans_minibatch_size 256 
 
 
 # baseline

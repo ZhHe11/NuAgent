@@ -17,8 +17,21 @@ class AgentWrapper(object):
     def vec_norm(self, vec):
         return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
         
+    # @torch.no_grad()
+    # def gen_z(self, sub_goal, obs, device="cpu", ret_emb: bool = False):
+    #     traj_encoder = self.target_traj_encoder.to(device)
+    #     goal_z = traj_encoder(sub_goal).mean
+    #     target_cur_z = traj_encoder(obs).mean
+
+    #     z = self.vec_norm(goal_z - target_cur_z)
+    #     if ret_emb:
+    #         return z, target_cur_z, goal_z
+    #     else:
+    #         return z
+        
+    
     @torch.no_grad()
-    def gen_z(self, sub_goal, obs, device="cpu", ret_emb: bool = False):
+    def gen_z(self, psi_g, obs, device="cpu", ret_emb: bool = False):
         traj_encoder = self.target_traj_encoder.to(device)
         goal_z = traj_encoder(sub_goal).mean
         target_cur_z = traj_encoder(obs).mean
@@ -28,6 +41,8 @@ class AgentWrapper(object):
             return z, target_cur_z, goal_z
         else:
             return z
+        
+        
         
     @torch.no_grad()
     def gen_z_phi_g(self, phi_g, obs, device='cpu', ret_emb: bool = False):

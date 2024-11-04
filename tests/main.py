@@ -54,6 +54,15 @@ from iod.dads import DADS
 from iod.SZN import SZN
 from iod.SZN_batch import SZN_batch
 from iod.SZN_Z import SZN_Z
+from iod.SZN_P import SZN_P
+from iod.SZN_PP import SZN_PP
+from iod.SZN_PPP import SZN_PPP
+from iod.SZN_PPAU import SZN_PPAU
+from iod.P_SZN_AU import P_SZN_AU
+from iod.PSZP import PSZP
+from iod.PRR import PRR
+from iod.P_PZ import P_PZ
+
 
 from iod.utils import get_normalizer_preset
 
@@ -115,7 +124,7 @@ def get_argparser():
 
     parser.add_argument('--alpha', type=float, default=0.01)
 
-    parser.add_argument('--algo', type=str, default='metra', choices=['metra', 'dads', 'causer', 'metra_bl', 'SZN', 'SZN_batch', 'SZN_Z'])
+    parser.add_argument('--algo', type=str, default='metra')
 
     parser.add_argument('--sac_tau', type=float, default=5e-3)
     parser.add_argument('--sac_lr_q', type=float, default=None)
@@ -142,8 +151,8 @@ def get_argparser():
     parser.add_argument('--unit_length', type=int, default=1, choices=[0, 1])  # Only for continuous skills
 
     parser.add_argument('--dual_reg', type=int, default=1, choices=[0, 1])
-    parser.add_argument('--dual_lam', type=float, default=30)
-    parser.add_argument('--dual_slack', type=float, default=1e-3)
+    parser.add_argument('--dual_lam', type=float, default=20)
+    parser.add_argument('--dual_slack', type=float, default=1e-4)
     parser.add_argument('--dual_dist', type=str, default='one', choices=['l2', 's2_from_s', 'one'])
     parser.add_argument('--dual_lr', type=float, default=None)
     
@@ -155,11 +164,13 @@ def get_argparser():
     parser.add_argument('--num_her', type=int, default=0)
     
     parser.add_argument('--is_wandb', type=int, default=0)
-    
+    parser.add_argument('--wandb_note', type=str, default='none')
+
     parser.add_argument('--_trans_phi_optimization_epochs', type=int, default=1)
     parser.add_argument('--_trans_policy_optimization_epochs', type=int, default=1)
     parser.add_argument('--_trans_online_sample_epochs', type=int, default=1)
     parser.add_argument('--target_theta', type=float, default=1.)
+
     
     
     return parser
@@ -255,7 +266,8 @@ def get_gaussian_module_construction(args,
 def run(ctxt=None):
     if args.is_wandb:
         wandb_output_dir = get_log_dir()
-        wandb.init(project="NuAgent-tests", group=args.run_group, name=get_exp_name()[0], config=vars(args), dir=wandb_output_dir)
+        wandb.init(group=args.run_group, name=get_exp_name()[0], notes=args.wandb_note,
+                    config=vars(args), dir=wandb_output_dir)
 
     dowel.logger.log('ARGS: ' + str(args))
     if args.n_thread is not None:
@@ -361,46 +373,6 @@ def run(ctxt=None):
         traj_encoder = with_encoder(traj_encoder, encoder=te_encoder)
         
 
-    # Network for goal policy
-    # zhanghe
-    module_cls, module_kwargs = get_gaussian_module_construction(
-        args,
-        hidden_sizes=master_dims,
-        hidden_nonlinearity=nonlinearity or torch.relu,
-        w_init=torch.nn.init.xavier_uniform_,
-        input_dim=args.dim_option,
-        output_dim=1,
-        init_std=10,
-        min_std=1,
-        max_std=args.max_path_length,
-    )
-    # 如果是输出vecter的话，要再改;
-    goal_sample_network = module_cls(**module_kwargs)
-     # Network for dist_predictor
-    module_cls, module_kwargs = get_gaussian_module_construction(
-        args,
-        hidden_sizes=master_dims,
-        hidden_nonlinearity=nonlinearity or torch.relu,
-        w_init=torch.nn.init.xavier_uniform_,
-        input_dim=args.dim_option,
-        output_dim=1,
-        init_std=1.,
-        min_std=1e-6,
-        max_std=2.,
-    )
-    space_predictor = module_cls(**module_kwargs)
-    # SZN
-    module_cls, module_kwargs = get_gaussian_module_construction(
-        args,
-        hidden_sizes=master_dims,
-        hidden_nonlinearity=nonlinearity or torch.relu,
-        w_init=torch.nn.init.xavier_uniform_,
-        input_dim=args.dim_option,
-        output_dim=1,
-        init_std=1.,
-        const_std=True,
-    )
-    SampleZNetwork = module_cls(**module_kwargs)
     # SampleZPolicyx
     module_cls, module_kwargs = get_gaussian_module_construction(
         args,
@@ -409,9 +381,10 @@ def run(ctxt=None):
         w_init=torch.nn.init.xavier_uniform_,
         input_dim=args.traj_batch_size,
         output_dim=args.dim_option,
-        init_std=1.,
-        min_std=1e-2,
-        max_std=1e2,
+        init_std=3e-1,
+        min_std=1e-1,
+        max_std=1,
+        normal_distribution_cls=TanhNormal,
     )
     SampleZPolicy = module_cls(**module_kwargs)
     # zhanghe end
@@ -474,9 +447,6 @@ def run(ctxt=None):
         'dual_lam': torch.optim.Adam([
             {'params': dual_lam.parameters(), 'lr': _finalize_lr(args.dual_lr)},
         ]),
-        'goal_sample_network': torch.optim.Adam([
-            {'params': goal_sample_network.parameters(), 'lr': _finalize_lr(args.lr_op)},
-        ]),
     }
     if skill_dynamics is not None:
         optimizers.update({
@@ -496,7 +466,7 @@ def run(ctxt=None):
     # else:
     replay_buffer = PathBufferTensor(capacity_in_transitions=int(args.sac_max_buffer_size), pixel_shape=pixel_shape)
 
-    if args.algo in ['metra', 'dads', 'causer', 'metra_bl', 'SZN', 'SZN_batch', 'SZN_Z']:
+    if args.algo in ['metra', 'dads', 'causer', 'metra_bl', 'SZN', 'SZN_batch', 'SZN_Z', 'SZN_P', 'SZN_PP', 'SZN_PPP', 'SZN_PPAU', 'P_SZN_AU', 'PSZP', 'PRR', 'P_PZ']:
         qf1 = ContinuousMLPQFunctionEx(
             obs_dim=policy_q_input_dim,
             action_dim=action_dim,
@@ -569,8 +539,6 @@ def run(ctxt=None):
         policy_type=args.policy_type,
         explore_type=args.explore_type,
         sample_type=args.sample_type,
-        goal_sample_network=goal_sample_network,
-        space_predictor=space_predictor,
         num_her=args.num_her,
         _trans_phi_optimization_epochs=args._trans_phi_optimization_epochs,
         _trans_policy_optimization_epochs=args._trans_policy_optimization_epochs,
@@ -621,7 +589,6 @@ def run(ctxt=None):
     elif args.algo == 'SZN':
         algo = SZN(
             **algo_kwargs,
-            SampleZNetwork=SampleZNetwork,
             SampleZPolicy=SampleZPolicy,
             **skill_common_args,
         )
@@ -629,7 +596,6 @@ def run(ctxt=None):
     elif args.algo == 'SZN_batch':
         algo = SZN_batch(
             **algo_kwargs,
-            SampleZNetwork=SampleZNetwork,
             SampleZPolicy=SampleZPolicy,
             **skill_common_args,
         ) 
@@ -637,12 +603,66 @@ def run(ctxt=None):
     elif args.algo == 'SZN_Z':
         algo = SZN_Z(
             **algo_kwargs,
-            SampleZNetwork=SampleZNetwork,
             SampleZPolicy=SampleZPolicy,
             **skill_common_args,
         ) 
-     
+        
+    elif args.algo == 'SZN_P':
+        algo = SZN_P(
+            **algo_kwargs,
+            SampleZPolicy=SampleZPolicy,
+            **skill_common_args,
+        )       
+        
+    elif args.algo == 'SZN_PP':
+        algo = SZN_PP(
+            **algo_kwargs,
+            SampleZPolicy=SampleZPolicy,
+            **skill_common_args,
+        )
+        
+    elif args.algo == 'SZN_PPP':
+        algo = SZN_PPP(
+            **algo_kwargs,
+            SampleZPolicy=SampleZPolicy,
+            **skill_common_args,
+        )       
+        
+    elif args.algo == 'SZN_PPAU':
+        algo = SZN_PPAU(
+            **algo_kwargs,
+            SampleZPolicy=SampleZPolicy,
+            **skill_common_args,
+        )       
     
+    elif args.algo == 'P_SZN_AU':
+        algo = P_SZN_AU(
+            **algo_kwargs,
+            SampleZPolicy=SampleZPolicy,
+            **skill_common_args,
+        )
+        
+    elif args.algo == 'PSZP':
+        algo = PSZP(
+            **algo_kwargs,
+            SampleZPolicy=SampleZPolicy,
+            **skill_common_args,
+        )
+        
+    elif args.algo == 'PRR':
+        algo = PRR(
+            **algo_kwargs,
+            SampleZPolicy=SampleZPolicy,
+            **skill_common_args,
+        )
+    
+    elif args.algo == 'P_PZ':
+        algo = P_PZ(
+            **algo_kwargs,
+            SampleZPolicy=SampleZPolicy,
+            **skill_common_args,
+        )        
+     
     elif args.algo == 'dads':
         algo = DADS(
             **algo_kwargs,

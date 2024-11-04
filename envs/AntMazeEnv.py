@@ -26,7 +26,7 @@ def get_canvas_image(canvas):
     out_image = out_image.reshape(canvas.get_width_height()[::-1] + (3,))
     return out_image
 
-def valid_goal_sampler(self, np_random):
+def valid_goal_sampler(self, np_random, freq=5):
     valid_cells = []
     goal_cells = []
     # print('Hello')
@@ -52,14 +52,16 @@ def valid_goal_sampler(self, np_random):
         random_x = 0
         random_y = 0
         
-        num = 5
-        x = np.linspace(-1.8, 1.1, num)
-        y = np.linspace(-1.8, 1.1, num)
-        X, Y = np.meshgrid(x, y)
-        grid_xy = xy[0] + X.reshape(-1), xy[1] + Y.reshape(-1)
-        for j in range(num * num):
-            GoalList.append((grid_xy[0][j],grid_xy[1][j]))
-        
+        # num = freq
+        # x = np.linspace(-1.8, 1.1, num)
+        # y = np.linspace(-1.8, 1.1, num)
+        # X, Y = np.meshgrid(x, y)
+        # grid_xy = xy[0] + X.reshape(-1), xy[1] + Y.reshape(-1)
+        grid_xy = xy[0], xy[1]
+        # for j in range(num * num):
+            # GoalList.append((grid_xy[0][j],grid_xy[1][j]))
+
+        GoalList.append((grid_xy[0],grid_xy[1]))
         
         # xy = (max(xy[0] + random_x, 0), max(xy[1] + random_y, 0))
         # GoalList.append(xy)
@@ -404,3 +406,4 @@ def plot_trajectories(env, trajectories, fig, ax, color_list=None):
         count += 1
 
     env.draw(ax)
+    return ax

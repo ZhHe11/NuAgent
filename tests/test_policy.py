@@ -16,7 +16,7 @@ from tqdm import trange, tqdm
 
 
 # save the traj. as fig
-def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_PCA=False, is_goal=True):
+def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_PCA=False, is_goal=True, ax=None):
     Repr_obs_array = np.array(All_Repr_obs_list[0])
     if is_goal:
         All_Goal_obs_array = np.array(All_Goal_obs_list[0])
@@ -34,21 +34,28 @@ def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_P
         if is_goal:
             All_Goal_obs_2d = All_Goal_obs_array
     # 绘制 PCA 降维后的数据
-    plt.figure(figsize=(8, 6))
+    if ax is None:
+        fig = plt.figure(figsize=(8, 6))
+        ax = fig.add_subplot(111)
     colors = cm.rainbow(np.linspace(0, 1, len(All_Repr_obs_list)))
     for i in range(0,len(All_Repr_obs_list)):
         color = colors[i]
         start_index = i * path_len
         end_index = (i+1) * path_len
-        plt.scatter(Repr_obs_2d[start_index:end_index, 0], Repr_obs_2d[start_index:end_index, 1], color=color, s=5)
+        ax.scatter(Repr_obs_2d[start_index:end_index, 0], Repr_obs_2d[start_index:end_index, 1], color=color, s=5)
         if is_goal:
-            plt.scatter(All_Goal_obs_2d[start_index:end_index, 0], All_Goal_obs_2d[start_index:end_index, 1], color=color, s=100, marker='*', edgecolors='black')
+            ax.scatter(All_Goal_obs_2d[start_index:end_index, 0], All_Goal_obs_2d[start_index:end_index, 1], color=color, s=100, marker='*', edgecolors='black')
     path_file_traj = path + "-traj.png"
-    plt.xlabel('z[0]')
-    plt.ylabel('z[1]')
-    plt.title('traj. in representation space')
+    ax.set_xlabel('z[0]')
+    ax.set_ylabel('z[1]')
+    ax.set_title('Repr of Traj. in Z Space')
     # plt.legend()
-    plt.savefig(path_file_traj)
+    if ax is None:
+        plt.savefig(path_file_traj)
+        plt.close()
+        return
+    else:
+        return ax
 
 
 def vec_norm(vec):
@@ -64,7 +71,6 @@ def gen_z(sub_goal, obs, traj_encoder, device="cpu", ret_emb: bool = False):
         return z, target_cur_z, goal_z
     else:
         return z
-
 
 
 from iod.utils import get_torch_concat_obs, FigManager, get_option_colors, record_video, draw_2d_gaussians
@@ -106,14 +112,17 @@ def EstimateValue(policy, alpha, qf1, qf2, option, state, num_samples=1):
     return E_V.squeeze(-1)
 
 
-
 @torch.no_grad()
-def viz_Value_in_Psi(policy, alpha, qf1, qf2, state, num_samples=10, device='cpu', path='./'):
+def viz_Value_in_Psi(policy, alpha, qf1, qf2, state, num_samples=10, device='cpu', path='./', fig=None):
     density = 200
     x = np.linspace(-1, 1, density)
     y = np.linspace(-1, 1, density)
     X, Y = np.meshgrid(x,y)
-    fig = plt.figure(figsize=(18, 12), facecolor='w')
+    if fig is None:
+        fig = plt.figure(figsize=(18, 12), facecolor='w')
+        ax3d = fig.add_subplot(111, projection='3d')
+    else:
+        ax3d = fig.add_subplot([0.52, 0.55, 0.4, 0.3], projection='3d')
     
     pos = np.empty(X.shape + (2,))
     pos[:, :, 0] = X
@@ -123,21 +132,27 @@ def viz_Value_in_Psi(policy, alpha, qf1, qf2, state, num_samples=10, device='cpu
     option = pos_flatten
     state_batch = state.unsqueeze(0).repeat(option.shape[0], 1)
 
-    V_flatten = EstimateValue(policy, alpha, qf1, qf2, option, state_batch, num_samples=100)
+    V_flatten = EstimateValue(policy, alpha, qf1, qf2, option, state_batch, num_samples=10)
     V = V_flatten.view(pos.shape[0],pos.shape[1])
-    
     print(V.max(), V.min())
-    
-    ax = fig.add_subplot(111, projection='3d')
-    # ax.plot_surface(X, Y, Z, rstride=1, cstride=1, cmap='viridis', edgecolor='none')
-    ax.plot_surface(X, Y, V.cpu().numpy(), rstride=1, cstride=1, cmap='viridis', edgecolor='none')
-    ax.view_init(60, 35)
-    ax.set_xlabel('X')          
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Value')
-    plt.savefig(path + '-Value' + '.png')
-    print('save at: ' + path + '-Value' + '.png')
-    plt.close()
+
+    ax3d.plot_surface(X, Y, V.cpu().numpy(), rstride=1, cstride=1, cmap='viridis', edgecolor='none')
+    ax3d.view_init(60, 270+20)
+    ax3d.set_xlabel('X', fontsize=8, labelpad=-2)
+    ax3d.set_ylabel('Y', fontsize=8, labelpad=-2)
+    ax3d.set_zlabel('Value', fontsize=8, labelpad=-2)
+
+    ax3d.tick_params(axis='x', labelsize=5, pad=-2)
+    ax3d.tick_params(axis='y', labelsize=5, pad=-2)
+    ax3d.tick_params(axis='z', labelsize=5, pad=-2)
+        
+    if fig is None:
+        plt.savefig(path + '-Value' + '.png')
+        print('save at: ' + path + '-Value' + '.png')
+        plt.close()
+        return 
+    else: 
+        return fig
 
 
 @torch.no_grad()
@@ -184,33 +199,52 @@ def viz_Regert_in_Psi(base1, base2, state, num_samples=10, device='cpu', path='.
     print('save at: ' + path + '-Regret' + '.png')
     plt.close()
     
-    
-    
-    
-    
-    
-    
-    
+
+def viz_SZN_dist_circle(SZN, input_token, path, psi_z=None, ax=None):
+    dist = SZN(input_token)
+    from matplotlib.patches import Ellipse
+    num = dist.mean.shape[0]
+    if ax is None:
+        fig = plt.figure(0)
+        ax = fig.add_subplot(111)
+    for i in range(1):
+        mu_x = dist.mean[i][0].detach().cpu().numpy()
+        sigma_x = dist.stddev[i][0].detach().cpu().numpy()
+        mu_y = dist.mean[i][1].detach().cpu().numpy()
+        sigma_y = dist.stddev[i][1].detach().cpu().numpy()
+        e = Ellipse(xy = (mu_x,mu_y), width = sigma_x * 2, height = sigma_y * 2, angle=0)
+        ax.add_artist(e)
+        
+    if psi_z is not None:
+        ax.scatter(psi_z[:, 0], psi_z[:, 1], marker='*', alpha=1)
+
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.grid(True)
+    ax.set_xlim(-1, 1)
+    ax.set_ylim(-1, 1)
+    ax.set_title('Dist. of SZN in Z Space')
+    if ax is None:
+        plt.savefig(path + '-c' + '.png')
+        print("save at:", path + '-c' + '.png')
+        plt.close()
+        return 
+    else:
+        return ax
+
 
 
 ## load model
 # baseline 
-policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/P-SZN-Regretsd000_1729510830_ant_maze_P_SZN_AU/wandb/run-20241021_194033-ykpu3psm/filesoption_policy-0.pt"
-policy_path2 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/P-SZN-Regretsd000_1729510830_ant_maze_P_SZN_AU/wandb/run-20241021_194033-ykpu3psm/filesoption_policy-20.pt"
-traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PPAU-constraint7-uniform-3sd000_1729427323_ant_maze_P_SZN_AU/wandb/latest-run/filestaregt_traj_encoder-1000.pt"
-SZN_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PPAU-constraint7-uniform-3sd000_1729427323_ant_maze_P_SZN_AU/wandb/latest-run/filesSampleZPolicy-1000.pt"
+policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-1-k_3sd000_1729773482_ant_maze_PSZP/wandb/latest-run/filesoption_policy-1500.pt"
+traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-1-k_3sd000_1729773482_ant_maze_PSZP/wandb/latest-run/filestaregt_traj_encoder-1500.pt"
+SZN_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-1-k_3sd000_1729773482_ant_maze_PSZP/wandb/latest-run/filesSampleZPolicy-1500.pt"
 
-# policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/SZN-Exp4sd000_1728446621_ant_maze_SZN_Z/option_policy3000.pt"
-# traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/SZN-Exp4sd000_1728446621_ant_maze_SZN_Z/traj_encoder3000.pt"
-
-# # SGN-A
-# policy_path = "/data/zh/project12_Metra/METRA/exp/Debug_baseline/SGN_A/option_policy50000.pt"
-# traj_encoder_path = "/data/zh/project12_Metra/METRA/exp/Debug_baseline/SGN_A/traj_encoder50000.pt"
 
 load_option_policy_base = torch.load(policy_path)
-load_option_policy_base2 = torch.load(policy_path2)
 load_traj_encoder_base = torch.load(traj_encoder_path)
 load_SZN_path_base = torch.load(SZN_path)
+
 agent_policy = load_option_policy_base['policy'].eval()
 if "target_traj_encoder" in load_traj_encoder_base.keys():
     agent_traj_encoder = load_traj_encoder_base['target_traj_encoder'].eval()
@@ -218,15 +252,18 @@ else:
     agent_traj_encoder = load_traj_encoder_base['traj_encoder'].eval()
 SZN = load_SZN_path_base['goal_sample_network'].eval()
 input_token = load_SZN_path_base['input_token']
-    
+
+
 # set up env
 env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
 obs0 = env.reset()
 frames = []
-# fig, ax = plt.subplots()
+fig, ax = plt.subplots(2,2)
+fig.subplots_adjust(wspace=0.4, hspace=0.4) 
 np_random = np.random.default_rng(seed=0) 
 goal = env.env.goal_sampler(np_random)
-# env.draw(ax)
+env.draw(ax[0,0])
+ax[0,0].set_title('State of Traj. in Maze')
 goal_list = []
 init_obs = env.reset()  
 
@@ -235,35 +272,29 @@ Eval = 1
 RandomInit = 0
 num_goals = 1
 num_eval = 50
-max_path_length = 100
+max_path_length = 300
 device = 'cuda'
 model_name = policy_path.split('/')[-4]
 path = './test/' + model_name
 dim_option = 2
-type = 'random_z'
+type = 'cover'
 
-
-
-
-
-
-s0 = torch.tensor(obs0).to(device).float()
-psi_s0 = Psi(agent_traj_encoder(s0).mean)
-viz_Regert_in_Psi(base1=load_option_policy_base, base2=load_option_policy_base2, state=s0, device=device)
-    
-    
-    
-    
-    
 # s0 = torch.tensor(obs0).to(device).float()
 # psi_s0 = Psi(agent_traj_encoder(s0).mean)
-# qf1 = load_option_policy_base['qf1']
-# qf2 = load_option_policy_base['qf2']
-# alpha = load_option_policy_base['alpha']
-# policy = load_option_policy_base['policy']
-# viz_Value_in_Psi(policy, alpha, qf1, qf2, state=s0, num_samples=10, device=device, path=path)
+# viz_Regert_in_Psi(base1=load_option_policy_base, base2=load_option_policy_base2, state=s0, device=device)
+    
+s0 = torch.tensor(obs0).to(device).float()
+psi_s0 = Psi(agent_traj_encoder(s0).mean)
+qf1 = load_option_policy_base['qf1']
+qf2 = load_option_policy_base['qf2']
+alpha = load_option_policy_base['alpha']
+policy = load_option_policy_base['policy']
 
-exit()
+ax[0,1].set_axis_off()
+ax[0,1].set_title('Estimate Value in Z Space')
+fig = viz_Value_in_Psi(policy, alpha, qf1, qf2, state=s0, num_samples=10, device=device, path=path, fig=fig)
+
+# exit()
 
 FinallDistanceList = []
 All_Repr_obs_list = []
@@ -274,10 +305,19 @@ All_trajs_list = []
 FinallDistanceList = []
 ArriveList=[]
 
-def eval_cover_rate(freq=5):
+def eval_cover_rate(freq=5, ax=None):
     with torch.no_grad():
         for i in range(num_goals):
-            GoalList = env.env.goal_sampler(np_random, freq=freq)
+            # GoalList = env.env.goal_sampler(np_random, freq=1)
+            # GoalList = [
+            #     [22, 5],
+            #     [22, 0],
+            #     [20, 5],
+            #     [20, 0],
+            #     [15, 5],
+            #     [15, 0],
+            # ]
+            GoalList = (13, 3) + 2 * np.random.uniform(-1, 1, (10, dim_option))
             for j in trange(len(GoalList)):
                 goal = GoalList[j]
                 # print(goal)
@@ -308,8 +348,8 @@ def eval_cover_rate(freq=5):
                     option, phi_obs_, phi_target_obs = gen_z(target_obs, obs, traj_encoder=agent_traj_encoder, device=device, ret_emb=True)
                     obs_option = torch.cat((obs, option), -1).float()
                     # for viz
-                    Repr_obs_list.append(phi_obs_.cpu().numpy()[0])
-                    Repr_goal_list.append(phi_target_obs.cpu().numpy()[0])
+                    Repr_obs_list.append(Psi(phi_obs_).cpu().numpy()[0])
+                    Repr_goal_list.append(Psi(phi_target_obs).cpu().numpy()[0])
                     # get actions from policy
                     action, agent_info = agent_policy.get_action(obs_option)
                     # interact with the env
@@ -334,11 +374,12 @@ def eval_cover_rate(freq=5):
                     ArriveList.append(1)
                 else:
                     ArriveList.append(0)
-
-
+            
+    return ax        
+            
 def eval_random_z(num_eval): 
     with torch.no_grad(): 
-        options = np.random.randn(num_eval, dim_option)
+        options = np.random.uniform(-1,1, (num_eval, dim_option))
         for i in trange(len(options)):
             obs = env.reset()
             option = torch.tensor(options[i]).unsqueeze(0).to(device)
@@ -367,8 +408,7 @@ def eval_random_z(num_eval):
                 traj_list["info"].append(info)
                 # calculate the repr phi
                 obs = torch.tensor(obs).unsqueeze(0).to(device).float()
-                
-
+            
             All_Repr_obs_list.append(Repr_obs_list)
             All_trajs_list.append(traj_list)
 
@@ -412,24 +452,18 @@ def viz_SZN_dist(num_sample=10):
 if __name__ == '__main__':
     # exe:
     if type == 'cover':
-        eval_cover_rate(freq=2)
-        filepath = path + '-cover_goals.png'
-        plt.savefig(filepath)
-        print("save:", filepath)
+        ax[0,0] = eval_cover_rate(freq=2, ax=ax[0,0])
         # calculate metrics
         FD = np.array(FinallDistanceList).mean()
         AR = np.array(ArriveList).mean()
         print("FD:", FD, '\n', "AR:", AR)
-        # plot: traj.
-        plot_trajectories(env, All_trajs_list, fig, ax)
-        # ax.legend(loc='lower right')
+        ax[0,0] = plot_trajectories(env, All_trajs_list, fig, ax[0,0])
+        ax[1,0] = PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=False, ax=ax[1,0])
+        ax[1,1] = viz_SZN_dist_circle(SZN, input_token, path, psi_z=None, ax=ax[1,1])
+
         filepath = path + "-Maze_traj.png"
         plt.savefig(filepath) 
         print(filepath)
-        # plot: repr_traj.
-        PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=False)
-        print('Repr_Space_traj saved')
-
 
     elif type == 'random_z':
         eval_random_z(num_eval)
