@@ -344,14 +344,17 @@ class SZN_Z(IOD):
                 Adv = (R_z - Ez_R) / Ez_R
                 
                 # update SZN 
-                for t in range(1):
+                for t in range(50):
                     dist_z = self.SampleZPolicy(self.input_token)
-                    z_logp = dist_z.log_prob(self.vec_norm(self.last_z))
+                    z_logp = dist_z.log_prob(self.last_z)
                     self.SampleZPolicy_optim.zero_grad()      
                     # Loss SZP
+                    # Loss batch norm
                     new_z = dist_z.mean
                     l_norm = sim_vec(new_z)
-                    loss_SZP = (-z_logp * Adv.detach()).mean() + 0 * l_norm
+                    # Loss output vector
+                    l_vector = (torch.norm(new_z, p=2, dim=-1) - 1) ** 2
+                    loss_SZP = (-z_logp * Adv.detach()).mean() + 0.1 * l_norm + l_vector.mean()
                     loss_SZP.backward()
                     self.grad_clip.apply(self.SampleZPolicy.parameters())
                     self.SampleZPolicy_optim.step()
@@ -374,6 +377,7 @@ class SZN_Z(IOD):
                         "SZN/sim_batch": sim_vec(new_z),
                         "SZN/dist_mean": dist_z.mean.mean(),
                         "SZN/dist_std": dist_z.stddev.mean(),
+                        "SZN/loss_vector": l_vector.mean(),
                         "epoch": runner.step_itr,
                     })
             

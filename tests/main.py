@@ -255,8 +255,7 @@ def get_gaussian_module_construction(args,
 def run(ctxt=None):
     if args.is_wandb:
         wandb_output_dir = get_log_dir()
-        wandb.init(group=args.run_group, name=get_exp_name()[0],
-                    config=vars(args), dir=wandb_output_dir)
+        wandb.init(project="NuAgent-tests", group=args.run_group, name=get_exp_name()[0], config=vars(args), dir=wandb_output_dir)
 
     dowel.logger.log('ARGS: ' + str(args))
     if args.n_thread is not None:
