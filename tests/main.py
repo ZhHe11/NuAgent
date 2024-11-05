@@ -79,6 +79,11 @@ else:
     START_METHOD = 'spawn'
 
 
+# no debug
+import warnings
+warnings.filterwarnings("ignore")
+
+
 def get_argparser():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
@@ -100,7 +105,7 @@ def get_argparser():
     parser.add_argument('--n_parallel', type=int, default=4)
     parser.add_argument('--n_thread', type=int, default=1)
 
-    parser.add_argument('--n_epochs', type=int, default=1000000)
+    parser.add_argument('--n_epochs', type=int, default=5000)
     parser.add_argument('--traj_batch_size', type=int, default=8)
     parser.add_argument('--trans_minibatch_size', type=int, default=256)
     parser.add_argument('--trans_optimization_epochs', type=int, default=200)
@@ -381,8 +386,8 @@ def run(ctxt=None):
         w_init=torch.nn.init.xavier_uniform_,
         input_dim=args.traj_batch_size,
         output_dim=args.dim_option,
-        init_std=3e-1,
-        min_std=1e-1,
+        init_std=5e-1,
+        min_std=3e-1,
         max_std=1,
         normal_distribution_cls=TanhNormal,
     )

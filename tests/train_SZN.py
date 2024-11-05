@@ -205,13 +205,14 @@ args = parser.parse_args()
 
 env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
 epoch_num = args.epoch_num
-policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-8-GMM1-Deque10-std1_3e1_1e1sd000_1730290115_ant_maze_PSZP/wandb/latest-run/filesoption_policy-" + str(epoch_num) +'.pt'
-policy_path1 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-8-GMM1-Deque10-std1_3e1_1e1sd000_1730290115_ant_maze_PSZP/wandb/latest-run/filesoption_policy-" + str(epoch_num-100) +'.pt'
-policy_path2 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-8-GMM1-Deque10-std1_3e1_1e1sd000_1730290115_ant_maze_PSZP/wandb/latest-run/filesoption_policy-" + str(epoch_num-200) +'.pt'
+model_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-14-Fastersd000_1730538967_ant_maze_PSZP/wandb/latest-run/filesoption_policy-"
+policy_path = model_path + str(epoch_num) +'.pt'
+policy_path1 = model_path + str(epoch_num-100) +'.pt'
+policy_path2 = model_path + str(epoch_num-200) +'.pt'
 
 traj_encoder_path = policy_path.replace("option_policy", "traj_encoder")
 SZN_path = policy_path1.replace("option_policy", "SampleZPolicy")
-SZN_path0 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-8-GMM1-Deque10-std1_3e1_1e1sd000_1730290115_ant_maze_PSZP/wandb/latest-run/filesSampleZPolicy-0.pt"
+SZN_path0 = model_path.replace("option_policy", "SampleZPolicy") + '0.pt'
 # policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/SZN-Exp4sd000_1728446621_ant_maze_SZN_Z/option_policy3000.pt"
 # traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/Maze/SZN-Exp4sd000_1728446621_ant_maze_SZN_Z/traj_encoder3000.pt"
 
@@ -324,8 +325,6 @@ ConfidenceFactor = 1
 ReprBuffer = np.load("/mnt/nfs2/zhanghe/NuAgent/AnalysisData/PSZP-8-GMM1-Deque10-std1_3e1_1e1sd000_1730290115_ant_maze_PSZP-Repr_obs_list.npy")
 SfReprBuffer = ReprBuffer[:,-1]
 
-
-
 s0 = torch.tensor(obs0).to(device).float()
 psi_s0 = Psi(agent_traj_encoder(s0).mean)
 viz_Regert_in_Psi(base1=load_option_policy_base_kminus1, base2=load_option_policy_base_k, state=s0, device=device, num_samples=10)
@@ -351,7 +350,7 @@ with torch.no_grad():
 option_policy = policy
 log_alpha = alpha
 for i in range(10):
-    SampleZPolicy_optim = optim.Adam(SZN.parameters(), lr=3e-2)
+    SampleZPolicy_optim = optim.Adam(SZN.parameters(), lr=1e-2)
 
     def copy_params(ori_model, target_model):
         for t_param, param in zip(target_model.parameters(), ori_model.parameters()):
@@ -359,7 +358,8 @@ for i in range(10):
 
     copy_params(ResetSZPolicy, SampleZPolicy)
 
-    for t in range(100):
+    pbar = trange(100, desc="Training", leave=True)
+    for t in pbar:
         # Reset the SZN:
 
         dist_z = SampleZPolicy(input_token)
@@ -373,53 +373,64 @@ for i in range(10):
         V_z =  EstimateValue(policy= option_policy, alpha=log_alpha, qf1=qf1, qf2=qf2, option=z, state=s0.unsqueeze(0).repeat(z.shape[0], 1))
         V_z_last_iter = EstimateValue(policy=last_policy, alpha=last_alpha, qf1=last_qf1, qf2=last_qf2, option=z, state=s0.unsqueeze(0).repeat(z.shape[0], 1))
 
-        V_szn = 0 * (V_z - V_z_last_iter) + V_z_last_iter
+        V_szn = (V_z - V_z_last_iter)
         # V_szn = (V_szn - V_szn.mean()) / (V_szn.std() + 1e-6)
+        Regret = (V_szn - V_szn.mean()) / (V_szn.std() + 1e-6)
     
         SampleZPolicy_optim.zero_grad()
         w1 = 0
         w2 = 3
 
-        if GMM:
-            log_pz = window_dist.log_prob(z)
-            pz = torch.exp(log_pz)
-            log_qz = z_logp
-            kl_window = pz * (log_pz - log_qz)
+        # logp old
+        log_pz = window_dist.log_prob(z).detach()
+        pz = torch.exp(log_pz)
+        log_qz = z_logp
+        kl_window = pz * (log_pz - log_qz)
 
-        else:
-            Kl_sum = 0
-            for i in range(len(DistWindow)):
-                dist_i = DistWindow[i]
-                log_pz = dist_i.log_prob(z)
-                pz = torch.exp(log_pz)
-                log_qz = z_logp
-                Kl_sum += pz * (log_pz - log_qz)
-                
-            if len(DistWindow) > 0:
-                kl_window = Kl_sum / len(DistWindow)
+        # PPO-clip
+        # target_kl = 0.05
+        # clip_ratio = 10
+        # logp_old = window_dist.log_prob(z)
+        # approx_kl = torch.exp(logp_old) * (logp_old - z_logp)
+        # ratio = torch.exp(z_logp - logp_old.detach())
+        # clip_adv = torch.clamp(ratio, 1-clip_ratio, 1+clip_ratio) * (Regret.detach() + 0 * approx_kl.detach())
+        # loss_pi = -(torch.min(ratio * Regret, clip_adv)).mean()
+        
+        
+        # how to calculate psf
+        x = torch.tensor(SfReprBuffer).to(device).unsqueeze(0).repeat(16,1,1)
+        p_sf = torch.zeros((16,1)).to(device)
+        for i in range(x.shape[1]):
+            x_i = x[:,i]
+            if i == 0:
+                p_sf = dist_z.log_prob(x_i)
             else:
-                kl_window = torch.zeros(Kl_sum.shape).to(device)
+                p_sf = torch.maximum(p_sf, dist_z.log_prob(x_i))
+
+
+        # if approx_kl > 1.5 * target_kl:
+        #     print('Early stopping at step %d due to reaching max kl.'%i)
+        #     continue
         
+        # loss_pi.backward()
+        # grad_clip.apply(SampleZPolicy.parameters())
+        # SampleZPolicy_optim.step()
+
+        # pbar.set_description(f"approx_kl: {approx_kl.mean().item():.4f}, ratio: {ratio.mean().item():.4f}, z_logp: {z_logp.mean().item():.4f}")
 
 
-        w3 = 0
-        confidence = 0
-        if ConfidenceFactor == 1:
-            confidence = torch.clamp(torch.norm(z.unsqueeze(1) - torch.tensor(SfReprBuffer).to(device).unsqueeze(0), dim=-1).min(dim=-1)[0], min=0.1)
+        # if ConfidenceFactor == 1:
+        #     confidence = torch.clamp(torch.norm(z.unsqueeze(1) - torch.tensor(SfReprBuffer).to(device).unsqueeze(0), dim=-1).min(dim=-1)[0], min=0.1)
 
-        print(confidence[0])
-        V_szn = V_szn / confidence
-        V_szn = (V_szn - V_szn.mean()) / (V_szn.std() + 1e-6)
+        # # print(confidence[0])
+        # V_szn = V_szn / confidence
 
-            
-        
-        loss_SZP = (1 * -z_logp * V_szn.detach() - w1 * dist_z.entropy() - w2 * kl_window + w3 * confidence).mean()
-        # loss_SZP = (-z_logp * V_szn).mean()
+        loss_SZP = (1 * -z_logp * V_szn.detach() - 5 * kl_window  - 5 * torch.clamp(p_sf, max=0)).mean()
         loss_SZP.backward()
-        grad_clip.apply(SampleZPolicy.parameters())
+        # grad_clip.apply(SampleZPolicy.parameters())
         SampleZPolicy_optim.step()
 
-
+        pbar.set_description(f"p_sf: {p_sf.mean().item():.4f}, kl_window: {kl_window.mean().item():.4f}, z_logp: {z_logp.mean().item():.4f}")
         # print(confidence.mean())
 
     # # window queue operation    

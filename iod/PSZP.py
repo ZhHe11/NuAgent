@@ -558,17 +558,29 @@ class PSZP(IOD):
                         pz = torch.exp(log_pz)
                         log_qz = z_logp
                         kl_window = pz * (log_pz - log_qz)
-                        # # weight of Confidence Factor
-                        w3 = 30
+                        # weight of Confidence Factor
+                        w3 = 3
                         if  w3 > 0:
                             sf_repr_buffer_tensor = torch.tensor(np.array(self.SfReprBuffer)).to(self.device)
-                            confidence = torch.norm(z.unsqueeze(1) - sf_repr_buffer_tensor.unsqueeze(0), dim=-1).min(dim=-1)[0]
-                            confidence = torch.clamp(confidence, min=0.05)
-                            # confidence = torch.exp(confidence)
+                        #     confidence = torch.norm(z.unsqueeze(1) - sf_repr_buffer_tensor.unsqueeze(0), dim=-1).min(dim=-1)[0]
+                        #     confidence = torch.clamp(confidence, min=0.3)
+                        #     # confidence = torch.exp(confidence)
+                            x = sf_repr_buffer_tensor.unsqueeze(0).repeat(self.num_random_trajectories,1,1)
+                            p_sf = torch.zeros((self.num_random_trajectories,1)).to(self.device)
+                            for i in range(x.shape[1]):
+                                x_i = x[:,i]
+                                if i == 0:
+                                    p_sf = dist_z.log_prob(x_i)
+                                else:
+                                    p_sf = torch.maximum(p_sf, dist_z.log_prob(x_i))
+
+                            # confidence = torch.clamp(p_sf)/
+                            confidence = p_sf
+
                         else:
                             confidence = torch.zeros_like(kl_window).to(self.device)
 
-                        loss_SZP = (-z_logp * (V_szn.detach() + 1 * V_z.detach()) - w1 * dist_z.entropy() - w2 * kl_window + w3 * confidence).mean()
+                        loss_SZP = (-z_logp * (V_szn.detach() + 0 * V_z.detach()) - w1 * dist_z.entropy() - w2 * kl_window - w3 * confidence).mean()
 
                         loss_SZP.backward()
                         self.grad_clip.apply(self.SampleZPolicy.parameters())
@@ -668,10 +680,10 @@ class PSZP(IOD):
         self.buffer_ready = 1
         tensors = {}
         dataset = BufferDataset(self.replay_buffer._buffer, len=self.replay_buffer.n_transitions_stored)
-        dataloader = DataLoader(dataset, batch_size=self._trans_minibatch_size, shuffle=True, num_workers=4, multiprocessing_context='fork', persistent_workers=True, pin_memory=True, prefetch_factor=4)
+        dataloader = DataLoader(dataset, batch_size=self._trans_minibatch_size, shuffle=True, num_workers=4, persistent_workers=True, pin_memory=True, prefetch_factor=2, multiprocessing_context='fork')
 
         for epoch_i, v in tqdm(enumerate(dataloader), total=self._trans_optimization_epochs, desc="Training Batches"):
-            if epoch_i > self._trans_optimization_epochs:
+            if epoch_i >= self._trans_optimization_epochs:
                 break
             v = {key: value.type(torch.float32).to(self.device) for key, value in v.items()}
             self._optimize_te(tensors, v)
@@ -763,10 +775,10 @@ class PSZP(IOD):
             return z
         
     def Psi(self, phi_x, phi_x0=None):
-        # if phi_x0 is None:
-        #     x0 = self.s0        # [1, dim_obs]; phi_x: [batch, dim_z]
-        #     phi_x0 = self.traj_encoder(x0).mean     # [1, dim_z]
-        return torch.tanh(1/150 * (phi_x))
+        if 'Projection' in self.method['phi']:   
+            return torch.tanh(1/150 * (phi_x))
+        else:
+            return phi_x
     
     def norm(self, x, keepdim=False):
         return torch.norm(x, p=2, dim=-1, keepdim=keepdim)        
@@ -802,12 +814,14 @@ class PSZP(IOD):
             # direction_sim = ((psi_s_next - psi_s) * self.vec_norm(psi_g)).sum(dim=-1)    # [-1,1]
             # phi_obj = direction_sim
             ## pos sample
+            
             matrix = ((psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
+
+            # matrix = ((psi_s_next - psi_s).unsqueeze(1) * self.vec_norm(psi_g).unsqueeze(0)).sum(dim=-1)
+
             direction_sim = torch.diag(matrix)
             ## neg smaple
             def cal_softmax_obj(matrix, t=1):
-                # decay weight 
-                option_sim = (z_unit.unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
                 # 要把相同的z过滤掉，否则会削弱正样本的梯度；
                 # 加一个判断，如果g-与g特别接近，就用mask掉；
                 dist_theta = 1e-4
@@ -856,6 +870,7 @@ class PSZP(IOD):
                 'next_z': next_z,
                 'rewards': phi_obj,
                 'policy_rewards': policy_rewards,
+                'psi_s_0': psi_s_0,
                 'psi_s': psi_s,
                 'psi_s_next': psi_s_next,
                 'updated_option': updated_option,
@@ -946,9 +961,14 @@ class PSZP(IOD):
             else:
                 raise NotImplementedError
             
-            cst_penalty_1 = 1/self.max_path_length -  (self.norm(v['psi_s']-v['psi_s_next']))
-                        
-            cst_penalty = torch.clamp(cst_penalty_1, max=self.dual_slack)
+            if 'psi_s' in v.keys():
+                cst_penalty_1 = 1/self.max_path_length - (self.norm(v['psi_s']-v['psi_s_next']))
+                cst_penalty_2 = -(self.norm(v['psi_s_0']))
+                cst_penalty = torch.clamp(cst_penalty_1, max=self.dual_slack) + cst_penalty_2
+            else: 
+                cst_penalty_1 = cst_dist - torch.square(phi_s_next - phi_s).mean(dim=1)        
+                cst_penalty = torch.clamp(cst_penalty_1, max=self.dual_slack)
+
             te_obj = rewards + dual_lam.detach() * cst_penalty
                     
             v.update({
@@ -1066,7 +1086,14 @@ class PSZP(IOD):
                 path = wandb.run.dir + '/E' + str(runner.step_itr) + '-'
             else:
                 path = '.'
-            FD, AR, eval_metrics = PlotMazeTrajWindowDist(runner._env, self.DistWindow, self.target_traj_encoder, self.qf1, self.qf2, self.log_alpha, self.option_policy, self.device, Psi=partial(self.Psi), dim_option=self.dim_option, max_path_length=self.max_path_length, path=path)
+
+            if 'Projection' in self.method['phi']: 
+                option_type = 'Projection'
+
+            elif 'baseline' in self.method['phi']:
+                option_type = 'baseline'
+
+            FD, AR, eval_metrics = PlotMazeTrajWindowDist(runner._env, self.DistWindow, self.target_traj_encoder, self.qf1, self.qf2, self.log_alpha, self.option_policy, self.device, Psi=partial(self.Psi), dim_option=self.dim_option, max_path_length=self.max_path_length, path=path, option_type=option_type)
     
             wandb.log(  
                 {
@@ -1076,7 +1103,10 @@ class PSZP(IOD):
                     "Maze_traj": wandb.Image(path + "-Maze_traj.png"),
                 },
             )
-    
+ 
+        else:
+            self.eval_metra(runner)
+
     
     def eval_maze(self, runner):
         '''
@@ -1206,7 +1236,118 @@ class PSZP(IOD):
             'window': self.DistWindow,
         }, file_name)
         
+    def eval_metra(self, runner):
+        if self.discrete:
+            eye_options = np.eye(self.dim_option)
+            random_options = []
+            colors = []
+            for i in range(self.dim_option):
+                num_trajs_per_option = self.num_random_trajectories // self.dim_option + (i < self.num_random_trajectories % self.dim_option)
+                for _ in range(num_trajs_per_option):
+                    random_options.append(eye_options[i])
+                    colors.append(i)
+            random_options = np.array(random_options)
+            colors = np.array(colors)
+            num_evals = len(random_options)
+            from matplotlib import cm
+            cmap = 'tab10' if self.dim_option <= 10 else 'tab20'
+            random_option_colors = []
+            for i in range(num_evals):
+                random_option_colors.extend([cm.get_cmap(cmap)(colors[i])[:3]])
+            random_option_colors = np.array(random_option_colors)
+        else:
+            random_options = np.random.randn(self.num_random_trajectories, self.dim_option)
+            if self.unit_length:
+                random_options = random_options / np.linalg.norm(random_options, axis=1, keepdims=True)
+            random_option_colors = get_option_colors(random_options * 4)
+        random_trajectories = self._get_trajectories(
+            runner,
+            sampler_key='option_policy',
+            extras=self._generate_option_extras(random_options),
+            worker_update=dict(
+                _render=False,
+                _deterministic_policy=True,
+            ),
+            env_update=dict(_action_noise_std=None),
+        )
 
+        with FigManager(runner, 'TrajPlot_RandomZ') as fm:
+            runner._env.render_trajectories(
+                random_trajectories, random_option_colors, self.eval_plot_axis, fm.ax
+            )
+
+        data = self.process_samples(random_trajectories)
+        last_obs = torch.stack([torch.from_numpy(ob[-1]).to(self.device) for ob in data['obs']])
+        option_dists = self.traj_encoder(last_obs)
+
+        option_means = option_dists.mean.detach().cpu().numpy()
+        if self.inner:
+            option_stddevs = torch.ones_like(option_dists.stddev.detach().cpu()).numpy()
+        else:
+            option_stddevs = option_dists.stddev.detach().cpu().numpy()
+        option_samples = option_dists.mean.detach().cpu().numpy()
+
+        option_colors = random_option_colors
+
+        with FigManager(runner, f'PhiPlot') as fm:
+            draw_2d_gaussians(option_means, option_stddevs, option_colors, fm.ax)
+            draw_2d_gaussians(
+                option_samples,
+                [[0.03, 0.03]] * len(option_samples),
+                option_colors,
+                fm.ax,
+                fill=True,
+                use_adaptive_axis=True,
+            )
+
+        eval_option_metrics = {}
+
+        # Videos
+        if self.eval_record_video:
+            if self.discrete:
+                video_options = np.eye(self.dim_option)
+                video_options = video_options.repeat(self.num_video_repeats, axis=0)
+            else:
+                if self.dim_option == 2:
+                    radius = 1. if self.unit_length else 1.5
+                    video_options = []
+                    for angle in [3, 2, 1, 4]:
+                        video_options.append([radius * np.cos(angle * np.pi / 4), radius * np.sin(angle * np.pi / 4)])
+                    video_options.append([0, 0])
+                    for angle in [0, 5, 6, 7]:
+                        video_options.append([radius * np.cos(angle * np.pi / 4), radius * np.sin(angle * np.pi / 4)])
+                    video_options = np.array(video_options)
+                else:
+                    video_options = np.random.randn(9, self.dim_option)
+                    if self.unit_length:
+                        video_options = video_options / np.linalg.norm(video_options, axis=1, keepdims=True)
+                video_options = video_options.repeat(self.num_video_repeats, axis=0)
+            video_trajectories = self._get_trajectories(
+                runner,
+                sampler_key='local_option_policy',
+                extras=self._generate_option_extras(video_options),
+                worker_update=dict(
+                    _render=True,
+                    _deterministic_policy=True,
+                ),
+            )
+            record_video(runner, 'Video_RandomZ', video_trajectories, skip_frames=self.video_skip_frames)
+
+        eval_option_metrics.update(runner._env.calc_eval_metrics(random_trajectories, is_option_trajectories=True))
+        if wandb.run is not None:
+            eval_option_metrics.update({'epoch': runner.step_itr})
+            wandb.log(eval_option_metrics)
+
+
+
+
+        
+        
+        
+        
+        
+        
+        
         
         
         

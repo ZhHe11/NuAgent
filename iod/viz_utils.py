@@ -14,6 +14,10 @@ import copy
 
 from iod.utils import get_torch_concat_obs
 
+
+def _vec_norm(vec):
+    return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
+
 def calc_eval_metrics(trajectories, is_option_trajectories, coord_dims=[0,1]):
     eval_metrics = {}
     coords = []
@@ -216,7 +220,7 @@ def viz_Regert_in_Psi(base1, base2, state, num_samples=10, device='cpu', path='.
     plt.close()
     
 @torch.no_grad()
-def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, freq=5, ax=None, max_path_length=300, Psi=_Psi):
+def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, freq=5, ax=None, max_path_length=300, Psi=_Psi, option_type=None):
     
     FinallDistanceList = []
     All_Repr_obs_list = []
@@ -245,7 +249,10 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, f
         phi_target_obs = agent_traj_encoder(target_obs).mean
         # option
         # 1. use map goal
-        option = Psi(phi_target_obs, phi_obs0)
+        if option_type == 'baseline':
+            option = _vec_norm(phi_target_obs - phi_obs0)
+        else:
+            option = Psi(phi_target_obs, phi_obs0)
         # 2. use uniform z
         # option = torch.tensor(options[j]).unsqueeze(0).to(device).float()
         
@@ -435,7 +442,7 @@ def PlotMazeTrajDist(env, SZN, input_token, agent_traj_encoder, qf1, qf2, alpha,
 
 
 @torch.no_grad()
-def PlotMazeTrajWindowDist(env, window, agent_traj_encoder, qf1, qf2, alpha, policy, device, Psi, dim_option=2, max_path_length=300, path='./'):    
+def PlotMazeTrajWindowDist(env, window, agent_traj_encoder, qf1, qf2, alpha, policy, device, Psi, dim_option=2, max_path_length=300, path='./', option_type=None):    
     obs0 = env.reset()
     s0 = torch.tensor(obs0).to(device).float()
     fig, ax = plt.subplots(2,2)
@@ -445,7 +452,7 @@ def PlotMazeTrajWindowDist(env, window, agent_traj_encoder, qf1, qf2, alpha, pol
     ax[0,1].set_axis_off()
     ax[0,1].set_title('Estimate Value in Z Space')
     fig = viz_Value_in_Psi(policy, alpha, qf1, qf2, state=s0, num_samples=10, device=device, path=path, fig=fig)
-    ax[0,0], FinallDistanceList, All_Repr_obs_list, All_Goal_obs_list, All_trajs_list, FinallDistanceList, ArriveList, All_Cover_list = eval_cover_rate(env, agent_traj_encoder, policy, dim_option, device, freq=2, ax=ax[0,0], max_path_length=max_path_length, Psi=Psi)
+    ax[0,0], FinallDistanceList, All_Repr_obs_list, All_Goal_obs_list, All_trajs_list, FinallDistanceList, ArriveList, All_Cover_list = eval_cover_rate(env, agent_traj_encoder, policy, dim_option, device, freq=2, ax=ax[0,0], max_path_length=max_path_length, Psi=Psi, option_type=option_type)
     # calculate metrics
     FD = np.array(FinallDistanceList).mean()
     AR = np.array(ArriveList).mean()
