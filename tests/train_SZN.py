@@ -376,7 +376,8 @@ for i in range(10):
         V_szn = (V_z - V_z_last_iter)
         # V_szn = (V_szn - V_szn.mean()) / (V_szn.std() + 1e-6)
         Regret = (V_szn - V_szn.mean()) / (V_szn.std() + 1e-6)
-    
+        V_z = (V_z - V_z.mean()) / (V_z.std() + 1e-6)
+
         SampleZPolicy_optim.zero_grad()
         w1 = 0
         w2 = 3
@@ -406,6 +407,7 @@ for i in range(10):
                 p_sf = dist_z.log_prob(x_i)
             else:
                 p_sf = torch.maximum(p_sf, dist_z.log_prob(x_i))
+        p_mean = dist_z.log_prob(dist_z.mean).detach()
 
 
         # if approx_kl > 1.5 * target_kl:
@@ -424,13 +426,16 @@ for i in range(10):
 
         # # print(confidence[0])
         # V_szn = V_szn / confidence
+        
+        # confidence = torch.minimum(p_sf, p_mean-0.1)
+        confidence = p_sf
 
-        loss_SZP = (1 * -z_logp * V_szn.detach() - 5 * kl_window  - 5 * torch.clamp(p_sf, max=0)).mean()
+        loss_SZP = (-z_logp * (V_szn.detach() + V_z.detach()) - 3 * kl_window  - 3 * confidence).mean()
         loss_SZP.backward()
         # grad_clip.apply(SampleZPolicy.parameters())
         SampleZPolicy_optim.step()
 
-        pbar.set_description(f"p_sf: {p_sf.mean().item():.4f}, kl_window: {kl_window.mean().item():.4f}, z_logp: {z_logp.mean().item():.4f}")
+        pbar.set_description(f"p_sf: {p_sf.mean().item():.4f}, kl_window: {kl_window.mean().item():.4f}, p_mean: {p_mean.mean().item():.4f}")
         # print(confidence.mean())
 
     # # window queue operation    

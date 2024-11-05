@@ -493,7 +493,7 @@ class PSZP(IOD):
                         
                     return V_z - V_z_last_iter, V_z
                 
-                k = 5
+                k = 2
                 if self.NumSampleTimes == k * len(self.DistWindow):
                     # window pool operation: PopDist   
                     with torch.no_grad():
@@ -532,7 +532,7 @@ class PSZP(IOD):
                                         
                         # Choose one method to get Popped DistWindow;
                         # self.DistWindow = PopDistDeque(10)
-                        self.DistWindow = PopDistDeque(10)
+                        self.DistWindow = PopDistDeque(25)
                         
                     self.NumSampleTimes = 0
                     self.copy_params(self.ResetSZPolicy, self.SampleZPolicy)
@@ -562,9 +562,6 @@ class PSZP(IOD):
                         w3 = 3
                         if  w3 > 0:
                             sf_repr_buffer_tensor = torch.tensor(np.array(self.SfReprBuffer)).to(self.device)
-                        #     confidence = torch.norm(z.unsqueeze(1) - sf_repr_buffer_tensor.unsqueeze(0), dim=-1).min(dim=-1)[0]
-                        #     confidence = torch.clamp(confidence, min=0.3)
-                        #     # confidence = torch.exp(confidence)
                             x = sf_repr_buffer_tensor.unsqueeze(0).repeat(self.num_random_trajectories,1,1)
                             p_sf = torch.zeros((self.num_random_trajectories,1)).to(self.device)
                             for i in range(x.shape[1]):
@@ -573,14 +570,13 @@ class PSZP(IOD):
                                     p_sf = dist_z.log_prob(x_i)
                                 else:
                                     p_sf = torch.maximum(p_sf, dist_z.log_prob(x_i))
-
-                            # confidence = torch.clamp(p_sf)/
+                                    
                             confidence = p_sf
 
                         else:
                             confidence = torch.zeros_like(kl_window).to(self.device)
 
-                        loss_SZP = (-z_logp * (V_szn.detach() + 0 * V_z.detach()) - w1 * dist_z.entropy() - w2 * kl_window - w3 * confidence).mean()
+                        loss_SZP = (-z_logp * (V_szn.detach() +  V_z.detach()) - w1 * dist_z.entropy() - w2 * kl_window - w3 * confidence).mean()
 
                         loss_SZP.backward()
                         self.grad_clip.apply(self.SampleZPolicy.parameters())
@@ -680,7 +676,7 @@ class PSZP(IOD):
         self.buffer_ready = 1
         tensors = {}
         dataset = BufferDataset(self.replay_buffer._buffer, len=self.replay_buffer.n_transitions_stored)
-        dataloader = DataLoader(dataset, batch_size=self._trans_minibatch_size, shuffle=True, num_workers=4, persistent_workers=True, pin_memory=True, prefetch_factor=2, multiprocessing_context='fork')
+        dataloader = DataLoader(dataset, batch_size=self._trans_minibatch_size, shuffle=True, num_workers=2, persistent_workers=True, pin_memory=True, prefetch_factor=2, multiprocessing_context='fork')
 
         for epoch_i, v in tqdm(enumerate(dataloader), total=self._trans_optimization_epochs, desc="Training Batches"):
             if epoch_i >= self._trans_optimization_epochs:
