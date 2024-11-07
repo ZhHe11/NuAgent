@@ -251,11 +251,14 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, f
         # 1. use map goal
         if option_type == 'baseline':
             option = _vec_norm(phi_target_obs - phi_obs0)
-        else:
+        elif option_type == 'Projection':
             option = Psi(phi_target_obs, phi_obs0)
+        elif option_type == 'uniform':
+            option = torch.tensor(options[j]).unsqueeze(0).to(device).float()
+        elif option_type == 'random':
+            option = vec_norm(torch.tensor(options[j]).unsqueeze(0).to(device).float())
+
         # 2. use uniform z
-        # option = torch.tensor(options[j]).unsqueeze(0).to(device).float()
-        
         Repr_obs_list = []
         Repr_goal_list = []
         gt_return_list = []

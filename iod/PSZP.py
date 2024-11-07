@@ -335,6 +335,8 @@ class PSZP(IOD):
             self.DistWindow = [self.SampleZPolicy(self.input_token)]
             
         self.NumSampleTimes = 0
+        self.last_trial = []
+        self.new_trial = []
         
     
     @property
@@ -381,6 +383,8 @@ class PSZP(IOD):
     
 
     def _update_replay_buffer(self, data):
+        self.last_trial.extend(self.new_trial)
+        self.new_trial = []
         if self.replay_buffer is not None:
             sfs = []
             for i in range(len(data['actions'])):
@@ -398,6 +402,8 @@ class PSZP(IOD):
             with torch.no_grad():
                 SfRepr = self.Psi(self.traj_encoder(torch.tensor(sfs).to(self.device)).mean)
             self.SfReprBuffer.extend(SfRepr.cpu().numpy())
+            self.new_trial.extend(SfRepr.cpu().numpy())
+            
 
 
     def _sample_replay_buffer(self, batch_size=None): 
@@ -495,6 +501,21 @@ class PSZP(IOD):
                         
                     return V_z - V_z_last_iter, V_z
                 
+                def get_confidence(buffer : list, dist_z, num_dist):
+                    sf_repr_buffer_tensor = torch.tensor(np.array(buffer)).to(self.device)
+                    x = sf_repr_buffer_tensor.unsqueeze(0).repeat(num_dist,1,1)
+                    p_sf = torch.zeros((num_dist,1)).to(self.device)
+
+                    for i in range(x.shape[1]):
+                        x_i = x[:,i]
+                        if i == 0:
+                            p_sf = dist_z.log_prob(x_i)
+                        else:
+                            p_sf = torch.maximum(p_sf, dist_z.log_prob(x_i))
+                    confidence = p_sf
+                    return confidence
+
+
                 k = 5
                 if self.NumSampleTimes == k * len(self.DistWindow):
                     # window pool operation: PopDist   
@@ -562,23 +583,9 @@ class PSZP(IOD):
                         kl_window = pz * (log_pz - log_qz)
                         # weight of Confidence Factor
                         w3 = 3
-                        if  w3 > 0:
-                            sf_repr_buffer_tensor = torch.tensor(np.array(self.SfReprBuffer)).to(self.device)
-                            x = sf_repr_buffer_tensor.unsqueeze(0).repeat(self.num_random_trajectories,1,1)
-                            p_sf = torch.zeros((self.num_random_trajectories,1)).to(self.device)
-                            for i in range(x.shape[1]):
-                                x_i = x[:,i]
-                                if i == 0:
-                                    p_sf = dist_z.log_prob(x_i)
-                                else:
-                                    p_sf = torch.maximum(p_sf, dist_z.log_prob(x_i))
-                            confidence = p_sf
-
-                        else:
-                            confidence = torch.zeros_like(kl_window).to(self.device)
-
+                        confidence = get_confidence(self.SfReprBuffer, dist_z, num_dist=self.num_random_trajectories)  
+                        # total loss
                         loss_SZP = (-z_logp * (V_szn.detach() + V_z.detach()) - w1 * dist_z.entropy() - w2 * kl_window - w3 * confidence).mean()
-
                         loss_SZP.backward()
                         self.grad_clip.apply(self.SampleZPolicy.parameters())
                         self.SampleZPolicy_optim.step()
@@ -637,18 +644,25 @@ class PSZP(IOD):
                 # confidence = torch.clamp(confidence, min=0.1)
                 # mix_dist_prob = (1 / confidence) / (1 / confidence).sum() 
                 # print(confidence)
-                # print(mix_dist_prob)
-
+                # print(mix_dist_prob)  
                 
+                window_dist_raw = UpdateGMM(self.DistWindow, device=self.device).component_distribution     # 这是一个均匀分布的GMM dists
+                window_len = len(self.DistWindow)
 
+                mix_dist_prob = F.softmax(get_confidence(self.new_trial, window_dist_raw, num_dist=window_len) - get_confidence(self.last_trial, window_dist_raw, num_dist=window_len))
+                min_prob = 0.02
+                adjusted_probs = torch.maximum(mix_dist_prob, torch.tensor(min_prob))
+                adjusted_probs = adjusted_probs / torch.sum(adjusted_probs)
+                print(adjusted_probs.detach())
 
-
-                window_dist = UpdateGMM(self.DistWindow, device=self.device)
+                window_dist = UpdateGMM(self.DistWindow, mix_dist_prob=adjusted_probs, device=self.device)
                 self.last_z = window_dist.sample((self.num_random_trajectories,))
 
                 np_z = self.last_z.cpu().numpy()
                 extras = self._generate_option_extras(np_z, psi_g=np_z)   
                 self.NumSampleTimes += 1
+                if len(self.SfReprBuffer) == 0:
+                    self.last_trial = []
 
 
             elif self.method['explore'] == 'uniform' and self.buffer_ready:

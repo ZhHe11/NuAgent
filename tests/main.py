@@ -106,7 +106,7 @@ def get_argparser():
     parser.add_argument('--n_parallel', type=int, default=4)
     parser.add_argument('--n_thread', type=int, default=1)
 
-    parser.add_argument('--n_epochs', type=int, default=5000)
+    parser.add_argument('--n_epochs', type=int, default=10000)
     parser.add_argument('--traj_batch_size', type=int, default=8)
     parser.add_argument('--trans_minibatch_size', type=int, default=256)
     parser.add_argument('--trans_optimization_epochs', type=int, default=200)
