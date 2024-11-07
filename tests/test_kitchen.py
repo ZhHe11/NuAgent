@@ -36,19 +36,22 @@ def Psi(phi_x, phi_x0=None):
 
 # 加载模型
 # /mnt/nfs2/zhanghe/NuAgent/exp/kitchen/PSZP-15-ParamTunesd000_1730722635_kitchen_PSZP/option_policy1000.pt
-path = "/mnt/nfs2/zhanghe/NuAgent/exp/kitchen/PSZP-15-ParamTunesd000_1730722635_kitchen_PSZP"
-epoch_num = '1500'
+path = "/mnt/nfs2/zhanghe/NuAgent/exp/kitchen/PSZP-15-ParamTunesd000_1730876003_kitchen_PSZP"
+epoch_num = '0'
 path = path + '/'
 load_option_policy_base = torch.load(path + "wandb/latest-run/filesoption_policy-" + epoch_num + ".pt")
 load_traj_encoder_base = torch.load(path + "wandb/latest-run/filestraj_encoder-" + epoch_num + ".pt")
+load_SZN_base = torch.load(path + "wandb/latest-run/filesSampleZPolicy-" + epoch_num + ".pt")
+
 policy = load_option_policy_base['policy']
 traj_encoder = load_traj_encoder_base['traj_encoder']
+window = load_SZN_base['window']
 
 # settings：
 max_path_length = 50
 option_dim = load_option_policy_base['dim_option']
 # path = '/data/zh/project12_Metra/METRA/tests/videos/local_test/'
-Given_g = True
+Given_g = False
 PhiPlot = True
 LoadNpy = False
 num_task = 6
@@ -80,6 +83,7 @@ else:
     elif option_type == 'random':
         num_eval = 10
         directions = np.random.uniform(-1,1, (num_eval, option_dim))
+        print(directions)
 
     support_options = torch.tensor(directions).to(device)
     eval_times = support_options.shape[0]
@@ -120,11 +124,12 @@ def interact_with_env():
                 # option = vec_norm(phi_g - phi_s)
                 option = freeze_option
             else:
-                option = support_option
+                option = vec_norm(support_option)
             obs_option = torch.cat((obs_tensor, option), -1).float()
             action_tensor = policy(obs_option)[1]['mean']
             action = action_tensor[0].detach().cpu().numpy()
             # iteration:
+            print(action)
             obs, reward, _, info = env.step(action)
             obs_tensor = torch.tensor(obs, dtype=torch.float).unsqueeze(0).to('cuda')
             # for viz:

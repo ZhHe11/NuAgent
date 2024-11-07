@@ -442,7 +442,7 @@ def PlotMazeTrajDist(env, SZN, input_token, agent_traj_encoder, qf1, qf2, alpha,
 
 
 @torch.no_grad()
-def PlotMazeTrajWindowDist(env, window, agent_traj_encoder, qf1, qf2, alpha, policy, device, Psi, dim_option=2, max_path_length=300, path='./', option_type=None):    
+def PlotMazeTrajWindowDist(env, window, agent_traj_encoder, qf1, qf2, alpha, policy, device, Psi, dim_option=2, max_path_length=300, path='./', option_type=None): 
     obs0 = env.reset()
     s0 = torch.tensor(obs0).to(device).float()
     fig, ax = plt.subplots(2,2)
@@ -451,7 +451,8 @@ def PlotMazeTrajWindowDist(env, window, agent_traj_encoder, qf1, qf2, alpha, pol
     ax[0,0].set_title('State of Traj. in Maze')
     ax[0,1].set_axis_off()
     ax[0,1].set_title('Estimate Value in Z Space')
-    fig = viz_Value_in_Psi(policy, alpha, qf1, qf2, state=s0, num_samples=10, device=device, path=path, fig=fig)
+    if dim_option == 2:
+        fig = viz_Value_in_Psi(policy, alpha, qf1, qf2, state=s0, num_samples=10, device=device, path=path, fig=fig)
     ax[0,0], FinallDistanceList, All_Repr_obs_list, All_Goal_obs_list, All_trajs_list, FinallDistanceList, ArriveList, All_Cover_list = eval_cover_rate(env, agent_traj_encoder, policy, dim_option, device, freq=2, ax=ax[0,0], max_path_length=max_path_length, Psi=Psi, option_type=option_type)
     # calculate metrics
     FD = np.array(FinallDistanceList).mean()

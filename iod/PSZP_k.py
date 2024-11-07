@@ -198,7 +198,7 @@ def viz_SZN_dist_circle(SZN, input_token, path, psi_z=None):
 
     
     
-class PSZP(IOD):
+class PSZP_k(IOD):
     '''
     Projection Sample Z Pool;
     
@@ -442,8 +442,82 @@ class PSZP(IOD):
     '''
     def _get_train_trajectories_kwargs(self, runner):
         if self.discrete == 1:
-            extras = self._generate_option_extras(np.eye(self.dim_option)[np.random.randint(0, self.dim_option, runner._train_args.batch_size)])
-        
+            if self.method['explore'] == 'SZN' and self.buffer_ready:
+                def cal_regeret(z, state):
+                    '''
+                    z: [batch_sample, dim_option]
+                    '''
+                    V_z = self.EstimateValue(policy=self.option_policy, alpha=self.log_alpha, qf1=self.qf1, qf2=self.qf2, option=z, state=state)                    
+                    if self.copyed:
+                        V_z_last_iter = self.EstimateValue(policy=self.last_policy, alpha=self.last_alpha, qf1=self.last_qf1, qf2=self.last_qf2, option=z, state=state)
+                    else:
+                        V_z_last_iter = 0
+                        
+                    return V_z - V_z_last_iter, V_z
+
+                k = 5
+                if self.NumSampleTimes == k * len(self.DistWindow):
+                    # window pool operation: PopDist   
+                    with torch.no_grad():
+                        # Method 2. pop the dist whose Regret less than 0;
+                        def PopDistDeque(window_size=5):
+                            if len(self.DistWindow) >= window_size:
+                                self.DistWindow.pop(0)
+                            return self.DistWindow
+
+                        self.DistWindow = PopDistDeque(10)
+                        
+                    self.NumSampleTimes = 0
+                    self.copy_params(self.ResetSZPolicy, self.SampleZPolicy)
+                    self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=3e-2)
+                    
+                    window_dist = UpdateGMM(self.DistWindow, device=self.device)
+                    for t in trange(100):
+                        # Reset the SZN:
+                        z_values = self.SampleZPolicy(self.input_token).mean
+                        probabilities = F.softmax(z_values, dim=-1)
+                        z_index = torch.multinomial(probabilities, 1).squeeze(-1)
+                        z_onehot = F.one_hot(z_index, num_classes=self.dim_option).float()
+                        p_z = (probabilities * z_onehot).sum(dim=-1)
+                        z_logp = torch.log(p_z)
+                        V_szn, V_z = cal_regeret(z_onehot, self.init_obs)
+                        V_z = (V_z - V_z.mean()) / (V_z.std() + 1e-6)       # BN: 增加训练稳定性；
+                        V_szn = (V_szn - V_szn.mean()) / (V_szn.std() + 1e-6)       # BN: 增加训练稳定性；
+
+                        self.SampleZPolicy_optim.zero_grad()    
+
+                        loss_SZP = (-z_logp * (V_szn.detach() + V_z.detach())).mean()
+
+                        loss_SZP.backward()
+                        self.grad_clip.apply(self.SampleZPolicy.parameters())
+                        self.SampleZPolicy_optim.step()
+                        if wandb.run is not None:
+                            wandb.log({
+                                "SZN/loss_SZP": loss_SZP,
+                                "SZN/logp": z_logp.mean(),
+                                "epoch": runner.step_itr,
+                            })
+                
+                    # save k-1 policy and qf
+                    # Attention this part should process after all other things
+                    self.copy_params(self.option_policy, self.last_policy)
+                    self.copy_params(self.log_alpha, self.last_alpha)
+                    self.copy_params(self.qf1, self.last_qf1)
+                    self.copy_params(self.qf2, self.last_qf2)
+                    self.copyed = 1
+                
+                ## GMM samples
+                z_values = self.SampleZPolicy(self.input_token).mean
+                probabilities = F.softmax(z_values, dim=-1)
+                z_index = torch.multinomial(probabilities, 1).squeeze(-1)
+                z_onehot = F.one_hot(z_index, num_classes=self.dim_option).float().detach().cpu().numpy()
+
+                extras = self._generate_option_extras(z_onehot, psi_g=z_onehot)   
+                self.NumSampleTimes += 1
+                
+            else:
+                extras = self._generate_option_extras(np.eye(self.dim_option)[np.random.randint(0, self.dim_option, runner._train_args.batch_size)])
+
         else:
             random_options = np.random.randn(runner._train_args.batch_size, self.dim_option)
             if self.unit_length:
@@ -572,7 +646,6 @@ class PSZP(IOD):
                                     p_sf = dist_z.log_prob(x_i)
                                 else:
                                     p_sf = torch.maximum(p_sf, dist_z.log_prob(x_i))
-
                             confidence = p_sf
 
                         else:
@@ -774,7 +847,7 @@ class PSZP(IOD):
         
     def Psi(self, phi_x, phi_x0=None):
         if 'Projection' in self.method['phi']:   
-            return torch.tanh(1/150 * (phi_x))
+            return torch.tanh(2/self.max_path_length * (phi_x))
         else:
             return phi_x
     
@@ -812,7 +885,10 @@ class PSZP(IOD):
             # direction_sim = ((psi_s_next - psi_s) * self.vec_norm(psi_g)).sum(dim=-1)    # [-1,1]
             # phi_obj = direction_sim
             ## pos sample
-            
+
+            if self.discrete == 1:
+                z_unit = (v['options'] - v['options'].mean(dim=1, keepdim=True)) * self.dim_option / (self.dim_option - 1 if self.dim_option != 1 else 1)
+
             matrix = ((psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
 
             # matrix = ((psi_s_next - psi_s).unsqueeze(1) * self.vec_norm(psi_g - psi_s).unsqueeze(0)).sum(dim=-1)
@@ -832,26 +908,6 @@ class PSZP(IOD):
 
                 return contrastive_sim
             
-            def cal_w_obj(matrix):
-                w = 0.1
-                dist_theta = 1e-4
-                distance_pos_neg = torch.norm(z_unit.unsqueeze(1) - z_unit.unsqueeze(0), p=2, dim=-1)
-                mask = torch.where(distance_pos_neg < dist_theta, 0, 1)
-                matrix = matrix * mask
-                contrastive_sim = - ((matrix).mean(dim=-1) + (matrix.T).mean(dim=-1)) / 2     # [1024]
-                return w * contrastive_sim
-            
-            def cal_sigmoid_obj(matrix):
-                w = 0.1
-                dist_theta = 1e-4
-                distance_pos_neg = torch.norm(z_unit.unsqueeze(1) - z_unit.unsqueeze(0), p=2, dim=-1)
-                mask = torch.where(distance_pos_neg < dist_theta, 0, 1)
-                matrix = matrix * mask
-                sim_neg = (matrix).sum(dim=1) / (phi_s.shape[0]-1)
-                contrastive_sim = torch.log(F.sigmoid(direction_sim) + 1e-6) + torch.log(1 + 1e-6 - F.sigmoid((sim_neg - 0.25)))
-                
-                return contrastive_sim
-            
             ## pos and neg obj.
             contrastive_sim = cal_softmax_obj(matrix, t=0.5)
             phi_obj = 0 * direction_sim +  1 * contrastive_sim + 0 * reward_g_distance
@@ -861,7 +917,7 @@ class PSZP(IOD):
             reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
             reward_g_arrival = torch.where(self.norm(psi_g - psi_s_next)<d, 1.0, 0.).to(self.device)
             reward_g_dir = (self.vec_norm(psi_s_next - psi_s) * self.vec_norm(psi_g - psi_s)).sum(dim=-1)
-            policy_rewards = 1 * reward_g_distance + 1 * reward_g_dir + 0 * reward_g_arrival
+            policy_rewards = 1 * reward_g_distance + 0 * reward_g_dir + 0 * reward_g_arrival
             
             v.update({
                 'cur_z': cur_z,

@@ -572,7 +572,6 @@ class PSZP(IOD):
                                     p_sf = dist_z.log_prob(x_i)
                                 else:
                                     p_sf = torch.maximum(p_sf, dist_z.log_prob(x_i))
-
                             confidence = p_sf
 
                         else:
@@ -639,6 +638,11 @@ class PSZP(IOD):
                 # mix_dist_prob = (1 / confidence) / (1 / confidence).sum() 
                 # print(confidence)
                 # print(mix_dist_prob)
+
+                
+
+
+
                 window_dist = UpdateGMM(self.DistWindow, device=self.device)
                 self.last_z = window_dist.sample((self.num_random_trajectories,))
 
@@ -774,7 +778,7 @@ class PSZP(IOD):
         
     def Psi(self, phi_x, phi_x0=None):
         if 'Projection' in self.method['phi']:   
-            return torch.tanh(1/150 * (phi_x))
+            return torch.tanh(2/self.max_path_length * (phi_x))
         else:
             return phi_x
     
