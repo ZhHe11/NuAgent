@@ -230,11 +230,16 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, f
     ArriveList=[]
     All_Cover_list = []
     np_random = np.random.default_rng(seed=0) 
-    GoalList = env.env.goal_sampler(np_random)
-    # GoalList = (7, 8) + 2 * np.random.uniform(-1, 1, (10, dim_option))
-    options = np.random.uniform(-1,1, (len(GoalList), dim_option))
+    eval_num = 10
+    if option_type != 'random':
+        GoalList = env.env.goal_sampler(np_random)
+        eval_num = len(GoalList)
+    else:
+        GoalList = (7, 8) + 2 * np.random.uniform(-1, 1, (10, dim_option))
+        eval_num = len(GoalList)
+    options = np.random.uniform(-1,1, (eval_num, dim_option))
     
-    for j in trange(len(GoalList)):
+    for j in trange(eval_num):
         goal = GoalList[j]
         ax.scatter(goal[0], goal[1], s=25, marker='o', alpha=1, edgecolors='black')
         tensor_goal = torch.tensor(goal).to(device)

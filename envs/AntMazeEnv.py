@@ -52,14 +52,14 @@ def valid_goal_sampler(self, np_random, freq=5):
         random_x = 0
         random_y = 0
         
-        num = 2
-        x = np.linspace(-1.8, 1.1, num)
-        y = np.linspace(-1.8, 1.1, num)
-        X, Y = np.meshgrid(x, y)
-        grid_xy = xy[0] + X.reshape(-1), xy[1] + Y.reshape(-1)
+        # num = 2
+        # x = np.linspace(-1.8, 1.1, num)
+        # y = np.linspace(-1.8, 1.1, num)
+        # X, Y = np.meshgrid(x, y)
+        # grid_xy = xy[0] + X.reshape(-1), xy[1] + Y.reshape(-1)
         
-        for j in range(num * num):
-            GoalList.append((grid_xy[0][j],grid_xy[1][j]))
+        # for j in range(num * num):
+        #     GoalList.append((grid_xy[0][j],grid_xy[1][j]))
         
 
         # original
@@ -68,8 +68,8 @@ def valid_goal_sampler(self, np_random, freq=5):
         
 
         # one point
-        # grid_xy = xy[0], xy[1]
-        # GoalList.append((grid_xy[0],grid_xy[1]))
+        grid_xy = xy[0], xy[1]
+        GoalList.append((grid_xy[0],grid_xy[1]))
         
 
     
@@ -136,8 +136,8 @@ class MazeWrapper(gym.Wrapper):
             position_random_init = self.goal_sampler(np_random)
             obs[:2] = position_random_init
             self.set_state(obs[:15], obs[15:])
-            if 'maze2d' in self.env_name:
-                obs = self.env.reset_to_location([0.9, 0.9])
+        if 'maze2d' in self.env_name:
+            obs = self.env.reset_to_location([0.9, 0.9])
         return obs
     
     # ======== BELOW is helper stuff for drawing and visualizing ======== #

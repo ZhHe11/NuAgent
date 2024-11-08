@@ -94,7 +94,7 @@ def get_argparser():
     parser.add_argument('--exp_name', type=str, default='')
 
     parser.add_argument('--env', type=str, default='kitchen', choices=[
-        'maze', 'half_cheetah', 'ant', 'dmc_cheetah', 'dmc_quadruped', 'dmc_humanoid', 'kitchen', 'ant_maze',
+        'maze', 'half_cheetah', 'ant', 'dmc_cheetah', 'dmc_quadruped', 'dmc_humanoid', 'kitchen', 'ant_maze', 'lm'
     ])
     parser.add_argument('--frame_stack', type=int, default=None)
 
@@ -272,7 +272,7 @@ def get_gaussian_module_construction(args,
 def run(ctxt=None):
     if args.is_wandb:
         wandb_output_dir = get_log_dir()
-        wandb.init(group=args.run_group, name=get_exp_name()[0], notes=args.wandb_note,
+        wandb.init(project='lm', group=args.run_group, name=get_exp_name()[0], notes=args.wandb_note,
                     config=vars(args), dir=wandb_output_dir)
 
     dowel.logger.log('ARGS: ' + str(args))

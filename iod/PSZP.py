@@ -422,7 +422,7 @@ class PSZP(IOD):
 
 
     @torch.no_grad()
-    def EstimateValue(self, policy, alpha, qf1, qf2, option, state, num_samples=1):
+    def EstimateValue(self, policy, alpha, qf1, qf2, option, state, num_samples=3):
         batch = option.shape[0]     # [s0, z]
         processed_cat_obs = self._get_concat_obs(policy.process_observations(state), option.float())     # [b,dim_s+dim_z]
         dist, info = policy(processed_cat_obs)    # [b, dim]
@@ -584,6 +584,7 @@ class PSZP(IOD):
                         # weight of Confidence Factor
                         w3 = 3
                         confidence = get_confidence(self.SfReprBuffer, dist_z, num_dist=self.num_random_trajectories)  
+                        # confidence = torch.clamp(confidence, max=2)
                         # total loss
                         loss_SZP = (-z_logp * (V_szn.detach() + V_z.detach()) - w1 * dist_z.entropy() - w2 * kl_window - w3 * confidence).mean()
                         loss_SZP.backward()
@@ -1096,7 +1097,7 @@ class PSZP(IOD):
     '''
     @torch.no_grad()
     def _evaluate_policy(self, runner, env_name):
-        if env_name == 'ant_maze':  
+        if env_name == 'ant_maze' or 'lm':  
             # self.eval_maze(runner)
             if wandb.run is not None:
                 path = wandb.run.dir + '/E' + str(runner.step_itr) + '-'
@@ -1109,6 +1110,9 @@ class PSZP(IOD):
             elif 'baseline' in self.method['phi']:
                 option_type = 'baseline'
 
+            if env_name == 'lm':
+                option_type = 'random'
+                
             FD, AR, eval_metrics = PlotMazeTrajWindowDist(runner._env, self.DistWindow, self.target_traj_encoder, self.qf1, self.qf2, self.log_alpha, self.option_policy, self.device, Psi=partial(self.Psi), dim_option=self.dim_option, max_path_length=self.max_path_length, path=path, option_type=option_type)
     
             wandb.log(  
