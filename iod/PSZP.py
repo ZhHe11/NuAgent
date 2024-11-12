@@ -831,7 +831,6 @@ class PSZP(IOD):
             # direction_sim = ((psi_s_next - psi_s) * self.vec_norm(psi_g)).sum(dim=-1)    # [-1,1]
             # phi_obj = direction_sim
             ## pos sample
-            
             matrix = ((psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
 
             # matrix = ((psi_s_next - psi_s).unsqueeze(1) * self.vec_norm(psi_g - psi_s).unsqueeze(0)).sum(dim=-1)
@@ -880,7 +879,7 @@ class PSZP(IOD):
             reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
             reward_g_arrival = torch.where(self.norm(psi_g - psi_s_next)<d, 1.0, 0.).to(self.device)
             reward_g_dir = (self.vec_norm(psi_s_next - psi_s) * self.vec_norm(psi_g - psi_s)).sum(dim=-1)
-            policy_rewards = 1 * reward_g_distance + 1 * reward_g_dir + 0 * reward_g_arrival
+            policy_rewards = 1 * reward_g_distance + 0 * reward_g_dir + 0 * reward_g_arrival
             
             v.update({
                 'cur_z': cur_z,

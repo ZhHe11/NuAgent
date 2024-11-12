@@ -232,7 +232,7 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, f
     np_random = np.random.default_rng(seed=0) 
     eval_num = 10
     if option_type != 'random':
-        GoalList = env.env.goal_sampler(np_random)
+        GoalList = np.load('/mnt/nfs2/zhanghe/NuAgent/tests/savenp/less-LargeMazeGoal.npy')
         eval_num = len(GoalList)
     else:
         GoalList = (7, 8) + 2 * np.random.uniform(-1, 1, (10, dim_option))
@@ -285,7 +285,12 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, f
             obs, reward, dones, info = env.step(action)
             gt_dist = np.linalg.norm(goal - obs[:2])
             traj_list["observation"].append(obs)
-            info['x'], info['y'] = env.env.get_xy()
+            
+            if hasattr(env.env, 'get_xy'):
+                info['x'], info['y'] = env.env.get_xy()
+            else:
+                info['x'], info['y'] = obs[0], obs[1]
+            
             traj_list["info"].append(info)
             if 'env_infos' not in Cover_list:
                 Cover_list['env_infos'] = {}
