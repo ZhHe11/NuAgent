@@ -1,15 +1,32 @@
-export CUDA_VISIBLE_DEVICES=7
+export CUDA_VISIBLE_DEVICES=2
 export D4RL_SUPPRESS_IMPORT_ERROR=1
 export TF_ENABLE_ONEDNN_OPTS=0
 export TF_CPP_MIN_LOG_LEVEL=3
 export MUJOCO_GL="osmesa"
 
-# regret
-python tests/main.py --run_group MazeSZN --env ant_maze --max_path_length 300 --seed 0 --traj_batch_size 16 --n_parallel 4 --normalizer_type off --sac_max_buffer_size 3000000  --n_epochs_per_log 50 --n_epochs_per_eval 100 --n_epochs_per_save 1000 --n_epochs_per_pt_save 1000 --discrete 0 --dim_option 4 --sac_scale_reward 1 \
-    --algo PSZP --exp_name PSZP-25-dim4 --phi_type Projection --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 75 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 --common_lr 1e-3 --model_master_num_layers 2 --wandb_note 'dim4'  
+# # baseline
+python tests/main.py --run_group ant_maze --exp_name baseline_dim4 \
+    --env ant_maze --max_path_length 300 \
+    --seed 0 --traj_batch_size 16 --n_parallel 4 \
+    --normalizer_type off \
+    --sac_max_buffer_size 100000 \
+    --algo metra_bl --trans_optimization_epochs 75 \
+    --n_epochs_per_log 100 --n_epochs_per_eval 200 \
+    --n_epochs_per_save 10000 --n_epochs_per_pt_save 10000 \
+    --discrete 0 --dim_option 4 --unit_length 1 \
+    --sac_scale_reward 1 --trans_minibatch_size 1024 --is_wandb 1 \
+    --phi_type baseline --policy_type baseline --explore_type baseline \
+    --sample_type baseline \
+    --seed 0 \
 
 
-    --algo PSZP --exp_name Baseline --phi_type baseline --explore_type baseline --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 75 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 --common_lr 1e-4 --model_master_num_layers 2 --wandb_note 'Baseline and others settings'  
+
+# # regret
+# python tests/main.py --run_group MazeSZN --env ant_maze --max_path_length 300 --seed 0 --traj_batch_size 16 --n_parallel 4 --normalizer_type off --sac_max_buffer_size 3000000  --n_epochs_per_log 50 --n_epochs_per_eval 100 --n_epochs_per_save 1000 --n_epochs_per_pt_save 1000 --discrete 0 --dim_option 4 --sac_scale_reward 1 \
+#     --algo PSZP --exp_name PSZP-25-dim4 --phi_type Projection --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 75 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 --common_lr 1e-3 --model_master_num_layers 2 --wandb_note 'dim4'  
+
+
+#     --algo PSZP --exp_name Baseline --phi_type baseline --explore_type baseline --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 75 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 --common_lr 1e-4 --model_master_num_layers 2 --wandb_note 'Baseline and others settings'  
 
 
 
@@ -190,17 +207,4 @@ python tests/main.py --run_group MazeSZN --env ant_maze --max_path_length 300 --
 #     --phi_type soft_update --policy_type her_reward --explore_type freeze \
 #     --sac_scale_reward 1 --trans_minibatch_size 1024 --is_wandb 1 \
 
-# # # baseline
-# python tests/main.py --run_group Debug_baseline --exp_name baseline_dim4_sample16 \
-#     --env ant_maze --max_path_length 300 \
-#     --seed 0 --traj_batch_size 16 --n_parallel 4 \
-#     --normalizer_type off \
-#     --sac_max_buffer_size 100000 \
-#     --algo metra --trans_optimization_epochs 50 \
-#     --n_epochs_per_log 50 --n_epochs_per_eval 100 \
-#     --n_epochs_per_save 1000 --n_epochs_per_pt_save 1000 \
-#     --discrete 0 --dim_option 4 --unit_length 1 \
-#     --sac_scale_reward 1 --trans_minibatch_size 1024 --is_wandb 1 \
-#     --phi_type baseline --policy_type baseline --explore_type baseline \
-#     --sample_type baseline \
-#     --seed 0 \
+

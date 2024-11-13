@@ -12,14 +12,3 @@ python tests/main.py --run_group LittleMaze --env lm --max_path_length 300 --see
     --algo PSZP --exp_name baseline --phi_type baseline --explore_type baseline --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 50 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 --common_lr 1e-4 --model_master_num_layers 2 
 
 
-
-
-
-
-
-
-
-
-
-
-

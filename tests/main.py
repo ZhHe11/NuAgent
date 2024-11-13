@@ -272,7 +272,7 @@ def get_gaussian_module_construction(args,
 def run(ctxt=None):
     if args.is_wandb:
         wandb_output_dir = get_log_dir()
-        wandb.init(project='lm', group=args.run_group, name=get_exp_name()[0], notes=args.wandb_note,
+        wandb.init(project='Ready', group=args.run_group, name=get_exp_name()[0], notes=args.wandb_note,
                     config=vars(args), dir=wandb_output_dir)
 
     dowel.logger.log('ARGS: ' + str(args))
@@ -546,9 +546,6 @@ def run(ctxt=None):
         explore_type=args.explore_type,
         sample_type=args.sample_type,
         num_her=args.num_her,
-        _trans_phi_optimization_epochs=args._trans_phi_optimization_epochs,
-        _trans_policy_optimization_epochs=args._trans_policy_optimization_epochs,
-        _trans_online_sample_epochs=args._trans_online_sample_epochs,
         target_theta=args.target_theta,
     )
 
@@ -653,6 +650,9 @@ def run(ctxt=None):
             **algo_kwargs,
             SampleZPolicy=SampleZPolicy,
             **skill_common_args,
+            _trans_phi_optimization_epochs=args._trans_phi_optimization_epochs,
+            _trans_policy_optimization_epochs=args._trans_policy_optimization_epochs,
+            _trans_online_sample_epochs=args._trans_online_sample_epochs,
         )
     
     elif args.algo == 'PSZP_k':

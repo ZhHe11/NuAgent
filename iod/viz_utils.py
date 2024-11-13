@@ -15,6 +15,9 @@ import copy
 from iod.utils import get_torch_concat_obs
 
 
+def Psi_baseline(x, *args, **kwargs):
+    return x
+
 def _vec_norm(vec):
     return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
 
@@ -220,7 +223,7 @@ def viz_Regert_in_Psi(base1, base2, state, num_samples=10, device='cpu', path='.
     plt.close()
     
 @torch.no_grad()
-def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, freq=5, ax=None, max_path_length=300, Psi=_Psi, option_type=None):
+def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, ax=None, max_path_length=300, Psi=_Psi, option_type=None):
     
     FinallDistanceList = []
     All_Repr_obs_list = []
@@ -232,10 +235,12 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, f
     np_random = np.random.default_rng(seed=0) 
     eval_num = 10
     if option_type != 'random':
+        # to do: fix the map from the ant-maze
         GoalList = np.load('/mnt/nfs2/zhanghe/NuAgent/tests/savenp/less-LargeMazeGoal.npy')
         eval_num = len(GoalList)
     else:
-        GoalList = (7, 8) + 2 * np.random.uniform(-1, 1, (10, dim_option))
+        # provide a fake Goal List
+        GoalList = np.random.uniform(-1, 1, (eval_num, 2))
         eval_num = len(GoalList)
     options = np.random.uniform(-1,1, (eval_num, dim_option))
     
@@ -250,20 +255,18 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, f
         phi_obs_ = agent_traj_encoder(obs).mean
         phi_obs0 = copy.deepcopy(phi_obs_)
         # goal
-        target_obs = env.get_target_obs(obs_0, tensor_goal)
-        phi_target_obs = agent_traj_encoder(target_obs).mean
-        # option
-        # 1. use map goal
-        if option_type == 'baseline':
-            option = _vec_norm(phi_target_obs - phi_obs0)
-        elif option_type == 'Projection':
-            option = Psi(phi_target_obs, phi_obs0)
-        elif option_type == 'uniform':
-            option = torch.tensor(options[j]).unsqueeze(0).to(device).float()
-        elif option_type == 'random':
+        if option_type == 'random':
             option = vec_norm(torch.tensor(options[j]).unsqueeze(0).to(device).float())
+        else: 
+            target_obs = env.get_target_obs(obs_0, tensor_goal)
+            phi_target_obs = agent_traj_encoder(target_obs).mean
+            if option_type == 'baseline':
+                option = _vec_norm(phi_target_obs - phi_obs0)
+            elif option_type == 'Projection':
+                option = Psi(phi_target_obs, phi_obs0)
+            elif option_type == 'uniform':
+                option = torch.tensor(options[j]).unsqueeze(0).to(device).float()
 
-        # 2. use uniform z
         Repr_obs_list = []
         Repr_goal_list = []
         gt_return_list = []
@@ -278,7 +281,8 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, f
             # for viz
             # import pdb; pdb.set_trace()
             Repr_obs_list.append(Psi(phi_obs_, phi_obs0).cpu().numpy()[0])
-            Repr_goal_list.append(option.cpu().numpy()[0])
+            if option_type != 'random':
+                Repr_goal_list.append(option.cpu().numpy()[0])
             # get actions from policy
             action, agent_info = agent_policy.get_action(obs_option)
             # interact with the env
@@ -439,7 +443,7 @@ def PlotMazeTrajDist(env, SZN, input_token, agent_traj_encoder, qf1, qf2, alpha,
     ax[0,1].set_axis_off()
     ax[0,1].set_title('Estimate Value in Z Space')
     fig = viz_Value_in_Psi(policy, alpha, qf1, qf2, state=s0, num_samples=10, device=device, path=path, fig=fig)
-    ax[0,0], FinallDistanceList, All_Repr_obs_list, All_Goal_obs_list, All_trajs_list, FinallDistanceList, ArriveList = eval_cover_rate(env, agent_traj_encoder, policy, dim_option, device, freq=2, ax=ax[0,0], max_path_length=max_path_length, Psi=Psi)
+    ax[0,0], FinallDistanceList, All_Repr_obs_list, All_Goal_obs_list, All_trajs_list, FinallDistanceList, ArriveList = eval_cover_rate(env, agent_traj_encoder, policy, dim_option, device, ax=ax[0,0], max_path_length=max_path_length, Psi=Psi)
     # calculate metrics
     FD = np.array(FinallDistanceList).mean()
     AR = np.array(ArriveList).mean()
@@ -466,7 +470,11 @@ def PlotMazeTrajWindowDist(env, window, agent_traj_encoder, qf1, qf2, alpha, pol
     ax[0,1].set_title('Estimate Value in Z Space')
     if dim_option == 2:
         fig = viz_Value_in_Psi(policy, alpha, qf1, qf2, state=s0, num_samples=10, device=device, path=path, fig=fig)
-    ax[0,0], FinallDistanceList, All_Repr_obs_list, All_Goal_obs_list, All_trajs_list, FinallDistanceList, ArriveList, All_Cover_list = eval_cover_rate(env, agent_traj_encoder, policy, dim_option, device, freq=2, ax=ax[0,0], max_path_length=max_path_length, Psi=Psi, option_type=option_type)
+        
+    if Psi is None:
+        Psi = Psi_baseline
+ 
+    ax[0,0], FinallDistanceList, All_Repr_obs_list, All_Goal_obs_list, All_trajs_list, FinallDistanceList, ArriveList, All_Cover_list = eval_cover_rate(env, agent_traj_encoder, policy, dim_option, device, ax=ax[0,0], max_path_length=max_path_length, Psi=Psi, option_type=option_type)
     # calculate metrics
     FD = np.array(FinallDistanceList).mean()
     AR = np.array(ArriveList).mean()
@@ -485,6 +493,36 @@ def PlotMazeTrajWindowDist(env, window, agent_traj_encoder, qf1, qf2, alpha, pol
     return FD, AR, eval_metrics
     
 
+
+
+@torch.no_grad()
+def PlotMazeTraj(env, agent_traj_encoder, policy, device, Psi, dim_option=2, max_path_length=300, path='./', option_type=None): 
+    obs0 = env.reset()
+    s0 = torch.tensor(obs0).to(device).float()
+    fig, ax = plt.subplots(1,2)
+    fig.subplots_adjust(wspace=0.8, hspace=0.4) 
+    env.draw(ax[0])
+    ax[0].set_title('State of Traj. in Maze')
+        
+    if Psi is None:
+        Psi = Psi_baseline
+ 
+    ax[0], FinallDistanceList, All_Repr_obs_list, All_Goal_obs_list, All_trajs_list, FinallDistanceList, ArriveList, All_Cover_list = eval_cover_rate(env, agent_traj_encoder, policy, dim_option, device, ax=ax[0], max_path_length=max_path_length, Psi=Psi, option_type=option_type)
+    # calculate metrics
+    FD = np.array(FinallDistanceList).mean()
+    AR = np.array(ArriveList).mean()
+    print("FD:", FD, '\n', "AR:", AR)
+    ax[0] = plot_trajectories(env, All_trajs_list, fig, ax[0])
+    ax[1] = PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=False, ax=ax[1])
+    
+    filepath = path + "-Maze_traj.png"
+    plt.savefig(filepath) 
+    print(filepath)
+    
+    eval_metrics = calc_eval_metrics(All_Cover_list, is_option_trajectories=True)
+    print('[eval_metrics]:', eval_metrics)
+    
+    return FD, AR, eval_metrics
     
 
 if __name__ == '__main__':

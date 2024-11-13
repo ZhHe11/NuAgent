@@ -13,6 +13,8 @@ from iod.utils import get_torch_concat_obs, FigManager, get_option_colors, recor
 import wandb
 from iod.agent import AgentWrapper
 
+from iod.viz_utils import PlotMazeTraj
+
 
 class METRA_bl(IOD):
     def __init__(
@@ -100,6 +102,14 @@ class METRA_bl(IOD):
             # "target_traj_encoder": self.target_traj_encoder,
         }
         self.policy_for_agent = AgentWrapper(policies=policy_for_agent) 
+        
+        self.method = {
+            "eval": 'random',
+            "phi": phi_type,
+            "policy": policy_type,
+            "explore": explore_type,
+        }
+        
         
     def vec_norm(self, vec):
         return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
@@ -399,8 +409,22 @@ class METRA_bl(IOD):
     '''
     @torch.no_grad()
     def _evaluate_policy(self, runner, env_name):
-        if env_name == 'ant_maze':  
-            self.eval_maze(runner)
+        if env_name == 'ant_maze' or 'lm':  
+            if wandb.run is not None:
+                path = wandb.run.dir + '/E' + str(runner.step_itr) + '-'
+            else:
+                path = '.'
+                
+            FD, AR, eval_metrics = PlotMazeTraj(runner._env, self.traj_encoder, self.option_policy, self.device, Psi=None, dim_option=self.dim_option, max_path_length=self.max_path_length, path=path, option_type=self.method['eval'])
+    
+            wandb.log(  
+                {
+                    "epoch": runner.step_itr,
+                    "SampleSteps": runner.step_itr * self.max_path_length * self.num_random_trajectories,
+                    "CoordsCover": eval_metrics['MjNumUniqueCoords'], 
+                    "Maze_traj": wandb.Image(path + "-Maze_traj.png"),
+                },
+            )
         
         elif env_name == 'kitchen':
             self.eval_kitchen_metra(runner)
@@ -409,18 +433,22 @@ class METRA_bl(IOD):
             self.eval_metra(runner)
             
             
-    def _save_pt(self):
+    def _save_pt(self, epoch):
         if wandb.run is not None:
             path = wandb.run.dir
         else:
             path = '.'
-        file_name = path + 'option_policy.pt'
+        file_name = path + 'option_policy-' + str(epoch) + '.pt'
         torch.save({
             'discrete': self.discrete,
             'dim_option': self.dim_option,
+            # 'qf1': self.qf1,
+            # 'qf2': self.qf2,
+            # 'alpha': self.log_alpha,
             'policy': self.option_policy,
+            # 's0': self.s0,
         }, file_name)
-        file_name = path + 'traj_encoder.pt'
+        file_name = path + 'traj_encoder-' + str(epoch) + '.pt'
         torch.save({
             'discrete': self.discrete,
             'dim_option': self.dim_option,

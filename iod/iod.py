@@ -217,7 +217,7 @@ class IOD(RLAlgorithm):
                         },
                     )
                 # save model
-                if runner.step_itr % 500 == 0:
+                if runner.step_itr % 1000 == 0:
                     self._save_pt(runner.step_itr)
                 runner.step_itr += 1
 
@@ -275,7 +275,10 @@ class IOD(RLAlgorithm):
                             # phi_s = trajectories[i]['agent_infos']['phi_s']
                             # phi_g = trajectories[i]['agent_infos']['phi_sub_goal']
                             # psi_s = self.Psi(self.traj_encoder(torch.tensor(trajectories[i]['observations']).to(self.device)).mean,  self.traj_encoder(self.obs0).mean).cpu().numpy()
-                            psi_s = self.Psi(self.traj_encoder(torch.tensor(trajectories[i]['observations']).to(self.device)).mean).cpu().numpy()
+                            if self.method['phi_type'] == 'Projection':
+                                psi_s = self.Psi(self.traj_encoder(torch.tensor(trajectories[i]['observations']).to(self.device)).mean).cpu().numpy()
+                            else:
+                                psi_s = self.traj_encoder(torch.tensor(trajectories[i]['observations']).to(self.device)).mean.cpu().numpy()
                             psi_g = trajectories[i]['agent_infos']['option']
                             All_Repr_obs_list.append(psi_s)
                             All_Goal_obs_list.append(psi_g)
