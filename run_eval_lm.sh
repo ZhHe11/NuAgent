@@ -1,0 +1,20 @@
+#!/bin/bash
+
+path="/mnt/nfs2/zhanghe/NuAgent/exp/LittleMaze/SZN-t05-no_g_dirsd000_1731067494_lm_PSZP"
+eval_type="random_psi"
+# path="/mnt/nfs2/zhanghe/NuAgent/exp/LittleMaze/baselinesd000_1731046271_lm_PSZP"
+# eval_type="random"
+
+python tests/test_lmze.py -e 0 --path "$path" --eval_type "$eval_type"
+python tests/test_lmze.py -e 200 --path "$path" --eval_type "$eval_type"
+python tests/test_lmze.py -e 400 --path "$path" --eval_type "$eval_type"
+python tests/test_lmze.py -e 600 --path "$path" --eval_type "$eval_type"
+python tests/test_lmze.py -e 800 --path "$path" --eval_type "$eval_type"
+python tests/test_lmze.py -e 1000 --path "$path" --eval_type "$eval_type"
+python tests/test_lmze.py -e 1200 --path "$path" --eval_type "$eval_type"
+python tests/test_lmze.py -e 1400 --path "$path" --eval_type "$eval_type"
+python tests/test_lmze.py -e 1600 --path "$path" --eval_type "$eval_type"
+python tests/test_lmze.py -e 1800 --path "$path" --eval_type "$eval_type"
+python tests/test_lmze.py -e 2000 --path "$path" --eval_type "$eval_type"
+python tests/test_lmze.py -e 2050 --path "$path" --eval_type "$eval_type"
+python tests/test_lmze.py -e 2100 --path "$path" --eval_type "$eval_type"

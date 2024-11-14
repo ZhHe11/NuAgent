@@ -1,9 +1,9 @@
-export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=5
 export MUJOCO_GL="osmesa"
 
 # baseline
-python tests/main.py --run_group kitchen --env kitchen --max_path_length 50 --seed 0 --traj_batch_size 8 --n_parallel 4 --normalizer_type off --num_video_repeats 1 --frame_stack 3 --sac_max_buffer_size 100000 --sac_lr_a -1 --trans_optimization_epochs 100 --n_epochs_per_log 100 --n_epochs_per_eval 100 --n_epochs_per_save 100 --n_epochs_per_pt_save 100 --discrete 1 --dim_option 24 --encoder 1 --sample_cpu 0 \
-    --algo PSZP_k --exp_name PSZP-15-ParamTune --phi_type baseline --policy_type SZN --explore_type SZN --sample_type baseline --num_her 0 --target_theta 0 --is_wandb 1 --trans_minibatch_size 256 --sac_min_buffer_size 1000
+python tests/main.py --run_group Debug --env kitchen --max_path_length 50 --seed 0 --traj_batch_size 8 --n_parallel 4 --normalizer_type off --num_video_repeats 1 --frame_stack 3 --sac_max_buffer_size 100000 --algo metra_bl --sac_lr_a -1 --trans_optimization_epochs 100 --n_epochs_per_log 25 --n_epochs_per_eval 250 --n_epochs_per_save 1000 --n_epochs_per_pt_save 1000 --discrete 1 --dim_option 24 --encoder 1 --sample_cpu 0 --is_wandb 1
+
 
 
 

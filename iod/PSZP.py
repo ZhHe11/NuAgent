@@ -247,6 +247,14 @@ class PSZP(IOD):
             SampleZNetwork=None,
             SampleZPolicy=None,
             
+            SZN_w2 = 3,
+            SZN_w3 = 3,
+            SZN_window_size = 10,
+            SZN_repeat_time = 5,
+
+            Repr_temperature = 0.5,
+            Repr_max_step = 5,
+            
             **kwargs,
     ):
         super().__init__(**kwargs)
@@ -337,6 +345,14 @@ class PSZP(IOD):
         self.NumSampleTimes = 0
         self.last_trial = []
         self.new_trial = []
+        
+        self.SZN_w2 = SZN_w2
+        self.SZN_w3 = SZN_w3
+        self.SZN_window_size = SZN_window_size
+        self.SZN_repeat_time = SZN_repeat_time
+        
+        self.Repr_temperature = Repr_temperature
+        self.Repr_max_step = Repr_max_step
         
     
     @property
@@ -457,7 +473,7 @@ class PSZP(IOD):
             
             if self.method['explore'] == 'SZN' and self.buffer_ready:
                 # viz the Regert Map
-                def viz_Regert_in_Psi(state, device='cpu', path='./', ax=None, confidence=None):
+                def viz_Regert_in_Psi(state, device='cpu', path='./', ax=None):
                     if self.dim_option > 2:
                         return
                     density = 100
@@ -475,11 +491,9 @@ class PSZP(IOD):
                     if ax is None:
                         fig = plt.figure(figsize=(18, 12), facecolor='w')
                         ax = fig.add_subplot(111, projection='3d')
-                    if confidence is None:  
-                        ax.plot_surface(X, Y, Regret.cpu().numpy(), rstride=1, cstride=1, cmap='viridis', edgecolor='none')
-                    else:
-                        CR = Regret / confidence
-                        ax.plot_surface(X, Y, CR.cpu().numpy(), rstride=1, cstride=1, cmap='viridis', edgecolor='none')
+                        
+                    ax.plot_surface(X, Y, Regret.cpu().numpy(), rstride=1, cstride=1, cmap='viridis', edgecolor='none')
+
                     ax.view_init(60, 270+20)
                     ax.set_xlabel('X')          
                     ax.set_ylabel('Y')
@@ -514,48 +528,31 @@ class PSZP(IOD):
                             p_sf = torch.maximum(p_sf, dist_z.log_prob(x_i))
                     confidence = p_sf
                     return confidence
-
-
-                k = 5
-                if self.NumSampleTimes == k * len(self.DistWindow):
+                
+                if self.NumSampleTimes == self.SZN_repeat_time * len(self.DistWindow):
                     # window pool operation: PopDist   
-                    with torch.no_grad():
-                        # Method 1. pop the dist whose Regret less than 0;
-                        def PopDistLessZero():
-                            new_window = []
-                            for j in range(len(self.DistWindow)):
-                                dist_j = self.DistWindow[j]
-                                # Pop depanding on the regret of dist; 
-                                # Attention! you should calculate the regret before updating the k-1 policy;      
-                                Regret_j, _ = cal_regeret(dist_j.sample(), self.init_obs)
-                                if Regret_j.mean() > 0:
-                                    new_window.append(dist_j)
-                            return new_window
-        
-                        # Method 2. pop the dist whose Regret less than 0;
-                        def PopDistDeque(window_size=5):
-                            if len(self.DistWindow) >= window_size:
-                                self.DistWindow.pop(0)
-                            return self.DistWindow
+                    # Method 2. pop the dist whose Regret less than 0;
+                    def PopDistDeque(window_size=5):
+                        if len(self.DistWindow) >= window_size:
+                            self.DistWindow.pop(0)
+                        return self.DistWindow
 
-                        def PopDistMin(window_size=10):
-                            if len(self.DistWindow) >= window_size:
-                                min = 0
-                                pop_index = 0
-                                for j in range(len(self.DistWindow)):
-                                    dist_j = self.DistWindow[j]
-                                    # Pop depanding on the regret of dist; 
-                                    # Attention! you should calculate the regret before updating the k-1 policy;      
-                                    Regret_j, _ = cal_regeret(dist_j.sample(), self.init_obs).mean()
-                                    if min < Regret_j:
-                                        pop_index = j
-                                        min = Regret_j
-                                self.DistWindow.pop(pop_index)
-                            return self.DistWindow
+                    def PopDistMin(window_size=10):
+                        if len(self.DistWindow) >= window_size:
+                            min = 0
+                            pop_index = 0
+                            for j in range(len(self.DistWindow)):
+                                dist_j = self.DistWindow[j]  
+                                Regret_j, _ = cal_regeret(dist_j.sample(), self.init_obs).mean()
+                                if min < Regret_j:
+                                    pop_index = j
+                                    min = Regret_j
+                            self.DistWindow.pop(pop_index)
+                        return self.DistWindow
                                         
                         # Choose one method to get Popped DistWindow;
-                        # self.DistWindow = PopDistDeque(10)
-                        self.DistWindow = PopDistDeque(10)
+                    with torch.no_grad():
+                        self.DistWindow = PopDistDeque(self.SZN_window_size)
                         
                     self.NumSampleTimes = 0
                     self.copy_params(self.ResetSZPolicy, self.SampleZPolicy)
@@ -565,28 +562,24 @@ class PSZP(IOD):
                     for t in trange(100):
                         # Reset the SZN:
                         dist_z = self.SampleZPolicy(self.input_token)
-                        z = dist_z.rsample()
+                        z = dist_z.sample()
                         z_logp = dist_z.log_prob(z.detach())
-
                         V_szn, V_z = cal_regeret(z, self.init_obs)
                         V_z = (V_z - V_z.mean()) / (V_z.std() + 1e-6)       # BN: 增加训练稳定性；
                         V_szn = (V_szn - V_szn.mean()) / (V_szn.std() + 1e-6)       # BN: 增加训练稳定性；
-
                         self.SampleZPolicy_optim.zero_grad()    
                         # weight of entropy
                         w1 = 0
                         # weight of GMM KL
-                        w2 = 3
                         log_pz = window_dist.log_prob(z)
                         pz = torch.exp(log_pz)
                         log_qz = z_logp
                         kl_window = pz * (log_pz - log_qz)
                         # weight of Confidence Factor
-                        w3 = 3
                         confidence = get_confidence(self.SfReprBuffer, dist_z, num_dist=self.num_random_trajectories)  
                         # confidence = torch.clamp(confidence, max=2)
                         # total loss
-                        loss_SZP = (-z_logp * (V_szn.detach() + V_z.detach()) - w1 * dist_z.entropy() - w2 * kl_window - w3 * confidence).mean()
+                        loss_SZP = (-z_logp * (V_szn.detach() + V_z.detach()) - self.SZN_w2 * kl_window - self.SZN_w3 * confidence).mean()
                         loss_SZP.backward()
                         self.grad_clip.apply(self.SampleZPolicy.parameters())
                         self.SampleZPolicy_optim.step()
@@ -631,31 +624,14 @@ class PSZP(IOD):
                     self.copyed = 1
                     self.SfReprBuffer = []
                 
-                ## GMM samples
-
-                # if len(self.SfReprBuffer) > 0:
-                #     SfReprBuffer = self.SfReprBuffer
-                # sf_repr_buffer_tensor = torch.tensor(np.array(SfReprBuffer)).to(self.device)
-                # WinLen = len(self.DistWindow)
-                # confidence = torch.zeros(WinLen).to(self.device)
-                # for i in range(WinLen):
-                #     dist_i_mean = self.DistWindow[i].mean[0]
-                #     confidence_i = torch.norm(dist_i_mean.unsqueeze(0) - sf_repr_buffer_tensor.unsqueeze(0), dim=-1).min(dim=-1)[0]
-                #     confidence[i] = confidence_i
-                # confidence = torch.clamp(confidence, min=0.1)
-                # mix_dist_prob = (1 / confidence) / (1 / confidence).sum() 
-                # print(confidence)
-                # print(mix_dist_prob)  
-                
-                window_dist_raw = UpdateGMM(self.DistWindow, device=self.device).component_distribution     # 这是一个均匀分布的GMM dists
+                window_dist_raw = UpdateGMM(self.DistWindow, device=self.device).component_distribution
                 window_len = len(self.DistWindow)
 
                 mix_dist_prob = F.softmax(get_confidence(self.new_trial, window_dist_raw, num_dist=window_len) - get_confidence(self.last_trial, window_dist_raw, num_dist=window_len))
-                min_prob = 0.02
+                min_prob = 0.01
                 adjusted_probs = torch.maximum(mix_dist_prob, torch.tensor(min_prob))
                 adjusted_probs = adjusted_probs / torch.sum(adjusted_probs)
-                print(adjusted_probs.detach())
-
+                print(f"mix_dist_prob: {adjusted_probs.detach()}")
                 window_dist = UpdateGMM(self.DistWindow, mix_dist_prob=adjusted_probs, device=self.device)
                 self.last_z = window_dist.sample((self.num_random_trajectories,))
 
@@ -668,7 +644,6 @@ class PSZP(IOD):
 
             elif self.method['explore'] == 'uniform' and self.buffer_ready:
                 random_options = np.random.uniform(-1,1, (runner._train_args.batch_size, self.dim_option))
-                print(random_options)
                 extras = self._generate_option_extras(random_options, psi_g=random_options)
             
             else: 
@@ -822,14 +797,12 @@ class PSZP(IOD):
             # 0. updated option
             updated_option = psi_g
             updated_next_option = psi_g
-            k = 5
+            k = self.Repr_max_step
             d = 1 / self.max_path_length
             reward_g_distance = torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
             
             # 1. Similarity Reward
             delta_norm = self.norm((psi_s_next - psi_s))
-            # direction_sim = ((psi_s_next - psi_s) * self.vec_norm(psi_g)).sum(dim=-1)    # [-1,1]
-            # phi_obj = direction_sim
             ## pos sample
             matrix = ((psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
 
@@ -840,9 +813,9 @@ class PSZP(IOD):
             def cal_softmax_obj(matrix, t=1):
                 # 要把相同的z过滤掉，否则会削弱正样本的梯度；
                 # 加一个判断，如果g-与g特别接近，就用mask掉；
-                dist_theta = 1e-4
-                distance_pos_neg = torch.norm(z_unit.unsqueeze(1) - z_unit.unsqueeze(0), p=2, dim=-1)
-                mask = torch.where(distance_pos_neg < dist_theta, 0, 1) + torch.eye(z_unit.shape[0], z_unit.shape[0]).to(self.device)
+                dist_theta = 1e-2
+                distance_pos_neg = (z_unit.unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
+                mask = torch.where(distance_pos_neg > (1-dist_theta), 0, 1) + torch.eye(z_unit.shape[0], z_unit.shape[0]).to(self.device)
                 matrix = mask * matrix
                 matrix = matrix / t
                 label = torch.arange(matrix.shape[0]).to(self.device)
@@ -871,11 +844,10 @@ class PSZP(IOD):
                 return contrastive_sim
             
             ## pos and neg obj.
-            contrastive_sim = cal_softmax_obj(matrix, t=0.5)
+            contrastive_sim = cal_softmax_obj(matrix, t=self.Repr_temperature)
             phi_obj = 0 * direction_sim +  1 * contrastive_sim + 0 * reward_g_distance
             
             # 2. Goal Arrival Reward
-            # norm_z = torch.clamp(self.norm(psi_g), min=k*d)
             reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
             reward_g_arrival = torch.where(self.norm(psi_g - psi_s_next)<d, 1.0, 0.).to(self.device)
             reward_g_dir = (self.vec_norm(psi_s_next - psi_s) * self.vec_norm(psi_g - psi_s)).sum(dim=-1)
@@ -901,7 +873,6 @@ class PSZP(IOD):
                 'delta_norm': delta_norm.mean(),
                 'direction_sim': direction_sim.mean(),
                 'contrastive_sim': contrastive_sim.mean(),
-                # 'decay_weight': decay_weight.mean(),
             })
             
             return
@@ -1096,7 +1067,7 @@ class PSZP(IOD):
     '''
     @torch.no_grad()
     def _evaluate_policy(self, runner, env_name):
-        if env_name == 'ant_maze' or 'lm':  
+        if env_name == 'ant_maze' or env_name == 'lm':  
             # self.eval_maze(runner)
             if wandb.run is not None:
                 path = wandb.run.dir + '/E' + str(runner.step_itr) + '-'

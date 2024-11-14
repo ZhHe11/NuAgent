@@ -65,6 +65,7 @@ class IOD(RLAlgorithm):
             sample_type=None,
             num_her=0,
             _trans_online_sample_epochs=1,
+            save_pt_step=500,
     ):
         self.env_name = env_name
         self.algo = algo
@@ -131,6 +132,7 @@ class IOD(RLAlgorithm):
         self.sample_type=sample_type
         self.num_her=num_her
         self._trans_online_sample_epochs = _trans_online_sample_epochs
+        self.save_pt_step = save_pt_step 
 
     @property
     def policy(self):
@@ -217,7 +219,7 @@ class IOD(RLAlgorithm):
                         },
                     )
                 # save model
-                if runner.step_itr % 1000 == 0:
+                if runner.step_itr % self.save_pt_step == 0:
                     self._save_pt(runner.step_itr)
                 runner.step_itr += 1
 
@@ -275,7 +277,7 @@ class IOD(RLAlgorithm):
                             # phi_s = trajectories[i]['agent_infos']['phi_s']
                             # phi_g = trajectories[i]['agent_infos']['phi_sub_goal']
                             # psi_s = self.Psi(self.traj_encoder(torch.tensor(trajectories[i]['observations']).to(self.device)).mean,  self.traj_encoder(self.obs0).mean).cpu().numpy()
-                            if self.method['phi_type'] == 'Projection':
+                            if self.method['phi'] == 'Projection':
                                 psi_s = self.Psi(self.traj_encoder(torch.tensor(trajectories[i]['observations']).to(self.device)).mean).cpu().numpy()
                             else:
                                 psi_s = self.traj_encoder(torch.tensor(trajectories[i]['observations']).to(self.device)).mean.cpu().numpy()
@@ -302,7 +304,7 @@ class IOD(RLAlgorithm):
                     plt.savefig(filepath) 
                     wandb.log(({"train_Maze_traj": wandb.Image(filepath)}))
                     PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=self.max_path_length, is_goal=True)
-                    viz_SZN_dist(self.SampleZPolicy, self.input_token, path=path)
+                    # viz_SZN_dist(self.SampleZPolicy, self.input_token, path=path)
                 
             elif 'phi_s' in trajectories[0]['agent_infos'].keys():
                 All_Repr_obs_list = []

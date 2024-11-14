@@ -177,7 +177,14 @@ def get_argparser():
     parser.add_argument('--_trans_online_sample_epochs', type=int, default=1)
     parser.add_argument('--target_theta', type=float, default=1.)
 
+    parser.add_argument('--SZN_w2', type=float, default=3.)
+    parser.add_argument('--SZN_w3', type=float, default=3.)
+    parser.add_argument('--SZN_window_size', type=float, default=10.)
+    parser.add_argument('--SZN_repeat_time', type=float, default=5.)
+    parser.add_argument('--Repr_temperature', type=float, default=0.5)
+    parser.add_argument('--Repr_max_step', type=float, default=5.)
     
+    parser.add_argument('--save_pt_step', type=int, default=500)
     
     return parser
 
@@ -569,6 +576,9 @@ def run(ctxt=None):
         dual_dist=args.dual_dist,
 
         pixel_shape=pixel_shape,
+        
+        save_pt_step=args.save_pt_step,
+        
     )
 
     if args.algo == 'metra':
@@ -583,67 +593,6 @@ def run(ctxt=None):
             **skill_common_args,
         )
         
-    elif args.algo == 'causer':    
-        algo = CAUSER(
-            **algo_kwargs,
-            **skill_common_args,
-        )   
-    
-    elif args.algo == 'SZN':
-        algo = SZN(
-            **algo_kwargs,
-            SampleZPolicy=SampleZPolicy,
-            **skill_common_args,
-        )
-
-    elif args.algo == 'SZN_batch':
-        algo = SZN_batch(
-            **algo_kwargs,
-            SampleZPolicy=SampleZPolicy,
-            **skill_common_args,
-        ) 
-    
-    elif args.algo == 'SZN_Z':
-        algo = SZN_Z(
-            **algo_kwargs,
-            SampleZPolicy=SampleZPolicy,
-            **skill_common_args,
-        ) 
-        
-    elif args.algo == 'SZN_P':
-        algo = SZN_P(
-            **algo_kwargs,
-            SampleZPolicy=SampleZPolicy,
-            **skill_common_args,
-        )       
-        
-    elif args.algo == 'SZN_PP':
-        algo = SZN_PP(
-            **algo_kwargs,
-            SampleZPolicy=SampleZPolicy,
-            **skill_common_args,
-        )
-        
-    elif args.algo == 'SZN_PPP':
-        algo = SZN_PPP(
-            **algo_kwargs,
-            SampleZPolicy=SampleZPolicy,
-            **skill_common_args,
-        )       
-        
-    elif args.algo == 'SZN_PPAU':
-        algo = SZN_PPAU(
-            **algo_kwargs,
-            SampleZPolicy=SampleZPolicy,
-            **skill_common_args,
-        )       
-    
-    elif args.algo == 'P_SZN_AU':
-        algo = P_SZN_AU(
-            **algo_kwargs,
-            SampleZPolicy=SampleZPolicy,
-            **skill_common_args,
-        )
         
     elif args.algo == 'PSZP':
         algo = PSZP(
@@ -653,29 +602,14 @@ def run(ctxt=None):
             _trans_phi_optimization_epochs=args._trans_phi_optimization_epochs,
             _trans_policy_optimization_epochs=args._trans_policy_optimization_epochs,
             _trans_online_sample_epochs=args._trans_online_sample_epochs,
+            SZN_w2=args.SZN_w2,
+            SZN_w3=args.SZN_w3,
+            SZN_window_size=args.SZN_window_size,
+            SZN_repeat_time=args.SZN_repeat_time,
+            Repr_temperature=args.Repr_temperature,
+            Repr_max_step=args.Repr_max_step,
         )
     
-    elif args.algo == 'PSZP_k':
-        algo = PSZP_k(
-            **algo_kwargs,
-            SampleZPolicy=SampleZPolicy,
-            **skill_common_args,
-        )
-
-
-    elif args.algo == 'PRR':
-        algo = PRR(
-            **algo_kwargs,
-            SampleZPolicy=SampleZPolicy,
-            **skill_common_args,
-        )
-    
-    elif args.algo == 'P_PZ':
-        algo = P_PZ(
-            **algo_kwargs,
-            SampleZPolicy=SampleZPolicy,
-            **skill_common_args,
-        )        
      
     elif args.algo == 'dads':
         algo = DADS(

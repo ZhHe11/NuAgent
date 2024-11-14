@@ -225,12 +225,11 @@ def viz_Regert_in_Psi(base1, base2, state, num_samples=10, device='cpu', path='.
 @torch.no_grad()
 def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, ax=None, max_path_length=300, Psi=_Psi, option_type=None):
     
-    FinallDistanceList = []
     All_Repr_obs_list = []
     All_Goal_obs_list = []
     All_trajs_list = []
     FinallDistanceList = []
-    ArriveList=[]
+    ArriveList = []
     All_Cover_list = []
     np_random = np.random.default_rng(seed=0) 
     eval_num = 10
@@ -498,9 +497,9 @@ def PlotMazeTrajWindowDist(env, window, agent_traj_encoder, qf1, qf2, alpha, pol
 @torch.no_grad()
 def PlotMazeTraj(env, agent_traj_encoder, policy, device, Psi, dim_option=2, max_path_length=300, path='./', option_type=None): 
     obs0 = env.reset()
-    s0 = torch.tensor(obs0).to(device).float()
-    fig, ax = plt.subplots(1,2)
-    fig.subplots_adjust(wspace=0.8, hspace=0.4) 
+    # s0 = torch.tensor(obs0).to(device).float()
+    fig, ax = plt.subplots(1,2, figsize=(16,8))
+    # fig.subplots_adjust(wspace=0.8, hspace=0.4) 
     env.draw(ax[0])
     ax[0].set_title('State of Traj. in Maze')
         
