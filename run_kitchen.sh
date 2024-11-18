@@ -1,12 +1,12 @@
-export CUDA_VISIBLE_DEVICES=3
+export CUDA_VISIBLE_DEVICES=5
 export MUJOCO_GL="osmesa"
 
 # # baseline
 # python tests/main.py --run_group Debug --env kitchen --max_path_length 50 --seed 0 --traj_batch_size 8 --n_parallel 4 --normalizer_type off --num_video_repeats 1 --frame_stack 3 --sac_max_buffer_size 100000 --algo metra_bl --sac_lr_a -1 --trans_optimization_epochs 100 --n_epochs_per_log 25 --n_epochs_per_eval 250 --n_epochs_per_save 1000 --n_epochs_per_pt_save 1000 --discrete 1 --dim_option 24 --encoder 1 --sample_cpu 0 --is_wandb 1
 
 
-python tests/main.py --run_group kitchen  --env kitchen --max_path_length 50 --seed 0 --traj_batch_size 8 --n_parallel 4 --normalizer_type off --num_video_repeats 1 --frame_stack 3 --sac_max_buffer_size 100000 --sac_lr_a -1 --trans_optimization_epochs 100 --n_epochs_per_log 25 --n_epochs_per_eval 100 --n_epochs_per_save 100 --n_epochs_per_pt_save 100 --discrete 1 --dim_option 24 --encoder 1 --sample_cpu 0 \
-    --algo PSZP --exp_name PSZP-dis0 --phi_type Projection --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 100 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 --common_lr 1e-3 --SZN_w2 10 --SZN_w3 2 --SZN_window_size 10 --SZN_repeat_time 5 --Repr_temperature 1 --Repr_max_step 100 --save_pt_step 500 --z_unit 0 --wandb_note 'SampleNum16; temperature=1' --discrete 0
+python tests/main.py --run_group kitchen_debug  --env kitchen --max_path_length 50 --seed 0 --traj_batch_size 8 --n_parallel 4 --normalizer_type off --num_video_repeats 1 --frame_stack 3 --sac_max_buffer_size 100000 --sac_lr_a -1 --trans_optimization_epochs 100 --n_epochs_per_log 25 --n_epochs_per_eval 100 --n_epochs_per_save 100 --n_epochs_per_pt_save 100 --discrete 1 --dim_option 24 --encoder 1 --sample_cpu 0 \
+    --algo PSZP --exp_name PSZP-dis0-debug2 --phi_type Projection --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 100 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 --common_lr 1e-3 --SZN_w2 5 --SZN_w3 2 --SZN_window_size 10 --SZN_repeat_time 5 --Repr_temperature 1 --Repr_max_step 5 --save_pt_step 500 --z_unit 0 --wandb_note 'SampleNum16; temperature=1; Repr_max_step 5' --discrete 0 --traj_batch_size 8 
 
     --algo PSZP --exp_name PSZP-SampleNum16 --phi_type Projection --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 100 --target_theta 1 --is_wandb 1 --trans_minibatch_size 256 --common_lr 1e-4 --SZN_repeat_time 1 --Repr_temperature 0.5 --Repr_max_step 100 --save_pt_step 500 --wandb_note 'SampleNum16;' --sac_min_buffer_size 2000
 

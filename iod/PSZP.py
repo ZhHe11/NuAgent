@@ -569,9 +569,7 @@ class PSZP(IOD):
 
                 extras = self._generate_option_extras(z_onehot, psi_g=z_onehot)   
                 self.NumSampleTimes += 1
-                
-
-                
+                        
             else:
                 extras = self._generate_option_extras(np.eye(self.dim_option)[np.random.randint(0, self.dim_option, runner._train_args.batch_size)])
                 
@@ -589,21 +587,6 @@ class PSZP(IOD):
                         if len(self.DistWindow) >= window_size:
                             self.DistWindow.pop(0)
                         return self.DistWindow
-
-                    def PopDistMin(window_size=10):
-                        if len(self.DistWindow) >= window_size:
-                            min = 0
-                            pop_index = 0
-                            for j in range(len(self.DistWindow)):
-                                dist_j = self.DistWindow[j]  
-                                Regret_j, _ = self.cal_regeret(dist_j.sample(), self.init_obs).mean()
-                                if min < Regret_j:
-                                    pop_index = j
-                                    min = Regret_j
-                            self.DistWindow.pop(pop_index)
-                        return self.DistWindow
-                                        
-                        # Choose one method to get Popped DistWindow;
                     with torch.no_grad():
                         self.DistWindow = PopDistDeque(self.SZN_window_size)
                         
@@ -838,11 +821,11 @@ class PSZP(IOD):
         cur_z = self.traj_encoder(obs).mean
         next_z = self.traj_encoder(next_obs).mean
         
-        if self.method["phi"] in ['Projection'] and self.discrete == 1:
+        if self.method["phi"] in ['Projection'] and self.discrete == 0:
             psi_g = v['options']
             z_unit = self.vec_norm(psi_g)
-            # phi_s_0 = self.traj_encoder(v['s_0']).mean
-            phi_s_0 = self.traj_encoder(self.s0).mean
+            phi_s_0 = self.traj_encoder(v['s_0']).mean
+            # phi_s_0 = self.traj_encoder(self.s0).mean
             phi_s = cur_z
             phi_s_next = next_z
             
@@ -861,8 +844,6 @@ class PSZP(IOD):
             ## pos sample
             matrix = ((psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
 
-            # matrix = ((psi_s_next - psi_s).unsqueeze(1) * self.vec_norm(psi_g - psi_s).unsqueeze(0)).sum(dim=-1)
-
             direction_sim = torch.diag(matrix)
             ## neg smaple
             def cal_softmax_obj(matrix, t=1):
@@ -876,26 +857,6 @@ class PSZP(IOD):
                 label = torch.arange(matrix.shape[0]).to(self.device)
                 contrastive_sim = - F.cross_entropy(matrix, label) - F.cross_entropy(matrix.T, label)
 
-                return contrastive_sim
-            
-            def cal_w_obj(matrix):
-                w = 0.1
-                dist_theta = 1e-4
-                distance_pos_neg = torch.norm(z_unit.unsqueeze(1) - z_unit.unsqueeze(0), p=2, dim=-1)
-                mask = torch.where(distance_pos_neg < dist_theta, 0, 1)
-                matrix = matrix * mask
-                contrastive_sim = - ((matrix).mean(dim=-1) + (matrix.T).mean(dim=-1)) / 2     # [1024]
-                return w * contrastive_sim
-            
-            def cal_sigmoid_obj(matrix):
-                w = 0.1
-                dist_theta = 1e-4
-                distance_pos_neg = torch.norm(z_unit.unsqueeze(1) - z_unit.unsqueeze(0), p=2, dim=-1)
-                mask = torch.where(distance_pos_neg < dist_theta, 0, 1)
-                matrix = matrix * mask
-                sim_neg = (matrix).sum(dim=1) / (phi_s.shape[0]-1)
-                contrastive_sim = torch.log(F.sigmoid(direction_sim) + 1e-6) + torch.log(1 + 1e-6 - F.sigmoid((sim_neg - 0.25)))
-                
                 return contrastive_sim
             
             ## pos and neg obj.
@@ -928,6 +889,7 @@ class PSZP(IOD):
                 'delta_norm': delta_norm.mean(),
                 'direction_sim': direction_sim.mean(),
                 'contrastive_sim': contrastive_sim.mean(),
+                "distance_s0_init_obs": self.norm(v['s_0'] - self.s0).mean(),
             })
             
             return
@@ -987,7 +949,7 @@ class PSZP(IOD):
                 cst_dist = torch.square(y - x).mean(dim=1)
             elif self.dual_dist == 'one':
                 cst_dist = torch.ones_like(x[:, 0])   
-            elif self.dual_dist == 's2_from_s':
+            elif self.dual_dist == 's2_from_s': 
                 s2_dist = self.dist_predictor(obs)
                 s2_dist_mean = s2_dist.mean
                 s2_dist_std = s2_dist.stddev

@@ -9,7 +9,7 @@ class BufferDataset(Dataset):
 
     def __getitem__(self, index):
         # time1 = time.time()
-        keys = ['obs' , 'next_obs', 'options', 'next_options', 'dones', 'actions', 'psi_g']  
+        keys = ['obs' , 'next_obs', 'options', 'next_options', 'dones', 'actions', 'psi_g', 's_0']  
         epoch_data = {}
         for i in range(len(keys)):
             key = keys[i]
