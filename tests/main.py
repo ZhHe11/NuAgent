@@ -184,7 +184,10 @@ def get_argparser():
     parser.add_argument('--Repr_temperature', type=float, default=0.5)
     parser.add_argument('--Repr_max_step', type=float, default=5.)
     
+    parser.add_argument('--z_unit', type=int, default=0)
+    
     parser.add_argument('--save_pt_step', type=int, default=500)
+    
     
     return parser
 

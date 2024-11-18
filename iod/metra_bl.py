@@ -496,7 +496,8 @@ class METRA_bl(IOD):
                 random_option_colors.extend([cm.get_cmap(cmap)(colors[i])[:3]])
             random_option_colors = np.array(random_option_colors)
         else:
-            random_options = np.random.randn(self.num_random_trajectories, self.dim_option)
+            eval_num = 8
+            random_options = np.random.randn(eval_num, self.dim_option)
             if self.unit_length:
                 random_options = random_options / np.linalg.norm(random_options, axis=1, keepdims=True)
             random_option_colors = get_option_colors(random_options * 4)
@@ -575,7 +576,9 @@ class METRA_bl(IOD):
 
         eval_option_metrics.update(runner._env.calc_eval_metrics(random_trajectories, is_option_trajectories=True))
         if wandb.run is not None:
-            eval_option_metrics.update({'epoch': runner.step_itr})
+            eval_option_metrics.update({'epoch': runner.step_itr,
+                                        'interaction_steps': runner.step_itr * self.num_random_trajectories * self.max_path_length,
+                                        })
             wandb.log(eval_option_metrics)
 
         

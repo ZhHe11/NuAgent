@@ -306,6 +306,32 @@ class IOD(RLAlgorithm):
                     PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=self.max_path_length, is_goal=True)
                     # viz_SZN_dist(self.SampleZPolicy, self.input_token, path=path)
                 
+                else:
+                    fig, ax = plt.subplots()
+                    env = runner._env
+                    list_viz_traj = []
+                    All_Repr_obs_list = []
+                    All_Goal_obs_list = []
+                    for i in range(len(trajectories)):
+                        # plot phi
+                        if Pepr_viz:
+                            if self.method['phi'] == 'Projection':
+                                psi_s = self.Psi(self.traj_encoder(torch.tensor(trajectories[i]['observations']).to(self.device)).mean).cpu().numpy()
+                            else:
+                                psi_s = self.traj_encoder(torch.tensor(trajectories[i]['observations']).to(self.device)).mean.cpu().numpy()
+                            psi_g = trajectories[i]['agent_infos']['option']
+                            All_Repr_obs_list.append(psi_s)
+                            All_Goal_obs_list.append(psi_g)
+        
+                    ax.legend(loc='lower right')
+                    path = wandb.run.dir
+                    filepath = os.path.join(path, "train_Maze_traj.png")
+                    print(filepath)
+                    plt.savefig(filepath) 
+                    wandb.log(({"train_Repr_traj": wandb.Image(filepath)}))
+                    PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=self.max_path_length, is_goal=True)
+
+            
             elif 'phi_s' in trajectories[0]['agent_infos'].keys():
                 All_Repr_obs_list = []
                 All_Goal_obs_list = []
@@ -372,16 +398,16 @@ class IOD(RLAlgorithm):
             #     data['sub_goal'].append(path["agent_infos"]["sub_goal"])
             # else:
             #     data['sub_goal'].append(np.tile(path['observations'][-1], (traj_len, 1)))
-            data['sub_goal'].append(np.tile(path['observations'][-1], (traj_len, 1)))
-            data['s_0'].append(np.tile(path['observations'][0], (traj_len, 1)))
+            # data['sub_goal'].append(np.tile(path['observations'][-1], (traj_len, 1)))
+            # data['s_0'].append(np.tile(path['observations'][0], (traj_len, 1)))
             # data['sub_goal'].append(traj_len - 1 - index)
             # data['s_0'].append(-index)
 
             if 'phi_sub_goal' in path['agent_infos']:
                 data['phi_sub_goal'].append(path["agent_infos"]["phi_sub_goal"])
                 
-            if 'token' in path['agent_infos']:
-                data['token'].append(path["agent_infos"]["token"])
+            # if 'token' in path['agent_infos']:
+            #     data['token'].append(path["agent_infos"]["token"])
                 
             if 'psi_g' in path['agent_infos']:
                 data['psi_g'].append(path['agent_infos']["psi_g"])

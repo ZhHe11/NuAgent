@@ -113,8 +113,6 @@ ax2 = axes[1]
 np_random = np.random.default_rng(seed=0) 
 GoalList = np.load('/mnt/nfs2/zhanghe/NuAgent/tests/savenp/less-LargeMazeGoal.npy')
 
-
-init_obs = env.reset() 
 random_options = np.random.uniform(-1,1, (num_eval, dim_option))
 
 All_trajs_list = []

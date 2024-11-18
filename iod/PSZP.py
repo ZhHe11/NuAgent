@@ -85,23 +85,6 @@ def UpdateGMM(dists, GMM=None, mix_dist_prob=None, device='cuda'):
         return window_dist
 
 
-
-
-def calc_eval_metrics(trajectories, is_option_trajectories, coord_dims=[0,1]):
-    eval_metrics = {}
-    coords = []
-    for traj in trajectories:
-        traj1 = traj['env_infos']['coordinates'][:, coord_dims]
-        traj2 = traj['env_infos']['next_coordinates'][-1:, coord_dims]
-        coords.append(traj1)
-        coords.append(traj2)
-    coords = np.concatenate(coords, axis=0)
-    uniq_coords = np.unique(np.floor(coords), axis=0)
-    eval_metrics.update({
-        'MjNumUniqueCoords': len(uniq_coords),
-    })
-    return eval_metrics
-
 def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_PCA=False, is_goal=1):
     if len(All_Goal_obs_list) == 0:
         is_goal = 0
@@ -255,6 +238,8 @@ class PSZP(IOD):
             Repr_temperature = 0.5,
             Repr_max_step = 5,
             
+            z_unit = 0,
+            
             **kwargs,
     ):
         super().__init__(**kwargs)
@@ -354,6 +339,7 @@ class PSZP(IOD):
         self.Repr_temperature = Repr_temperature
         self.Repr_max_step = Repr_max_step
         
+        self.z_unit = z_unit
     
     @property
     def policy(self):
@@ -397,7 +383,6 @@ class PSZP(IOD):
         self.epoch_final = epoch_final
         return epoch_data
     
-
     def _update_replay_buffer(self, data):
         self.last_trial.extend(self.new_trial)
         self.new_trial = []
@@ -420,8 +405,6 @@ class PSZP(IOD):
             self.SfReprBuffer.extend(SfRepr.cpu().numpy())
             self.new_trial.extend(SfRepr.cpu().numpy())
             
-
-
     def _sample_replay_buffer(self, batch_size=None): 
         if batch_size == None:
             batch_size = self._trans_minibatch_size
@@ -459,76 +442,146 @@ class PSZP(IOD):
             t_param.data.copy_(param.data)
 
 
+    def get_confidence(self, buffer : list, dist_z, num_dist):
+        sf_repr_buffer_tensor = torch.tensor(np.array(buffer)).to(self.device)
+        x = sf_repr_buffer_tensor.unsqueeze(0).repeat(num_dist,1,1)
+        p_sf = torch.zeros((num_dist,1)).to(self.device)
+
+        for i in range(x.shape[1]):
+            x_i = x[:,i]
+            if i == 0:
+                p_sf = dist_z.log_prob(x_i)
+            else:
+                p_sf = torch.maximum(p_sf, dist_z.log_prob(x_i))
+        confidence = p_sf
+        return confidence
+    
+    
+    def cal_regeret(self, z, state):
+        '''
+        z: [batch_sample, dim_option]
+        '''
+        V_z = self.EstimateValue(policy=self.option_policy, alpha=self.log_alpha, qf1=self.qf1, qf2=self.qf2, option=z, state=state)                    
+        if self.copyed:
+            V_z_last_iter = self.EstimateValue(policy=self.last_policy, alpha=self.last_alpha, qf1=self.last_qf1, qf2=self.last_qf2, option=z, state=state)
+        else:
+            V_z_last_iter = 0
+            
+        return V_z - V_z_last_iter, V_z
+
+    # viz the Regert Map
+    def viz_Regert_in_Psi(self, state, device='cpu', path='./', ax=None):
+        if self.dim_option > 2:
+            return
+        density = 100
+        x = np.linspace(-1, 1, density)
+        y = np.linspace(-1, 1, density)
+        X, Y = np.meshgrid(x,y)
+        pos = np.empty(X.shape + (2,))
+        pos[:, :, 0] = X
+        pos[:, :, 1] = Y
+        pos = torch.tensor(pos).to(device)
+        pos_flatten = pos.view(-1,2)
+        option = pos_flatten
+        state_batch = state.repeat(option.shape[0], 1)
+        Regret = self.cal_regeret(option, state_batch)[0].view(pos.shape[0], pos.shape[1])
+        if ax is None:
+            fig = plt.figure(figsize=(18, 12), facecolor='w')
+            ax = fig.add_subplot(111, projection='3d')
+            
+        ax.plot_surface(X, Y, Regret.cpu().numpy(), rstride=1, cstride=1, cmap='viridis', edgecolor='none')
+
+        ax.view_init(60, 270+20)
+        ax.set_xlabel('X')          
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Regret')
+        if ax is None:
+            plt.savefig(path + '-Regret' + '.png')
+            print('save at: ' + path + '-Regret' + '.png')
+            plt.close()
+
+    
+
     '''
     【0】 计算online时的option；
     '''
     def _get_train_trajectories_kwargs(self, runner):
         if self.discrete == 1:
-            extras = self._generate_option_extras(np.eye(self.dim_option)[np.random.randint(0, self.dim_option, runner._train_args.batch_size)])
-        
+            if self.method['explore'] == 'SZN' and self.buffer_ready:
+                if self.NumSampleTimes == self.SZN_repeat_time * self.dim_option:
+
+                    self.NumSampleTimes = 0
+                    self.copy_params(self.ResetSZPolicy, self.SampleZPolicy)
+                    self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=3e-2)
+                    
+                    for t in trange(100):
+                        # Reset the SZN:
+                        z_values = self.SampleZPolicy(self.input_token).mean
+                        probabilities = F.softmax(z_values, dim=-1)
+                        z_index = torch.multinomial(probabilities, 1).squeeze(-1)
+                        z_onehot = F.one_hot(z_index, num_classes=self.dim_option).float()
+                        p_z = (probabilities * z_onehot).sum(dim=-1)
+                        z_logp = torch.log(p_z)
+                        V_szn, V_z = self.cal_regeret(z_onehot, self.init_obs)
+                        V_z = (V_z - V_z.mean()) / (V_z.std() + 1e-6)       # BN: 增加训练稳定性；
+                        V_szn = (V_szn - V_szn.mean()) / (V_szn.std() + 1e-6)       # BN: 增加训练稳定性；
+
+                        self.SampleZPolicy_optim.zero_grad()    
+
+                        loss_SZP = (-z_logp * (V_szn.detach() + V_z.detach())).mean()
+
+                        loss_SZP.backward()
+                        self.grad_clip.apply(self.SampleZPolicy.parameters())
+                        self.SampleZPolicy_optim.step()
+                        if wandb.run is not None:
+                            wandb.log({
+                                "SZN/loss_SZP": loss_SZP,
+                                "SZN/logp": z_logp.mean(),
+                                "epoch": runner.step_itr,
+                            })
+                
+                    # save k-1 policy and qf
+                    # Attention this part should process after all other things
+                    self.copy_params(self.option_policy, self.last_policy)
+                    self.copy_params(self.log_alpha, self.last_alpha)
+                    self.copy_params(self.qf1, self.last_qf1)
+                    self.copy_params(self.qf2, self.last_qf2)
+                    self.copyed = 1
+                    
+                    # Visualization
+                    if wandb.run is not None:
+                        probabilities = probabilities.detach().cpu().numpy()
+                        path = wandb.run.dir + '/E' + str(runner.step_itr)
+                        fig = plt.figure(figsize=(8, 5), facecolor='w')
+                        plt.bar(range(len(probabilities[0])), probabilities[0], tick_label=[f"z{i}" for i in range(len(probabilities[0]))])
+                        plt.xlabel("z values")
+                        plt.ylabel("Probabilities")
+                        plt.title("Distribution of Probabilities")
+                        plt.savefig(path + '-Regret' + '.png')
+                        print('save at: ' + path + '-Regret' + '.png')
+                        plt.close()
+                
+                ## GMM samples
+                z_values = self.SampleZPolicy(self.input_token).mean
+                probabilities = F.softmax(z_values, dim=-1)
+                z_index = torch.multinomial(probabilities, 1).squeeze(-1)
+                z_onehot = F.one_hot(z_index, num_classes=self.dim_option).float().detach().cpu().numpy()
+
+                extras = self._generate_option_extras(z_onehot, psi_g=z_onehot)   
+                self.NumSampleTimes += 1
+                
+
+                
+            else:
+                extras = self._generate_option_extras(np.eye(self.dim_option)[np.random.randint(0, self.dim_option, runner._train_args.batch_size)])
+                
         else:
             random_options = np.random.randn(runner._train_args.batch_size, self.dim_option)
             if self.unit_length:
                 random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
             
             if self.method['explore'] == 'SZN' and self.buffer_ready:
-                # viz the Regert Map
-                def viz_Regert_in_Psi(state, device='cpu', path='./', ax=None):
-                    if self.dim_option > 2:
-                        return
-                    density = 100
-                    x = np.linspace(-1, 1, density)
-                    y = np.linspace(-1, 1, density)
-                    X, Y = np.meshgrid(x,y)
-                    pos = np.empty(X.shape + (2,))
-                    pos[:, :, 0] = X
-                    pos[:, :, 1] = Y
-                    pos = torch.tensor(pos).to(device)
-                    pos_flatten = pos.view(-1,2)
-                    option = pos_flatten
-                    state_batch = state.repeat(option.shape[0], 1)
-                    Regret = cal_regeret(option, state_batch)[0].view(pos.shape[0], pos.shape[1])
-                    if ax is None:
-                        fig = plt.figure(figsize=(18, 12), facecolor='w')
-                        ax = fig.add_subplot(111, projection='3d')
-                        
-                    ax.plot_surface(X, Y, Regret.cpu().numpy(), rstride=1, cstride=1, cmap='viridis', edgecolor='none')
-
-                    ax.view_init(60, 270+20)
-                    ax.set_xlabel('X')          
-                    ax.set_ylabel('Y')
-                    ax.set_zlabel('Regret')
-                    if ax is None:
-                        plt.savefig(path + '-Regret' + '.png')
-                        print('save at: ' + path + '-Regret' + '.png')
-                        plt.close()
-                
-                def cal_regeret(z, state):
-                    '''
-                    z: [batch_sample, dim_option]
-                    '''
-                    V_z = self.EstimateValue(policy=self.option_policy, alpha=self.log_alpha, qf1=self.qf1, qf2=self.qf2, option=z, state=state)                    
-                    if self.copyed:
-                        V_z_last_iter = self.EstimateValue(policy=self.last_policy, alpha=self.last_alpha, qf1=self.last_qf1, qf2=self.last_qf2, option=z, state=state)
-                    else:
-                        V_z_last_iter = 0
-                        
-                    return V_z - V_z_last_iter, V_z
-                
-                def get_confidence(buffer : list, dist_z, num_dist):
-                    sf_repr_buffer_tensor = torch.tensor(np.array(buffer)).to(self.device)
-                    x = sf_repr_buffer_tensor.unsqueeze(0).repeat(num_dist,1,1)
-                    p_sf = torch.zeros((num_dist,1)).to(self.device)
-
-                    for i in range(x.shape[1]):
-                        x_i = x[:,i]
-                        if i == 0:
-                            p_sf = dist_z.log_prob(x_i)
-                        else:
-                            p_sf = torch.maximum(p_sf, dist_z.log_prob(x_i))
-                    confidence = p_sf
-                    return confidence
-                
+                                
                 if self.NumSampleTimes == self.SZN_repeat_time * len(self.DistWindow):
                     # window pool operation: PopDist   
                     # Method 2. pop the dist whose Regret less than 0;
@@ -543,7 +596,7 @@ class PSZP(IOD):
                             pop_index = 0
                             for j in range(len(self.DistWindow)):
                                 dist_j = self.DistWindow[j]  
-                                Regret_j, _ = cal_regeret(dist_j.sample(), self.init_obs).mean()
+                                Regret_j, _ = self.cal_regeret(dist_j.sample(), self.init_obs).mean()
                                 if min < Regret_j:
                                     pop_index = j
                                     min = Regret_j
@@ -564,19 +617,19 @@ class PSZP(IOD):
                         dist_z = self.SampleZPolicy(self.input_token)
                         z = dist_z.sample()
                         z_logp = dist_z.log_prob(z.detach())
-                        V_szn, V_z = cal_regeret(z, self.init_obs)
+                        if self.z_unit:
+                            z = self.vec_norm(z)
+                        V_szn, V_z = self.cal_regeret(z, self.init_obs)
                         V_z = (V_z - V_z.mean()) / (V_z.std() + 1e-6)       # BN: 增加训练稳定性；
                         V_szn = (V_szn - V_szn.mean()) / (V_szn.std() + 1e-6)       # BN: 增加训练稳定性；
                         self.SampleZPolicy_optim.zero_grad()    
-                        # weight of entropy
-                        w1 = 0
                         # weight of GMM KL
                         log_pz = window_dist.log_prob(z)
                         pz = torch.exp(log_pz)
                         log_qz = z_logp
                         kl_window = pz * (log_pz - log_qz)
                         # weight of Confidence Factor
-                        confidence = get_confidence(self.SfReprBuffer, dist_z, num_dist=self.num_random_trajectories)  
+                        confidence = self.get_confidence(self.SfReprBuffer, dist_z, num_dist=self.num_random_trajectories)  
                         # confidence = torch.clamp(confidence, max=2)
                         # total loss
                         loss_SZP = (-z_logp * (V_szn.detach() + V_z.detach()) - self.SZN_w2 * kl_window - self.SZN_w3 * confidence).mean()
@@ -609,7 +662,7 @@ class PSZP(IOD):
                             fig = plt.figure(figsize=(18, 9), facecolor='w')
                             ax1 = fig.add_subplot(121, projection='3d')
                             ax2 = fig.add_subplot(122)
-                            viz_Regert_in_Psi(state=self.s0, device=self.device, path=path, ax=ax1)
+                            self.viz_Regert_in_Psi(state=self.s0, device=self.device, path=path, ax=ax1)
                             viz_dist_circle(self.DistWindow, path=path, psi_z=np.array(self.SfReprBuffer), ax=ax2)
                             plt.savefig(path + '-Regret' + '.png')
                             print('save at: ' + path + '-Regret' + '.png')
@@ -627,20 +680,21 @@ class PSZP(IOD):
                 window_dist_raw = UpdateGMM(self.DistWindow, device=self.device).component_distribution
                 window_len = len(self.DistWindow)
 
-                mix_dist_prob = F.softmax(get_confidence(self.new_trial, window_dist_raw, num_dist=window_len) - get_confidence(self.last_trial, window_dist_raw, num_dist=window_len))
+                mix_dist_prob = F.softmax(self.get_confidence(self.new_trial, window_dist_raw, num_dist=window_len) - self.get_confidence(self.last_trial, window_dist_raw, num_dist=window_len))
                 min_prob = 0.01
                 adjusted_probs = torch.maximum(mix_dist_prob, torch.tensor(min_prob))
                 adjusted_probs = adjusted_probs / torch.sum(adjusted_probs)
                 print(f"mix_dist_prob: {adjusted_probs.detach()}")
                 window_dist = UpdateGMM(self.DistWindow, mix_dist_prob=adjusted_probs, device=self.device)
                 self.last_z = window_dist.sample((self.num_random_trajectories,))
+                if self.z_unit:
+                    self.last_z = self.vec_norm(self.last_z)
 
                 np_z = self.last_z.cpu().numpy()
                 extras = self._generate_option_extras(np_z, psi_g=np_z)   
                 self.NumSampleTimes += 1
                 if len(self.SfReprBuffer) == 0:
                     self.last_trial = []
-
 
             elif self.method['explore'] == 'uniform' and self.buffer_ready:
                 random_options = np.random.uniform(-1,1, (runner._train_args.batch_size, self.dim_option))
@@ -784,10 +838,11 @@ class PSZP(IOD):
         cur_z = self.traj_encoder(obs).mean
         next_z = self.traj_encoder(next_obs).mean
         
-        if self.method["phi"] in ['Projection']:
+        if self.method["phi"] in ['Projection'] and self.discrete == 1:
             psi_g = v['options']
             z_unit = self.vec_norm(psi_g)
-            phi_s_0 = self.traj_encoder(v['s_0']).mean
+            # phi_s_0 = self.traj_encoder(v['s_0']).mean
+            phi_s_0 = self.traj_encoder(self.s0).mean
             phi_s = cur_z
             phi_s_next = next_z
             
@@ -1097,105 +1152,6 @@ class PSZP(IOD):
         else:
             self.eval_metra(runner)
 
-    
-    def eval_maze(self, runner):
-        '''
-        this is for zero-shot task evaluation;
-        right now in ant_maze env;
-        later will move to other envs(ketchen or ExORL or gyms);
-        '''
-        env = runner._env
-        fig, ax = plt.subplots()
-        env.draw(ax)
-        # 1. initialize the parameters
-        max_path_length = self.max_path_length
-        frames = []
-        All_Repr_obs_list = []
-        All_Goal_obs_list = []
-        All_Return_list = []
-        All_GtReturn_list = []
-        All_trajs_list = []
-        FinallDistanceList = []
-        Pepr_viz = True
-        np_random = np.random.default_rng()    
-        
-        # 2. interact with the env
-        # GoalList = env.env.goal_sampler(np_random, freq=1)
-        GoalList = []
-        num_eval = 10
-        random_options = np.random.uniform(-1,1, (num_eval, self.dim_option))
-        All_Cover_list = []
-        progress = tqdm(range(num_eval), desc="Evaluation")
-        for i in progress:
-            obs = env.reset()
-            obs = torch.tensor(obs).unsqueeze(0).to(self.device).float()
-            # goal condition
-            if len(GoalList) > 0:
-                num_eval = len(GoalList)
-                goal = GoalList[i]
-                ax.scatter(goal[0], goal[1], s=25, marker='o', alpha=1, edgecolors='black')
-                tensor_goal = torch.tensor(goal).to('cuda')
-                obs_goal = copy.deepcopy(obs)
-                obs_goal = env.get_target_obs(obs_goal, tensor_goal)
-                phi_g = self.traj_encoder(obs_goal).mean
-                option = self.Psi(phi_g)
-            else: 
-                option = torch.tensor(random_options[i]).unsqueeze(0).to(self.device)
-                    
-            Repr_obs_list = []
-            Repr_goal_list = []
-            traj_list = {}
-            traj_list["observation"] = []
-            traj_list["info"] = []
-            Cover_list = {}
-            for t in range(max_path_length):
-                phi_obs_ = self.traj_encoder(obs).mean
-                obs_option = torch.cat((obs, option), -1).float()
-                psi_obs = self.Psi(phi_obs_)
-                # for viz
-                Repr_obs_list.append(psi_obs.cpu().numpy()[0])
-                if len(GoalList) > 0:
-                    Repr_goal_list.append(self.Psi(phi_g).cpu().numpy()[0])
-                action, agent_info = self.option_policy.get_action(obs_option)
-                obs, reward, dones, info = env.step(action)
-                traj_list["observation"].append(obs)
-                info['x'], info['y'] = obs[0], obs[1]
-                traj_list["info"].append(info)
-                if 'env_infos' not in Cover_list:
-                    Cover_list['env_infos'] = {}
-                    Cover_list['env_infos']['coordinates'] = []
-                    Cover_list['env_infos']['next_coordinates'] = []
-                Cover_list['env_infos']['coordinates'].append(obs[:2])
-                Cover_list['env_infos']['next_coordinates'].append(obs[:2])
-                obs = torch.tensor(obs).unsqueeze(0).to(self.device).float()
-                
-            All_Repr_obs_list.append(Repr_obs_list)
-            All_Goal_obs_list.append(Repr_goal_list)
-            All_trajs_list.append(traj_list)
-            Cover_list['env_infos']['coordinates'] = np.array(Cover_list['env_infos']['coordinates'])
-            Cover_list['env_infos']['next_coordinates'] = np.array(Cover_list['env_infos']['next_coordinates'])
-            All_Cover_list.append(Cover_list)
-        
-        eval_metrics = calc_eval_metrics(All_Cover_list, is_option_trajectories=True)
-        print('[eval_metrics]:', eval_metrics)
-        plot_trajectories(env, All_trajs_list, fig, ax)
-        ax.legend(loc='lower right')
-
-        if wandb.run is not None:
-            path = wandb.run.dir + '/E' + str(runner.step_itr) + '-'
-            plt.savefig(path + 'Maze_traj.png') 
-            wandb.log(  
-                        {
-                            "epoch": runner.step_itr,
-                            "SampleSteps": runner.step_itr * self.max_path_length * self.num_random_trajectories,
-                            "CoordsCover": eval_metrics['MjNumUniqueCoords'], 
-                            "Maze_traj": wandb.Image(path + 'Maze_traj.png'),
-                        },
-                    )
-        
-            if Pepr_viz and self.dim_option==2:
-                PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=self.max_path_length, is_goal=len(GoalList))
-
     def _save_pt(self, epoch):
         if wandb.run is not None:
             path = wandb.run.dir
@@ -1246,7 +1202,9 @@ class PSZP(IOD):
                 random_option_colors.extend([cm.get_cmap(cmap)(colors[i])[:3]])
             random_option_colors = np.array(random_option_colors)
         else:
-            random_options = np.random.randn(self.num_random_trajectories, self.dim_option)
+            # for fair comparation
+            eval_num = 8
+            random_options = np.random.randn(eval_num, self.dim_option)
             if self.unit_length:
                 random_options = random_options / np.linalg.norm(random_options, axis=1, keepdims=True)
             random_option_colors = get_option_colors(random_options * 4)
@@ -1325,7 +1283,9 @@ class PSZP(IOD):
 
         eval_option_metrics.update(runner._env.calc_eval_metrics(random_trajectories, is_option_trajectories=True))
         if wandb.run is not None:
-            eval_option_metrics.update({'epoch': runner.step_itr})
+            eval_option_metrics.update({'epoch': runner.step_itr,
+                                        'interaction_steps': runner.step_itr * self.num_random_trajectories * self.max_path_length,
+                                        })
             wandb.log(eval_option_metrics)
 
 
