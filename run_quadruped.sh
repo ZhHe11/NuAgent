@@ -6,8 +6,8 @@ export MUJOCO_GL="osmesa"
 
 
 # # regret
-python tests/main.py --run_group Quadruped --env dmc_quadruped --max_path_length 200 --seed 0 --traj_batch_size 16 --n_parallel 4 --normalizer_type off --video_skip_frames 2 --frame_stack 3 --sac_max_buffer_size 300000 --eval_plot_axis -15 15 -15 15 --n_epochs_per_log 25 --n_epochs_per_eval 125 --n_epochs_per_save 1000 --n_epochs_per_pt_save 1000 --discrete 0 --dim_option 4 --encoder 1 --sample_cpu 0 \
-    --algo PSZP --exp_name PSZP-SampleNum16 --phi_type Projection --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 200 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 --common_lr 1e-3 --SZN_w2 10 --SZN_w3 2 --SZN_window_size 10 --SZN_repeat_time 5 --Repr_temperature 1 --Repr_max_step 100 --save_pt_step 500 --z_unit 0 --wandb_note 'SampleNum16; temperature=1'
+# python tests/main.py --run_group Quadruped --env dmc_quadruped --max_path_length 200 --seed 0 --traj_batch_size 16 --n_parallel 4 --normalizer_type off --video_skip_frames 2 --frame_stack 3 --sac_max_buffer_size 300000 --eval_plot_axis -15 15 -15 15 --n_epochs_per_log 25 --n_epochs_per_eval 125 --n_epochs_per_save 1000 --n_epochs_per_pt_save 1000 --discrete 0 --dim_option 4 --encoder 1 --sample_cpu 0 \
+#     --algo PSZP --exp_name PSZP-SampleNum16 --phi_type Projection --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 200 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 --common_lr 1e-3 --SZN_w2 10 --SZN_w3 2 --SZN_window_size 10 --SZN_repeat_time 5 --Repr_temperature 1 --Repr_max_step 100 --save_pt_step 500 --z_unit 0 --wandb_note 'SampleNum16; temperature=1'
 
 
 

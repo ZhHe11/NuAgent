@@ -825,7 +825,7 @@ class PSZP(IOD):
             psi_g = v['options']
             z_unit = self.vec_norm(psi_g)
             phi_s_0 = self.traj_encoder(v['s_0']).mean
-            # phi_s_0 = self.traj_encoder(self.s0).mean
+            phi_init_obs = self.traj_encoder(self.s0).mean
             phi_s = cur_z
             phi_s_next = next_z
             
@@ -842,7 +842,7 @@ class PSZP(IOD):
             # 1. Similarity Reward
             delta_norm = self.norm((psi_s_next - psi_s))
             ## pos sample
-            matrix = ((psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
+            matrix = (1/d * (psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
 
             direction_sim = torch.diag(matrix)
             ## neg smaple
@@ -861,7 +861,7 @@ class PSZP(IOD):
             
             ## pos and neg obj.
             contrastive_sim = cal_softmax_obj(matrix, t=self.Repr_temperature)
-            phi_obj = 0 * direction_sim +  1 * contrastive_sim + 0 * reward_g_distance
+            phi_obj = 1 * direction_sim +  0 * contrastive_sim  + 0 * reward_g_distance
             
             # 2. Goal Arrival Reward
             reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
@@ -890,8 +890,9 @@ class PSZP(IOD):
                 'direction_sim': direction_sim.mean(),
                 'contrastive_sim': contrastive_sim.mean(),
                 "distance_s0_init_obs": self.norm(v['s_0'] - self.s0).mean(),
+                "distance_phi_s0_phi_init_obs": self.norm(phi_s_0 - phi_init_obs).mean(),
             })
-            
+
             return
 
         else: 
@@ -967,13 +968,20 @@ class PSZP(IOD):
             
             if 'psi_s' in v.keys():
                 cst_penalty_1 = 1/self.max_path_length - (self.norm(v['psi_s']-v['psi_s_next']))
-                cst_penalty_2 = -(self.norm(v['psi_s_0']))
-                cst_penalty = torch.clamp(cst_penalty_1, max=self.dual_slack) + cst_penalty_2
+                cst_penalty_2 = -self.norm(v['psi_s_0'])
+                cst_penalty = torch.clamp(cst_penalty_1, max=self.dual_slack)
+                
+                te_obj = rewards + dual_lam.detach() * cst_penalty + 0.1 * cst_penalty_2
+                tensors.update({
+                    'cst_penalty_2': cst_penalty_2.mean(),
+                    'cst_penalty_1': cst_penalty_1.mean(),
+                })
+                                
             else: 
                 cst_penalty_1 = cst_dist - torch.square(phi_s_next - phi_s).mean(dim=1)        
                 cst_penalty = torch.clamp(cst_penalty_1, max=self.dual_slack)
 
-            te_obj = rewards + dual_lam.detach() * cst_penalty
+                te_obj = rewards + dual_lam.detach() * cst_penalty
                     
             v.update({
                 'cst_penalty': cst_penalty

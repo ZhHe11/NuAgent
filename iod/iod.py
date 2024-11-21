@@ -323,12 +323,7 @@ class IOD(RLAlgorithm):
                             All_Repr_obs_list.append(psi_s)
                             All_Goal_obs_list.append(psi_g)
         
-                    ax.legend(loc='lower right')
                     path = wandb.run.dir
-                    filepath = os.path.join(path, "train_Maze_traj.png")
-                    print(filepath)
-                    plt.savefig(filepath) 
-                    wandb.log(({"train_Repr_traj": wandb.Image(filepath)}))
                     PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=self.max_path_length, is_goal=True)
 
             
