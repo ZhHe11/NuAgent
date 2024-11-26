@@ -13,6 +13,7 @@ from tqdm import trange, tqdm
 import copy
 
 from iod.utils import get_torch_concat_obs
+import torch.distributions as dist
 
 
 def Psi_baseline(x, *args, **kwargs):
@@ -280,8 +281,7 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, a
             # for viz
             # import pdb; pdb.set_trace()
             Repr_obs_list.append(Psi(phi_obs_, phi_obs0).cpu().numpy()[0])
-            if option_type != 'random':
-                Repr_goal_list.append(option.cpu().numpy()[0])
+            Repr_goal_list.append(option.cpu().numpy()[0])
             # get actions from policy
             action, agent_info = agent_policy.get_action(obs_option)
             # interact with the env
@@ -522,6 +522,178 @@ def PlotMazeTraj(env, agent_traj_encoder, policy, device, Psi, dim_option=2, max
     print('[eval_metrics]:', eval_metrics)
     
     return FD, AR, eval_metrics
+    
+    
+    
+def UpdateGMM(dists, GMM=None, mix_dist_prob=None, device='cuda'):
+    if GMM is None:
+        component_distribution = dist.Independent(
+            dist.Normal(
+                loc=torch.stack([g.mean[0] for g in dists]),
+                scale=torch.stack([g.stddev[0] for g in dists])
+            ),
+            reinterpreted_batch_ndims=1
+        )
+
+        if mix_dist_prob is None:
+            # 创建均匀的 mixture_distribution
+            mixture_distribution = dist.Categorical(
+                probs=(torch.ones(len(dists)) / len(dists)).to(device)
+            )
+        else: 
+            mixture_distribution = dist.Categorical(
+                probs=mix_dist_prob
+            )
+
+        # 组合成一个 MixtureSameFamily 分布
+        window_dist = dist.MixtureSameFamily(
+            mixture_distribution=mixture_distribution,
+            component_distribution=component_distribution
+        )
+
+        return window_dist
+    
+    else:
+        component_distribution = GMM.component_distribution
+        mixture_distribution = mixture_distribution
+
+        window_dist = dist.MixtureSameFamily(
+            mixture_distribution=mixture_distribution,
+            component_distribution=component_distribution
+        )
+
+        return window_dist
+
+
+def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_PCA=False, is_goal=1):
+    if len(All_Goal_obs_list) == 0:
+        is_goal = 0
+    
+    Repr_obs_array = np.array(All_Repr_obs_list[0])
+    if is_goal:
+        All_Goal_obs_array = np.array(All_Goal_obs_list[0])
+    for i in range(1,len(All_Repr_obs_list)):
+        Repr_obs_array = np.concatenate((Repr_obs_array, np.array(All_Repr_obs_list[i])), axis=0)
+        if is_goal:
+            All_Goal_obs_array = np.concatenate((All_Goal_obs_array, np.array(All_Goal_obs_list[i])), axis=0)
+    # 创建 PCA 对象，指定降到2维
+    if is_PCA:
+        pca = PCA(n_components=2)
+        # 对数据进行 PCA
+        Repr_obs_2d = pca.fit_transform(Repr_obs_array)
+    else:
+        Repr_obs_2d = Repr_obs_array
+        if is_goal:
+            All_Goal_obs_2d = All_Goal_obs_array
+    # 绘制 PCA 降维后的数据
+    plt.figure(figsize=(8, 6))
+    colors = cm.rainbow(np.linspace(0, 1, len(All_Repr_obs_list)))
+    for i in range(0,len(All_Repr_obs_list)):
+        color = colors[i]
+        start_index = i * path_len
+        end_index = (i+1) * path_len
+        plt.scatter(Repr_obs_2d[start_index:end_index, 0], Repr_obs_2d[start_index:end_index, 1], color=color, s=5)
+        if is_goal:
+            plt.scatter(All_Goal_obs_2d[start_index:end_index, 0], All_Goal_obs_2d[start_index:end_index, 1], color=color, s=100, marker='*', edgecolors='black')
+    path_file_traj = path + "-traj.png"
+    plt.xlabel('z[0]')
+    plt.ylabel('z[1]')
+    plt.title('traj. in representation space')
+    # plt.legend()
+    plt.savefig(path_file_traj)
+
+def viz_SZN_dist(SZN, input_token, path):
+    dist = SZN(input_token)
+    # Data
+    x = np.linspace(-1, 1, 50)
+    y = np.linspace(-1, 1, 50)
+    X, Y = np.meshgrid(x,y)
+    from scipy.stats import multivariate_normal
+    num = dist.mean.shape[0]
+    fig = plt.figure(figsize=(18, 12), facecolor='w')
+    for i in range(dist.mean.shape[0]):
+        # Multivariate Normal
+        mu_x = dist.mean[i][0].detach().cpu().numpy()
+        sigma_x = dist.stddev[i][0].detach().cpu().numpy()
+        mu_y = dist.mean[i][1].detach().cpu().numpy()
+        sigma_y = dist.stddev[i][1].detach().cpu().numpy()
+        rv = multivariate_normal([mu_x, mu_y], [[sigma_x, 0], [0, sigma_y]])
+        # Probability Density
+        pos = np.empty(X.shape + (2,))
+        pos[:, :, 0] = X
+        pos[:, :, 1] = Y
+        pd = rv.pdf(pos)
+        # Plot
+        ax = fig.add_subplot(2, num//2, i+1, projection='3d')
+        ax.plot_surface(X, Y, pd, cmap='viridis', linewidth=0)
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Probability Density')
+        ax.set_title(label = str(mu_x)[:3] + '-' + str(sigma_x)[:3] + '\n' + str(mu_y)[:3] + '-' + str(sigma_y)[:3])
+    plt.savefig(path + '-all' + '.png')
+    plt.close()
+    
+def viz_SZN_dist_circle(SZN, input_token, path, psi_z=None):
+    dist = SZN(input_token)
+    from matplotlib.patches import Ellipse
+    num = dist.mean.shape[0]
+    fig = plt.figure(0)
+    ax = fig.add_subplot(111)
+    for i in range(dist.mean.shape[0]):
+        mu_x = dist.mean[i][0].detach().cpu().numpy()
+        sigma_x = dist.stddev[i][0].detach().cpu().numpy()
+        mu_y = dist.mean[i][1].detach().cpu().numpy()
+        sigma_y = dist.stddev[i][1].detach().cpu().numpy()
+        e = Ellipse(xy = (mu_x,mu_y), width = sigma_x * 2, height = sigma_y * 2, angle=0)
+        ax.add_artist(e)
+        
+    if psi_z is not None:
+        ax.scatter(psi_z[:, 0], psi_z[:, 1], marker='*', alpha=1)
+
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.grid(True)
+    plt.xlim(-1, 1)
+    plt.ylim(-1, 1)
+    plt.savefig(path + '-c' + '.png')
+    print("save at:", path + '-c' + '.png')
+    plt.close()
+
+    
+
+# viz the Regert Map
+def viz_Regert_in_Psi(self, state, device='cpu', path='./', ax=None):
+    if self.dim_option > 2:
+        return
+    density = 100
+    x = np.linspace(-1, 1, density)
+    y = np.linspace(-1, 1, density)
+    X, Y = np.meshgrid(x,y)
+    pos = np.empty(X.shape + (2,))
+    pos[:, :, 0] = X
+    pos[:, :, 1] = Y
+    pos = torch.tensor(pos).to(device)
+    pos_flatten = pos.view(-1,2)
+    option = pos_flatten
+    state_batch = state.repeat(option.shape[0], 1)
+    Regret = self.cal_regeret(option, state_batch)[0].view(pos.shape[0], pos.shape[1])
+    if ax is None:
+        fig = plt.figure(figsize=(18, 12), facecolor='w')
+        ax = fig.add_subplot(111, projection='3d')
+        
+    ax.plot_surface(X, Y, Regret.cpu().numpy(), rstride=1, cstride=1, cmap='viridis', edgecolor='none')
+
+    ax.view_init(60, 270+20)
+    ax.set_xlabel('X')          
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Regret')
+    if ax is None:
+        plt.savefig(path + '-Regret' + '.png')
+        print('save at: ' + path + '-Regret' + '.png')
+        plt.close()
+    
+    
+    
     
 
 if __name__ == '__main__':
