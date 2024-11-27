@@ -20,6 +20,8 @@ import torch.nn.functional as F
 from tqdm import trange, tqdm
 from iod.GradCLipper import GradClipper
 import matplotlib.pyplot as plt
+import torch.distributions as dist
+from iod.viz_utils import PlotMazeTrajDist, PlotMazeTrajWindowDist, viz_dist_circle
 
 
 
@@ -160,9 +162,18 @@ class SZPC(IOD):
         
         self.Repr_temperature = Repr_temperature
         self.Repr_max_step = Repr_max_step
+        self.SfReprBuffer = []
         
         self.z_unit = z_unit
-        
+    
+    def Psi(self, phi_x, phi_x0=None):
+        if 'Projection' in self.method['phi']:   
+            return torch.tanh(2/self.max_path_length * (phi_x))
+        else:
+            return phi_x
+    
+    def norm(self, x, keepdim=False):
+        return torch.norm(x, p=2, dim=-1, keepdim=keepdim)        
         
     def vec_norm(self, vec):
         return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
@@ -227,6 +238,43 @@ class SZPC(IOD):
         confidence = p_sf
         return confidence
     
+
+    def UpdateGMM(self, dists, GMM=None, mix_dist_prob=None, device='cuda'):
+        if GMM is None:
+            component_distribution = dist.Independent(
+                dist.Normal(
+                    loc=torch.stack([g.mean[0] for g in dists]),
+                    scale=torch.stack([g.stddev[0] for g in dists])
+                ),
+                reinterpreted_batch_ndims=1
+            )
+            if mix_dist_prob is None:
+                # 创建均匀的 mixture_distribution
+                mixture_distribution = dist.Categorical(
+                    probs=(torch.ones(len(dists)) / len(dists)).to(device)
+                )
+            else: 
+                mixture_distribution = dist.Categorical(
+                    probs=mix_dist_prob
+                )
+            # 组合成一个 MixtureSameFamily 分布
+            window_dist = dist.MixtureSameFamily(
+                mixture_distribution=mixture_distribution,
+                component_distribution=component_distribution
+            )
+            return window_dist
+    
+        else:
+            component_distribution = GMM.component_distribution
+            mixture_distribution = mixture_distribution
+
+            window_dist = dist.MixtureSameFamily(
+                mixture_distribution=mixture_distribution,
+                component_distribution=component_distribution
+            )
+
+            return window_dist
+
 
     def _get_train_trajectories_kwargs(self, runner):
         if self.discrete:
@@ -304,6 +352,123 @@ class SZPC(IOD):
                 random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
             extras = self._generate_option_extras(random_options)
 
+            if self.method['explore'] == 'SZN' and self.buffer_ready: 
+                if self.NumSampleTimes == self.SZN_repeat_time * len(self.DistWindow):
+                    # window pool operation: PopDist   
+                    # Method 2. pop the dist whose Regret less than 0;
+                    def PopDistDeque(window_size=5):
+                        if len(self.DistWindow) >= window_size:
+                            self.DistWindow.pop(0)
+                        return self.DistWindow
+                    with torch.no_grad():
+                        self.DistWindow = PopDistDeque(self.SZN_window_size)
+                        
+                    self.NumSampleTimes = 0
+                    self.copy_params(self.ResetSZPolicy, self.SampleZPolicy)
+                    self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=3e-2)
+                    window_dist = self.UpdateGMM(self.DistWindow, device=self.device)
+                    
+                    for t in trange(100):
+                        # Reset the SZN:
+                        dist_z = self.SampleZPolicy(self.input_token)
+                        z = dist_z.sample()
+                        z_logp = dist_z.log_prob(z.detach())
+                        if self.z_unit:
+                            z = self.vec_norm(z)
+                        V_szn, V_z = self.cal_regeret(z, self.init_obs)
+                        V_z = (V_z - V_z.mean()) / (V_z.std() + 1e-6)       # BN: 增加训练稳定性；
+                        V_szn = (V_szn - V_szn.mean()) / (V_szn.std() + 1e-6)       # BN: 增加训练稳定性；
+                        self.SampleZPolicy_optim.zero_grad()    
+                        # weight of GMM KL
+                        log_pz = window_dist.log_prob(z)
+                        pz = torch.exp(log_pz)
+                        log_qz = z_logp
+                        kl_window = pz * (log_pz - log_qz)
+                        # weight of Confidence Factor
+                        confidence = self.get_confidence(self.SfReprBuffer, dist_z, num_dist=self.num_random_trajectories)  
+                        # confidence = torch.clamp(confidence, max=2)
+                        # total loss
+                        loss_SZP = (-z_logp * (V_szn.detach() + V_z.detach()) - self.SZN_w2 * kl_window - self.SZN_w3 * confidence).mean()
+                        loss_SZP.backward()
+                        self.grad_clip.apply(self.SampleZPolicy.parameters())
+                        self.SampleZPolicy_optim.step()
+                        if wandb.run is not None:
+                            wandb.log({
+                                "SZN/loss_SZP": loss_SZP,
+                                "SZN/logp": z_logp.mean(),
+                                "SZN/entropy": dist_z.entropy().mean(),
+                                "SZN/kl_window": kl_window.mean(),
+                                "SZN/confidence": confidence.mean(),
+                                "SZN/V_z": V_z.mean(),
+                                "epoch": runner.step_itr,
+                            })
+                    # window queue operation    
+                    with torch.no_grad():
+                        dist = self.SampleZPolicy(self.input_token)    
+                        is_different = 1
+                        for j in range(len(self.DistWindow)):
+                            dist_j = self.DistWindow[j]
+                            if (self.norm(dist.mean- dist_j.mean)).mean() < 0.1:
+                                is_different = 0
+                                break
+                        if is_different == 1:
+                            self.DistWindow.append(dist)
+                        if wandb.run is not None:
+                            path = wandb.run.dir + '/E' + str(runner.step_itr)
+                            fig = plt.figure(figsize=(18, 9), facecolor='w')
+                            ax1 = fig.add_subplot(121, projection='3d')
+                            ax2 = fig.add_subplot(122)
+                            self.viz_Regert_in_Psi(state=self.s0, device=self.device, path=path, ax=ax1)
+                            viz_dist_circle(self.DistWindow, path=path, psi_z=np.array(self.SfReprBuffer), ax=ax2)
+                            plt.savefig(path + '-Regret' + '.png')
+                            print('save at: ' + path + '-Regret' + '.png')
+                            plt.close()
+                                
+                    # save k-1 policy and qf
+                    # Attention this part should process after all other things
+                    self.copy_params(self.option_policy, self.last_policy)
+                    self.copy_params(self.log_alpha, self.last_alpha)
+                    self.copy_params(self.qf1, self.last_qf1)
+                    self.copy_params(self.qf2, self.last_qf2)
+                    self.copyed = 1
+                    self.SfReprBuffer = []
+                
+                window_dist_raw = self.UpdateGMM(self.DistWindow, device=self.device).component_distribution
+                window_len = len(self.DistWindow)
+
+                mix_dist_prob = F.softmax(self.get_confidence(self.new_trial, window_dist_raw, num_dist=window_len) - self.get_confidence(self.last_trial, window_dist_raw, num_dist=window_len))
+                min_prob = 0.01
+                adjusted_probs = torch.maximum(mix_dist_prob, torch.tensor(min_prob))
+                adjusted_probs = adjusted_probs / torch.sum(adjusted_probs)
+                print(f"mix_dist_prob: {adjusted_probs.detach()}")
+                window_dist = self.UpdateGMM(self.DistWindow, mix_dist_prob=adjusted_probs, device=self.device)
+                self.last_z = window_dist.sample((self.num_random_trajectories,))
+                if self.z_unit:
+                    self.last_z = self.vec_norm(self.last_z)
+
+                self.NumSampleTimes += 1
+                if len(self.SfReprBuffer) == 0:
+                    self.last_trial = []
+                
+                # Epsilon:
+                if np.random.rand() < 0.1: 
+                    random_options = np.random.uniform(-1,1, (runner._train_args.batch_size, self.dim_option))
+                    if self.z_unit:
+                        random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
+                    extras = self._generate_option_extras(random_options, psi_g=random_options)
+                else:
+                    np_z = self.last_z.cpu().numpy()
+                    extras = self._generate_option_extras(np_z, psi_g=np_z)   
+
+            elif self.method['explore'] == 'uniform' and self.buffer_ready:
+                random_options = np.random.uniform(-1,1, (runner._train_args.batch_size, self.dim_option))
+                extras = self._generate_option_extras(random_options, psi_g=random_options)
+            
+            else: 
+                self.last_z = torch.tensor(random_options, dtype=torch.float32).to(self.device)
+                extras = self._generate_option_extras(random_options, psi_g=random_options)      # 变成字典的形式；
+                
+
         return dict(
             extras=extras,
             sampler_key='option_policy',
@@ -316,8 +481,10 @@ class SZPC(IOD):
         return epoch_data
 
     def _update_replay_buffer(self, data):
+        self.last_trial.extend(self.new_trial)
+        self.new_trial = []
         if self.replay_buffer is not None:
-            # Add paths to the replay buffer
+            sfs = []
             for i in range(len(data['actions'])):
                 path = {}
                 for key in data.keys():
@@ -325,7 +492,15 @@ class SZPC(IOD):
                     if cur_list.ndim == 1:
                         cur_list = cur_list[..., np.newaxis]
                     path[key] = cur_list
+                
                 self.replay_buffer.add_path(path)
+                sfs.append(path['obs'][-1])
+
+            sfs = np.stack(sfs, axis=0)
+            with torch.no_grad():
+                SfRepr = self.Psi(self.traj_encoder(torch.tensor(sfs).to(self.device)).mean)
+            self.SfReprBuffer.extend(SfRepr.cpu().numpy())
+            self.new_trial.extend(SfRepr.cpu().numpy())
 
     def _sample_replay_buffer(self):
         samples = self.replay_buffer.sample_transitions(self._trans_minibatch_size)
@@ -409,41 +584,120 @@ class SZPC(IOD):
         sac_utils.update_targets(self)
 
     def _update_rewards(self, tensors, v):
+        if self.method['phi'] == 'Projection':
+            self._update_rewards_C(tensors, v)
+        else:
+            obs = v['obs']
+            next_obs = v['next_obs']
+            
+            if self.inner:
+                cur_z = self.traj_encoder(obs).mean
+                next_z = self.traj_encoder(next_obs).mean
+                target_z = next_z - cur_z
+
+                if self.discrete:
+                    masks = (v['options'] - v['options'].mean(dim=1, keepdim=True)) * self.dim_option / (self.dim_option - 1 if self.dim_option != 1 else 1)
+                    rewards = (target_z * masks).sum(dim=1)
+                else:
+                    ## baseline
+                    inner = (target_z * v['options']).sum(dim=1)
+                    rewards = inner
+                # For dual objectives
+                v.update({
+                    'cur_z': cur_z,
+                    'next_z': next_z,
+                })
+            else:
+                target_dists = self.traj_encoder(next_obs)
+
+                if self.discrete:
+                    logits = target_dists.mean
+                    rewards = -torch.nn.functional.cross_entropy(logits, v['options'].argmax(dim=1), reduction='none')
+                else:
+                    rewards = target_dists.log_prob(v['options'])
+
+            tensors.update({
+                'PureRewardMean': rewards.mean(),
+                'PureRewardStd': rewards.std(),
+            })
+
+            v['rewards'] = rewards
+    
+    
+    def _update_rewards_C(self, tensors, v):
         obs = v['obs']
         next_obs = v['next_obs']
+        cur_z = self.traj_encoder(obs).mean
+        next_z = self.traj_encoder(next_obs).mean
+        psi_g = v['options']
+        
+        z_unit = self.vec_norm(psi_g)
+        phi_s_0 = self.traj_encoder(v['s_0']).mean
+        phi_init_obs = self.traj_encoder(self.s0).mean
+        phi_s = cur_z
+        phi_s_next = next_z
+        
+        psi_s = self.Psi(phi_s)
+        psi_s_next = self.Psi(phi_s_next)
+        psi_s_0 = self.Psi(phi_s_0)
+        # 0. updated option
+        updated_option = psi_g
+        updated_next_option = psi_g
+        k = self.Repr_max_step
+        d = 1 / self.max_path_length
+        reward_g_distance = torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
+        
+        # 1. Similarity Reward
+        delta_norm = self.norm((psi_s_next - psi_s))
+        ## pos sample
+        matrix = (1/d * (psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
+        direction_sim = torch.diag(matrix)
+        ## neg smaple
+        def cal_softmax_obj(matrix, t=1):
+            dist_theta = 1e-2
+            distance_pos_neg = (z_unit.unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
+            mask = torch.where(distance_pos_neg > (1-dist_theta), 0, 1) + torch.eye(z_unit.shape[0], z_unit.shape[0]).to(self.device)
+            matrix = mask * matrix
+            matrix = matrix / t
+            label = torch.arange(matrix.shape[0]).to(self.device)
+            contrastive_sim = - F.cross_entropy(matrix, label) - F.cross_entropy(matrix.T, label)
 
-        if self.inner:
-            cur_z = self.traj_encoder(obs).mean
-            next_z = self.traj_encoder(next_obs).mean
-            target_z = next_z - cur_z
-
-            if self.discrete:
-                masks = (v['options'] - v['options'].mean(dim=1, keepdim=True)) * self.dim_option / (self.dim_option - 1 if self.dim_option != 1 else 1)
-                rewards = (target_z * masks).sum(dim=1)
-            else:
-                ## baseline
-                inner = (target_z * v['options']).sum(dim=1)
-                rewards = inner
-            # For dual objectives
-            v.update({
-                'cur_z': cur_z,
-                'next_z': next_z,
-            })
-        else:
-            target_dists = self.traj_encoder(next_obs)
-
-            if self.discrete:
-                logits = target_dists.mean
-                rewards = -torch.nn.functional.cross_entropy(logits, v['options'].argmax(dim=1), reduction='none')
-            else:
-                rewards = target_dists.log_prob(v['options'])
-
-        tensors.update({
-            'PureRewardMean': rewards.mean(),
-            'PureRewardStd': rewards.std(),
+            return contrastive_sim
+        
+        ## pos and neg obj.
+        if  self.Repr_temperature == 0:
+            contrastive_sim = cal_softmax_obj(matrix, t=1)
+            phi_obj = direction_sim
+        else: 
+            contrastive_sim = cal_softmax_obj(matrix, t=self.Repr_temperature)
+            phi_obj = contrastive_sim
+        
+        # 2. Goal Arrival Reward
+        reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
+        policy_rewards = 1 * reward_g_distance
+        
+        v.update({
+            'cur_z': cur_z,
+            'next_z': next_z,
+            'rewards': phi_obj,
+            'policy_rewards': policy_rewards,
+            'psi_s_0': psi_s_0,
+            'psi_s': psi_s,
+            'psi_s_next': psi_s_next,
+            'updated_option': updated_option,
+            "updated_next_option": updated_next_option,
         })
-
-        v['rewards'] = rewards
+        
+        tensors.update({
+            'phi_obj': phi_obj.mean(),
+            'reward_g_distance': reward_g_distance.mean(),
+            'delta_norm': delta_norm.mean(),
+            'direction_sim': direction_sim.mean(),
+            'contrastive_sim': contrastive_sim.mean(),
+            "distance_s0_init_obs": self.norm(v['s_0'] - self.s0).mean(),
+            "distance_phi_s0_phi_init_obs": self.norm(phi_s_0 - phi_init_obs).mean(),
+        })
+    
 
     def _update_loss_te(self, tensors, v):
         self._update_rewards(tensors, v)
@@ -486,9 +740,22 @@ class SZPC(IOD):
             else:
                 raise NotImplementedError
 
-            cst_penalty = cst_dist - torch.square(phi_y - phi_x).mean(dim=1)
-            cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)
-            te_obj = rewards + dual_lam.detach() * cst_penalty
+            
+            if 'psi_s' in v.keys():
+                cst_penalty_1 = 1/self.max_path_length - (self.norm(v['psi_s']-v['psi_s_next']))
+                cst_penalty_2 = -self.norm(v['psi_s_0'])
+                cst_penalty = torch.clamp(cst_penalty_1, max=self.dual_slack)
+                
+                te_obj = rewards + dual_lam.detach() * cst_penalty + 0.1 * cst_penalty_2
+                tensors.update({
+                    'cst_penalty_2': cst_penalty_2.mean(),
+                    'cst_penalty_1': cst_penalty_1.mean(),
+                })
+            
+            else:
+                cst_penalty = cst_dist - torch.square(phi_y - phi_x).mean(dim=1)
+                cst_penalty = torch.clamp(cst_penalty, max=self.dual_slack)
+                te_obj = rewards + dual_lam.detach() * cst_penalty
 
             v.update({
                 'cst_penalty': cst_penalty
@@ -738,7 +1005,36 @@ class SZPC(IOD):
                                         })
             wandb.log(eval_option_metrics)
 
-        
-        
-        
-        
+    
+    # viz the Regert Map
+    def viz_Regert_in_Psi(self, state, device='cpu', path='./', ax=None):
+        if self.dim_option > 2:
+            return
+        density = 100
+        x = np.linspace(-1, 1, density)
+        y = np.linspace(-1, 1, density)
+        X, Y = np.meshgrid(x,y)
+        pos = np.empty(X.shape + (2,))
+        pos[:, :, 0] = X
+        pos[:, :, 1] = Y
+        pos = torch.tensor(pos).to(device)
+        pos_flatten = pos.view(-1,2)
+        option = pos_flatten
+        state_batch = state.repeat(option.shape[0], 1)
+        Regret = self.cal_regeret(option, state_batch)[0].view(pos.shape[0], pos.shape[1])
+        if ax is None:
+            fig = plt.figure(figsize=(18, 12), facecolor='w')
+            ax = fig.add_subplot(111, projection='3d')
+            
+        ax.plot_surface(X, Y, Regret.cpu().numpy(), rstride=1, cstride=1, cmap='viridis', edgecolor='none')
+
+        ax.view_init(60, 270+20)
+        ax.set_xlabel('X')          
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Regret')
+        if ax is None:
+            plt.savefig(path + '-Regret' + '.png')
+            print('save at: ' + path + '-Regret' + '.png')
+            plt.close()
+
+

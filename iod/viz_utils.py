@@ -565,43 +565,6 @@ def UpdateGMM(dists, GMM=None, mix_dist_prob=None, device='cuda'):
         return window_dist
 
 
-def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_PCA=False, is_goal=1):
-    if len(All_Goal_obs_list) == 0:
-        is_goal = 0
-    
-    Repr_obs_array = np.array(All_Repr_obs_list[0])
-    if is_goal:
-        All_Goal_obs_array = np.array(All_Goal_obs_list[0])
-    for i in range(1,len(All_Repr_obs_list)):
-        Repr_obs_array = np.concatenate((Repr_obs_array, np.array(All_Repr_obs_list[i])), axis=0)
-        if is_goal:
-            All_Goal_obs_array = np.concatenate((All_Goal_obs_array, np.array(All_Goal_obs_list[i])), axis=0)
-    # 创建 PCA 对象，指定降到2维
-    if is_PCA:
-        pca = PCA(n_components=2)
-        # 对数据进行 PCA
-        Repr_obs_2d = pca.fit_transform(Repr_obs_array)
-    else:
-        Repr_obs_2d = Repr_obs_array
-        if is_goal:
-            All_Goal_obs_2d = All_Goal_obs_array
-    # 绘制 PCA 降维后的数据
-    plt.figure(figsize=(8, 6))
-    colors = cm.rainbow(np.linspace(0, 1, len(All_Repr_obs_list)))
-    for i in range(0,len(All_Repr_obs_list)):
-        color = colors[i]
-        start_index = i * path_len
-        end_index = (i+1) * path_len
-        plt.scatter(Repr_obs_2d[start_index:end_index, 0], Repr_obs_2d[start_index:end_index, 1], color=color, s=5)
-        if is_goal:
-            plt.scatter(All_Goal_obs_2d[start_index:end_index, 0], All_Goal_obs_2d[start_index:end_index, 1], color=color, s=100, marker='*', edgecolors='black')
-    path_file_traj = path + "-traj.png"
-    plt.xlabel('z[0]')
-    plt.ylabel('z[1]')
-    plt.title('traj. in representation space')
-    # plt.legend()
-    plt.savefig(path_file_traj)
-
 def viz_SZN_dist(SZN, input_token, path):
     dist = SZN(input_token)
     # Data
@@ -632,33 +595,6 @@ def viz_SZN_dist(SZN, input_token, path):
         ax.set_title(label = str(mu_x)[:3] + '-' + str(sigma_x)[:3] + '\n' + str(mu_y)[:3] + '-' + str(sigma_y)[:3])
     plt.savefig(path + '-all' + '.png')
     plt.close()
-    
-def viz_SZN_dist_circle(SZN, input_token, path, psi_z=None):
-    dist = SZN(input_token)
-    from matplotlib.patches import Ellipse
-    num = dist.mean.shape[0]
-    fig = plt.figure(0)
-    ax = fig.add_subplot(111)
-    for i in range(dist.mean.shape[0]):
-        mu_x = dist.mean[i][0].detach().cpu().numpy()
-        sigma_x = dist.stddev[i][0].detach().cpu().numpy()
-        mu_y = dist.mean[i][1].detach().cpu().numpy()
-        sigma_y = dist.stddev[i][1].detach().cpu().numpy()
-        e = Ellipse(xy = (mu_x,mu_y), width = sigma_x * 2, height = sigma_y * 2, angle=0)
-        ax.add_artist(e)
-        
-    if psi_z is not None:
-        ax.scatter(psi_z[:, 0], psi_z[:, 1], marker='*', alpha=1)
-
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.grid(True)
-    plt.xlim(-1, 1)
-    plt.ylim(-1, 1)
-    plt.savefig(path + '-c' + '.png')
-    print("save at:", path + '-c' + '.png')
-    plt.close()
-
     
 
 # viz the Regert Map
