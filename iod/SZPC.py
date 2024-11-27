@@ -19,7 +19,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from tqdm import trange, tqdm
 from iod.GradCLipper import GradClipper
-
+import matplotlib.pyplot as plt
 
 
 
@@ -176,15 +176,66 @@ class SZPC(IOD):
     def _get_concat_obs(self, obs, option):
         return get_torch_concat_obs(obs, option)
 
+
+    @torch.no_grad()
+    def EstimateValue(self, policy, alpha, qf1, qf2, option, state, num_samples=3):
+        batch = option.shape[0]     # [s0, z]
+        processed_cat_obs = self._get_concat_obs(policy.process_observations(state), option.float())     # [b,dim_s+dim_z]
+        dist, info = policy(processed_cat_obs)    # [b, dim]
+        actions = dist.sample((num_samples,))          # [n, b, dim]
+        log_probs = dist.log_prob(actions).squeeze(-1)  # [n, b]
+        processed_cat_obs_flatten = processed_cat_obs.repeat(num_samples, 1, 1).view(batch * num_samples, -1)      # [n*b, dim_s+z]
+        actions_flatten = actions.view(batch * num_samples, -1)     # [n*b, dim_a]
+        q_values = torch.min(qf1(processed_cat_obs_flatten, actions_flatten), qf2(processed_cat_obs_flatten, actions_flatten))      # [n*b, dim_1]
+        alpha = alpha.param.exp()
+        values = q_values - alpha * log_probs.view(batch*num_samples, -1)      # [n*b, 1]
+        values = values.view(num_samples, batch, -1)        # [n, b, 1]
+        E_V = values.mean(dim=0)        # [b, 1]
+
+        return E_V.squeeze(-1)
+    
+
+    def copy_params(self, ori_model, target_model):
+        for t_param, param in zip(target_model.parameters(), ori_model.parameters()):
+            t_param.data.copy_(param.data)
+
+
+    def cal_regeret(self, z, state):
+        '''
+        z: [batch_sample, dim_option]
+        '''
+        V_z = self.EstimateValue(policy=self.option_policy, alpha=self.log_alpha, qf1=self.qf1, qf2=self.qf2, option=z, state=state)                    
+        if self.copyed:
+            V_z_last_iter = self.EstimateValue(policy=self.last_policy, alpha=self.last_alpha, qf1=self.last_qf1, qf2=self.last_qf2, option=z, state=state)
+        else:
+            V_z_last_iter = 0
+            
+        return V_z - V_z_last_iter, V_z
+
+
+    def get_confidence(self, buffer : list, dist_z, num_dist):
+        sf_repr_buffer_tensor = torch.tensor(np.array(buffer)).to(self.device)
+        x = sf_repr_buffer_tensor.unsqueeze(0).repeat(num_dist,1,1)
+        p_sf = torch.zeros((num_dist,1)).to(self.device)
+
+        for i in range(x.shape[1]):
+            x_i = x[:,i]
+            if i == 0:
+                p_sf = dist_z.log_prob(x_i)
+            else:
+                p_sf = torch.maximum(p_sf, dist_z.log_prob(x_i))
+        confidence = p_sf
+        return confidence
+    
+
     def _get_train_trajectories_kwargs(self, runner):
         if self.discrete:
             if self.method['explore'] == 'SZN' and self.buffer_ready:
                 if self.NumSampleTimes == self.SZN_repeat_time * self.dim_option:
-                    
                     self.NumSampleTimes = 0
                     self.copy_params(self.ResetSZPolicy, self.SampleZPolicy)
                     self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=3e-2)
-                    
+                    # training loop
                     for t in trange(100):
                         # Reset the SZN:
                         z_values = self.SampleZPolicy(self.input_token).mean
@@ -210,7 +261,6 @@ class SZPC(IOD):
                                 "SZN/logp": z_logp.mean(),
                                 "epoch": runner.step_itr,
                             })
-            
                     # save k-1 policy and qf
                     # Attention this part should process after all other things
                     self.copy_params(self.option_policy, self.last_policy)
@@ -218,8 +268,6 @@ class SZPC(IOD):
                     self.copy_params(self.qf1, self.last_qf1)
                     self.copy_params(self.qf2, self.last_qf2)
                     self.copyed = 1
-            
-            
                     # Visualization
                     if wandb.run is not None:
                         probabilities = probabilities.detach().cpu().numpy()
@@ -234,35 +282,22 @@ class SZPC(IOD):
                         plt.close()
                 
                 ## GMM samples
+                self.NumSampleTimes += 1
                 z_values = self.SampleZPolicy(self.input_token).mean
                 probabilities = F.softmax(z_values, dim=-1)
                 z_index = torch.multinomial(probabilities, 1).squeeze(-1)
                 z_onehot = F.one_hot(z_index, num_classes=self.dim_option).float().detach().cpu().numpy()
-
+                
                 # Epsilon:
                 Epsilon = 0.1
                 if np.random.rand() < Epsilon: 
-                    random_options = np.random.uniform(-1, 1, (runner._train_args.batch_size, self.dim_option))
-                    extras = self._generate_option_extras(random_options, psi_g=random_options)
+                    extras = self._generate_option_extras(np.eye(self.dim_option)[np.random.randint(0, self.dim_option, runner._train_args.batch_size)])
                 else:
-                    np_z = self.last_z.cpu().numpy()
-                    extras = self._generate_option_extras(np_z, psi_g=np_z)   
-            
-            
+                    extras = self._generate_option_extras(z_onehot, psi_g=z_onehot)   
             
             else: 
                 extras = self._generate_option_extras(np.eye(self.dim_option)[np.random.randint(0, self.dim_option, runner._train_args.batch_size)])
                 
-
-            
-            
-            
-            
-            
-            
-            
-            
-            
         else:
             random_options = np.random.randn(runner._train_args.batch_size, self.dim_option)
             if self.unit_length:
