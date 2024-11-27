@@ -304,7 +304,6 @@ class PSZP(IOD):
         # for psro:
         self.init_obs = torch.tensor(init_obs).unsqueeze(0).expand(self.num_random_trajectories, -1).to(self.device)
         self.s0 = torch.tensor(init_obs).unsqueeze(0).to(self.device)
-        self.exp_z = None   
         self.epoch_final = None
         self.buffer_ready = 0
         self._trans_phi_optimization_epochs = _trans_phi_optimization_epochs
