@@ -224,7 +224,7 @@ class SZPC(IOD):
         return V_z - V_z_last_iter, V_z
 
 
-    def get_confidence(self, buffer : list, dist_z, num_dist):
+    def get_confidence_mix(self, buffer : list, dist_z, num_dist):
         sf_repr_buffer_tensor = torch.tensor(np.array(buffer)).to(self.device)
         x = sf_repr_buffer_tensor.unsqueeze(0).repeat(num_dist,1,1)
         p_sf = torch.zeros((num_dist,1)).to(self.device)
@@ -238,6 +238,21 @@ class SZPC(IOD):
         confidence = p_sf
         return confidence
     
+    def get_confidence(self, buffer: list, dist_z, num_dist):
+        sf_repr_buffer_tensor = torch.tensor(np.array(buffer), device=self.device)        
+        # 调整形状以匹配 dist_z 的要求
+        x = sf_repr_buffer_tensor.reshape(-1, num_dist, self.dim_option)  # 确保 x 的形状符合 log_prob 的要求
+
+        # 计算 log_prob
+        log_probs = dist_z.log_prob(x)
+
+        # 恢复为原始的 num_dist 维度
+        log_probs = log_probs.view(num_dist, -1)
+
+        # 按列取最大值
+        confidence = torch.max(log_probs, dim=1)[0]
+
+        return confidence
 
     def UpdateGMM(self, dists, GMM=None, mix_dist_prob=None, device='cuda'):
         if GMM is None:
@@ -389,7 +404,7 @@ class SZPC(IOD):
                         # confidence = torch.clamp(confidence, max=2)
                         # total loss
                         alpha = 1
-                        loss_SZP = (-z_logp * (V_szn.detach() + alpha * V_z.detach()) - self.SZN_w2 * kl_window).mean()
+                        loss_SZP = (-z_logp * (V_szn.detach() + alpha * V_z.detach()) - self.SZN_w2 * kl_window).mean() - self.SZN_w3 * confidence.mean()
                         
                         loss_SZP.backward()
                         self.grad_clip.apply(self.SampleZPolicy.parameters())
@@ -400,7 +415,7 @@ class SZPC(IOD):
                                 "SZN/logp": z_logp.mean(),
                                 "SZN/entropy": dist_z.entropy().mean(),
                                 "SZN/kl_window": kl_window.mean(),
-                                # "SZN/confidence": confidence.mean(),
+                                "SZN/confidence": confidence.mean(),
                                 "SZN/V_z": V_z.mean(),
                                 "epoch": runner.step_itr,
                             })
@@ -437,13 +452,13 @@ class SZPC(IOD):
                 
                 window_dist_raw = self.UpdateGMM(self.DistWindow, device=self.device).component_distribution
                 window_len = len(self.DistWindow)
-
-                mix_dist_prob = F.softmax(self.get_confidence(self.new_trial, window_dist_raw, num_dist=window_len) - self.get_confidence(self.last_trial, window_dist_raw, num_dist=window_len))
+                mix_dist_prob = F.softmax(self.get_confidence_mix(self.new_trial, window_dist_raw, num_dist=window_len) - self.get_confidence_mix(self.last_trial, window_dist_raw, num_dist=window_len))
                 min_prob = 0.01
                 adjusted_probs = torch.maximum(mix_dist_prob, torch.tensor(min_prob))
                 adjusted_probs = adjusted_probs / torch.sum(adjusted_probs)
                 print(f"mix_dist_prob: {adjusted_probs.detach()}")
                 window_dist = self.UpdateGMM(self.DistWindow, mix_dist_prob=adjusted_probs, device=self.device)
+                # window_dist = self.UpdateGMM(self.DistWindow, mix_dist_prob=None, device=self.device)
                 self.last_z = window_dist.sample((self.num_random_trajectories,))
                 if self.z_unit:
                     self.last_z = self.vec_norm(self.last_z)
