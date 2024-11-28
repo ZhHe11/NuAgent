@@ -22,7 +22,7 @@ from iod.GradCLipper import GradClipper
 import matplotlib.pyplot as plt
 import torch.distributions as dist
 from iod.viz_utils import PlotMazeTrajDist, PlotMazeTrajWindowDist, viz_dist_circle
-
+from functools import partial
 
 
 class SZPC(IOD):
@@ -371,7 +371,7 @@ class SZPC(IOD):
                     for t in trange(100):
                         # Reset the SZN:
                         dist_z = self.SampleZPolicy(self.input_token)
-                        z = dist_z.sample()
+                        z = dist_z.rsample()
                         z_logp = dist_z.log_prob(z.detach())
                         if self.z_unit:
                             z = self.vec_norm(z)
@@ -388,7 +388,9 @@ class SZPC(IOD):
                         confidence = self.get_confidence(self.SfReprBuffer, dist_z, num_dist=self.num_random_trajectories)  
                         # confidence = torch.clamp(confidence, max=2)
                         # total loss
-                        loss_SZP = (-z_logp * (V_szn.detach() + V_z.detach()) - self.SZN_w2 * kl_window - self.SZN_w3 * confidence).mean()
+                        alpha = 1
+                        loss_SZP = (-z_logp * (V_szn.detach() + alpha * V_z.detach()) - self.SZN_w2 * kl_window).mean()
+                        
                         loss_SZP.backward()
                         self.grad_clip.apply(self.SampleZPolicy.parameters())
                         self.SampleZPolicy_optim.step()
@@ -398,7 +400,7 @@ class SZPC(IOD):
                                 "SZN/logp": z_logp.mean(),
                                 "SZN/entropy": dist_z.entropy().mean(),
                                 "SZN/kl_window": kl_window.mean(),
-                                "SZN/confidence": confidence.mean(),
+                                # "SZN/confidence": confidence.mean(),
                                 "SZN/V_z": V_z.mean(),
                                 "epoch": runner.step_itr,
                             })
@@ -669,8 +671,9 @@ class SZPC(IOD):
             contrastive_sim = cal_softmax_obj(matrix, t=1)
             phi_obj = direction_sim
         else: 
-            contrastive_sim = cal_softmax_obj(matrix, t=self.Repr_temperature)
-            phi_obj = contrastive_sim
+            norm_matrix = (self.vec_norm(psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
+            contrastive_sim = cal_softmax_obj(norm_matrix, t=self.Repr_temperature)
+            phi_obj = direction_sim + contrastive_sim
         
         # 2. Goal Arrival Reward
         reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
@@ -787,13 +790,18 @@ class SZPC(IOD):
         processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), v['options'].detach())
         next_processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['next_obs']), v['next_options'].detach())
 
+        if self.method['phi'] == 'Projection':
+            policy_rewards = v['policy_rewards']
+        else:
+            policy_rewards = v['rewards']
+        
         sac_utils.update_loss_qf(
             self, tensors, v,
             obs=processed_cat_obs,
             actions=v['actions'],
             next_obs=next_processed_cat_obs,
             dones=v['dones'],
-            rewards=v['rewards'] * self._reward_scale_factor,
+            rewards= policy_rewards * self._reward_scale_factor,
             policy=self.option_policy,
             qf1=self.qf1,
             qf2=self.qf2,
@@ -839,7 +847,7 @@ class SZPC(IOD):
             else:
                 path = '.'
                 
-            FD, AR, eval_metrics = PlotMazeTraj(runner._env, self.traj_encoder, self.option_policy, self.device, Psi=None, dim_option=self.dim_option, max_path_length=self.max_path_length, path=path, option_type=self.method['eval'])
+            FD, AR, eval_metrics = PlotMazeTraj(runner._env, self.traj_encoder, self.option_policy, self.device, Psi=partial(self.Psi), dim_option=self.dim_option, max_path_length=self.max_path_length, path=path, option_type=self.method['eval'])
     
             wandb.log(  
                 {
