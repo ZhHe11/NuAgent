@@ -522,35 +522,45 @@ class SZPC(IOD):
     def _sample_replay_buffer(self):
         samples = self.replay_buffer.sample_transitions(self._trans_minibatch_size)
         data = {}
+        Batch_data = []
         for key, value in samples.items():
+            if key in ['obs', 'next_obs', 's_0']: 
+                Batch_data.append(value)
+        Batch_data = torch.stack(Batch_data).to(self.device)
+        
+        for key, value in samples.items():
+            if key in ['rewards', 'returns', 'ori_obs', 'next_ori_obs', 'pre_tanh_values', 'log_probs']:
+                continue
             if value.shape[1] == 1 and 'option' not in key:
                 value = np.squeeze(value, axis=1)
-            # data[key] = torch.from_numpy(value).float().to(self.device)
-            data[key] = value.float().to(self.device) 
-        return data
+            if key == 'obs':
+                data[key] = Batch_data[0]
+            elif key == 'next_obs':
+                data[key] = Batch_data[1]
+            elif key == 's_0':
+                data[key] = Batch_data[2]
+            else:
+                data[key] = value.float().to(self.device)
 
+        return data
+    
     def _train_once_inner(self, path_data):
         self._update_replay_buffer(path_data)
-
         epoch_data = self._flatten_data(path_data)
-
         tensors = self._train_components(epoch_data)
-
         return tensors
 
     def _train_components(self, epoch_data):
         if self.replay_buffer is not None and self.replay_buffer.n_transitions_stored < self.min_buffer_size:
             return {}
         self.buffer_ready = 1
-        for _ in range(self._trans_optimization_epochs):
+        for _ in trange(self._trans_optimization_epochs):
             tensors = {}
-
             if self.replay_buffer is None:
                 v = self._get_mini_tensors(epoch_data)
             else:
                 v = self._sample_replay_buffer()
                 # self.epoch_data = v
-
             self._optimize_te(tensors, v)
             with torch.no_grad():
                 self._update_rewards(tensors, v)

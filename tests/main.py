@@ -1,21 +1,15 @@
 #!/usr/bin/env python3
 import tempfile
-
 import dowel_wrapper
-
 assert dowel_wrapper is not None
 import dowel
-
 import wandb
-
 import argparse
 import datetime
 import functools
 import os
-import sys
 import platform
 import torch.multiprocessing as mp
-
 
 if 'mac' in platform.platform():
     pass
@@ -49,30 +43,10 @@ from garagei.torch.optimizers.optimizer_group_wrapper import OptimizerGroupWrapp
 from garagei.torch.utils import xavier_normal_ex
 from iod.metra import METRA
 from iod.metra_bl import METRA_bl
-from iod.causer import CAUSER
 from iod.dads import DADS
-from iod.SZN import SZN
-from iod.SZN_batch import SZN_batch
-from iod.SZN_Z import SZN_Z
-from iod.SZN_P import SZN_P
-from iod.SZN_PP import SZN_PP
-from iod.SZN_PPP import SZN_PPP
-from iod.SZN_PPAU import SZN_PPAU
-from iod.P_SZN_AU import P_SZN_AU
 from iod.PSZP import PSZP
-from iod.PSZP_k import PSZP_k
 from iod.SZPC import SZPC
-from iod.PRR import PRR
-from iod.P_PZ import P_PZ
-
-
-from iod.utils import get_normalizer_preset
-
 from tests.make_env import make_env
-import copy
-
-import torch.nn as nn
-import torch.nn.init as init
 
 EXP_DIR = 'exp'
 if os.environ.get('START_METHOD') is not None:
@@ -81,9 +55,7 @@ else:
     START_METHOD = 'spawn'
 
 
-# no debug
-import warnings
-warnings.filterwarnings("ignore")
+
 
 
 def get_argparser():
@@ -194,6 +166,12 @@ def get_argparser():
 
 
 args = get_argparser().parse_args()
+if args.is_wandb == 0:
+    args.sac_min_buffer_size = 2000
+else:
+    import warnings
+    warnings.filterwarnings("ignore")
+
 g_start_time = int(datetime.datetime.now().timestamp())
 
 
@@ -592,23 +570,6 @@ def run(ctxt=None):
         algo = METRA_bl(
             **algo_kwargs,
             **skill_common_args,
-        )
-        
-        
-    elif args.algo == 'PSZP':
-        algo = PSZP(
-            **algo_kwargs,
-            SampleZPolicy=SampleZPolicy,
-            **skill_common_args,
-            _trans_phi_optimization_epochs=args._trans_phi_optimization_epochs,
-            _trans_policy_optimization_epochs=args._trans_policy_optimization_epochs,
-            _trans_online_sample_epochs=args._trans_online_sample_epochs,
-            SZN_w2=args.SZN_w2,
-            SZN_w3=args.SZN_w3,
-            SZN_window_size=args.SZN_window_size,
-            SZN_repeat_time=args.SZN_repeat_time,
-            Repr_temperature=args.Repr_temperature,
-            Repr_max_step=args.Repr_max_step,
         )
     
     elif args.algo == 'SZPC':
