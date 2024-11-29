@@ -30,28 +30,36 @@ env = FrameStackWrapper(env, 3)
 def vec_norm(vec):
     return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
     
+# def Psi(phi_x, phi_x0=None):
+#     return torch.tanh(1/150 * (phi_x))
+
 def Psi(phi_x, phi_x0=None):
-    return torch.tanh(1/150 * (phi_x))
+    return torch.tanh(2/50 * (phi_x))
 
 
 # 加载模型
 # /mnt/nfs2/zhanghe/NuAgent/exp/kitchen/PSZP-15-ParamTunesd000_1730722635_kitchen_PSZP/option_policy1000.pt
-path = "/mnt/nfs2/zhanghe/NuAgent/exp/kitchen/PSZP-15-ParamTunesd000_1730876003_kitchen_PSZP"
-epoch_num = '0'
-path = path + '/'
-load_option_policy_base = torch.load(path + "wandb/latest-run/filesoption_policy-" + epoch_num + ".pt")
-load_traj_encoder_base = torch.load(path + "wandb/latest-run/filestraj_encoder-" + epoch_num + ".pt")
-load_SZN_base = torch.load(path + "wandb/latest-run/filesSampleZPolicy-" + epoch_num + ".pt")
+# path = "/mnt/nfs2/zhanghe/NuAgent/exp/kitchen/PSZP-15-ParamTunesd000_1730876003_kitchen_PSZP"
+# epoch_num = '0'
+# path = path + '/'
+# load_option_policy_base = torch.load(path + "wandb/latest-run/filesoption_policy-" + epoch_num + ".pt")
+# load_traj_encoder_base = torch.load(path + "wandb/latest-run/filestraj_encoder-" + epoch_num + ".pt")
+# load_SZN_base = torch.load(path + "wandb/latest-run/filesSampleZPolicy-" + epoch_num + ".pt")
+
+
+path = '/mnt/nfs2/zhanghe/NuAgent/exp/kitchen_debug/d1-baselinesd000_1732781332_kitchen_SZPC'
+load_option_policy_base = torch.load('/mnt/nfs2/zhanghe/NuAgent/exp/kitchen_debug/d1-baselinesd000_1732781332_kitchen_SZPC/option_policy200.pt')
+load_traj_encoder_base = torch.load('/mnt/nfs2/zhanghe/NuAgent/exp/kitchen_debug/d1-baselinesd000_1732781332_kitchen_SZPC/traj_encoder200.pt')
 
 policy = load_option_policy_base['policy']
 traj_encoder = load_traj_encoder_base['traj_encoder']
-window = load_SZN_base['window']
+# window = load_SZN_base['window']
 
 # settings：
 max_path_length = 50
 option_dim = load_option_policy_base['dim_option']
 # path = '/data/zh/project12_Metra/METRA/tests/videos/local_test/'
-Given_g = False
+Given_g = True
 PhiPlot = True
 LoadNpy = False
 num_task = 6
@@ -99,7 +107,9 @@ def interact_with_env():
         psi_s_0 = Psi(phi_s_0)
         if Given_g:
             goal_tensor = torch.tile(all_goal_obs_tensor[i].reshape(-1), (3,1)).reshape(-1).unsqueeze(0).to('cuda')
-            psi_g = Psi(traj_encoder(goal_tensor).mean)
+            
+            phi_g = traj_encoder(goal_tensor).mean
+            psi_g = Psi(phi_g)
             # if biaoding
             # weight = (phi_g * support_vec).sum(-1)
             # index = torch.argmax(weight).cpu().numpy()
@@ -110,6 +120,7 @@ def interact_with_env():
             freeze_option = psi_g
         else:
             support_option = support_options[i].unsqueeze(0)
+            support_option = vec_norm(support_option)
 
         if PhiPlot: 
             Traj = []
@@ -121,8 +132,9 @@ def interact_with_env():
             Repr_s = Psi(traj_encoder(obs_tensor).mean)
             if Given_g: 
                 # to do; 需要映射；
-                # option = vec_norm(phi_g - phi_s)
-                option = freeze_option
+                # baseline:
+                option = vec_norm(phi_g - phi_s_0)
+                # option = freeze_option
             else:
                 option = vec_norm(support_option)
             obs_option = torch.cat((obs_tensor, option), -1).float()
