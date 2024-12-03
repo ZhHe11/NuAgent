@@ -29,27 +29,22 @@ env = FrameStackWrapper(env, 3)
 # funtions
 def vec_norm(vec):
     return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
-    
-# def Psi(phi_x, phi_x0=None):
-#     return torch.tanh(1/150 * (phi_x))
-
-def Psi(phi_x, phi_x0=None):
-    return torch.tanh(2/50 * (phi_x))
-
 
 # 加载模型
-# /mnt/nfs2/zhanghe/NuAgent/exp/kitchen/PSZP-15-ParamTunesd000_1730722635_kitchen_PSZP/option_policy1000.pt
-# path = "/mnt/nfs2/zhanghe/NuAgent/exp/kitchen/PSZP-15-ParamTunesd000_1730876003_kitchen_PSZP"
-# epoch_num = '0'
-# path = path + '/'
-# load_option_policy_base = torch.load(path + "wandb/latest-run/filesoption_policy-" + epoch_num + ".pt")
-# load_traj_encoder_base = torch.load(path + "wandb/latest-run/filestraj_encoder-" + epoch_num + ".pt")
+path = "/mnt/nfs2/zhanghe/NuAgent/exp/kitchen_debug/d0-SZN-baselinesd000_1732880289_kitchen_SZPC"
+epoch_num = '500'
+path = path + '/'
+load_option_policy_base = torch.load(path + "wandb/latest-run/filesoption_policy-" + epoch_num + ".pt")
+load_traj_encoder_base = torch.load(path + "wandb/latest-run/filestraj_encoder-" + epoch_num + ".pt")
 # load_SZN_base = torch.load(path + "wandb/latest-run/filesSampleZPolicy-" + epoch_num + ".pt")
 
-
-path = '/mnt/nfs2/zhanghe/NuAgent/exp/kitchen_debug/d1-baselinesd000_1732781332_kitchen_SZPC'
-load_option_policy_base = torch.load('/mnt/nfs2/zhanghe/NuAgent/exp/kitchen_debug/d1-baselinesd000_1732781332_kitchen_SZPC/option_policy200.pt')
-load_traj_encoder_base = torch.load('/mnt/nfs2/zhanghe/NuAgent/exp/kitchen_debug/d1-baselinesd000_1732781332_kitchen_SZPC/traj_encoder200.pt')
+is_Psi = False
+Given_g = False
+def Psi(phi_x, phi_x0=None):
+    if is_Psi:
+        return torch.tanh(2/50 * (phi_x))
+    else:
+        return phi_x
 
 policy = load_option_policy_base['policy']
 traj_encoder = load_traj_encoder_base['traj_encoder']
@@ -58,8 +53,6 @@ traj_encoder = load_traj_encoder_base['traj_encoder']
 # settings：
 max_path_length = 50
 option_dim = load_option_policy_base['dim_option']
-# path = '/data/zh/project12_Metra/METRA/tests/videos/local_test/'
-Given_g = True
 PhiPlot = True
 LoadNpy = False
 num_task = 6
@@ -89,7 +82,7 @@ else:
     if option_type == 'support':
         directions = [[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1],[0,-1],[1,-1]]
     elif option_type == 'random':
-        num_eval = 10
+        num_eval = 50
         directions = np.random.uniform(-1,1, (num_eval, option_dim))
         print(directions)
 
@@ -98,6 +91,7 @@ else:
 
 def interact_with_env():
     # interact with env
+    all_success = np.zeros(num_task)
     for i in trange(eval_times):
         # 初始化
         obs = env.reset()
@@ -133,15 +127,16 @@ def interact_with_env():
             if Given_g: 
                 # to do; 需要映射；
                 # baseline:
-                option = vec_norm(phi_g - phi_s_0)
-                # option = freeze_option
+                if is_Psi:
+                    option = freeze_option
+                else:
+                    option = vec_norm(phi_g - phi_s_0)
             else:
                 option = vec_norm(support_option)
             obs_option = torch.cat((obs_tensor, option), -1).float()
             action_tensor = policy(obs_option)[1]['mean']
             action = action_tensor[0].detach().cpu().numpy()
             # iteration:
-            print(action)
             obs, reward, _, info = env.step(action)
             obs_tensor = torch.tensor(obs, dtype=torch.float).unsqueeze(0).to('cuda')
             # for viz:
@@ -154,13 +149,15 @@ def interact_with_env():
         success = np.zeros(num_task)
         for id_task in range(num_task):
             success[id_task] = env.compute_success(id_task)[0]
+        all_success = all_success + success
         print('success', success, 'option', option)
         # save traj. as gif
         gif_name = path+ str(i) + '.gif'
         imageio.mimsave(gif_name, frames, 'GIF', duration=1)
         print('saved', gif_name)
         Trajs.append(Traj)
-        
+    
+    print(f'all_succes{all_success}')
     return Trajs
     
 def plot_phi_traj(Trajs, load_npy_path):

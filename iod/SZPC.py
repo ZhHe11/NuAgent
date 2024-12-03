@@ -101,6 +101,8 @@ class SZPC(IOD):
         self.dual_slack = dual_slack
         self.dual_dist = dual_dist
 
+        self.dual_slack2 = dual_slack
+        
         self.num_alt_samples = num_alt_samples
         self.split_group = split_group
 
@@ -238,7 +240,7 @@ class SZPC(IOD):
         confidence = p_sf
         return confidence
     
-    def get_confidence(self, buffer: list, dist_z, num_dist):
+    def  get_confidence(self, buffer: list, dist_z, num_dist):
         sf_repr_buffer_tensor = torch.tensor(np.array(buffer), device=self.device)        
         # 调整形状以匹配 dist_z 的要求
         x = sf_repr_buffer_tensor.reshape(-1, num_dist, self.dim_option)  # 确保 x 的形状符合 log_prob 的要求
@@ -368,7 +370,7 @@ class SZPC(IOD):
             extras = self._generate_option_extras(random_options)
 
             if self.method['explore'] == 'SZN' and self.buffer_ready: 
-                if self.NumSampleTimes == self.SZN_repeat_time * len(self.DistWindow):
+                if self.NumSampleTimes == self.SZN_repeat_time:
                     # window pool operation: PopDist   
                     # Method 2. pop the dist whose Regret less than 0;
                     def PopDistDeque(window_size=5):
@@ -391,7 +393,6 @@ class SZPC(IOD):
                         if self.z_unit:
                             z = self.vec_norm(z)
                         V_szn, V_z = self.cal_regeret(z, self.init_obs)
-                        V_z = (V_z - V_z.mean()) / (V_z.std() + 1e-6)       # BN: 增加训练稳定性；
                         V_szn = (V_szn - V_szn.mean()) / (V_szn.std() + 1e-6)       # BN: 增加训练稳定性；
                         self.SampleZPolicy_optim.zero_grad()    
                         # weight of GMM KL
@@ -403,8 +404,7 @@ class SZPC(IOD):
                         confidence = self.get_confidence(self.SfReprBuffer, dist_z, num_dist=self.num_random_trajectories)  
                         # confidence = torch.clamp(confidence, max=2)
                         # total loss
-                        alpha = 1
-                        loss_SZP = (-z_logp * (V_szn.detach() + alpha * V_z.detach()) - self.SZN_w2 * kl_window).mean() - self.SZN_w3 * confidence.mean()
+                        loss_SZP = (-z_logp * (V_szn.detach()) - self.SZN_w2 * kl_window).mean() - self.SZN_w3 * confidence.mean()
                         
                         loss_SZP.backward()
                         self.grad_clip.apply(self.SampleZPolicy.parameters())
@@ -467,15 +467,19 @@ class SZPC(IOD):
                 if len(self.SfReprBuffer) == 0:
                     self.last_trial = []
                 
-                # Epsilon:
-                if np.random.rand() < 0.1: 
-                    random_options = np.random.uniform(-1,1, (runner._train_args.batch_size, self.dim_option))
-                    if self.z_unit:
-                        random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
-                    extras = self._generate_option_extras(random_options, psi_g=random_options)
-                else:
-                    np_z = self.last_z.cpu().numpy()
-                    extras = self._generate_option_extras(np_z, psi_g=np_z)   
+                # # Epsilon:
+                # if np.random.rand() < max(0.8 ** int(runner.step_itr / 10), 0.1): 
+                #     random_options = np.random.uniform(-1,1, (runner._train_args.batch_size, self.dim_option))
+                #     if self.z_unit:
+                #         random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
+                #     extras = self._generate_option_extras(random_options, psi_g=random_options)
+                # else:
+                #     np_z = self.last_z.cpu().numpy()
+                #     extras = self._generate_option_extras(np_z, psi_g=np_z)   
+                
+                np_z = self.last_z.cpu().numpy()
+                extras = self._generate_option_extras(np_z, psi_g=np_z)   
+                
 
             elif self.method['explore'] == 'uniform' and self.buffer_ready:
                 random_options = np.random.uniform(-1,1, (runner._train_args.batch_size, self.dim_option))
@@ -574,6 +578,7 @@ class SZPC(IOD):
         self._gradient_descent(
             tensors['LossTe'],
             optimizer_keys=['traj_encoder'],
+            params=self.traj_encoder.parameters(),
         )
 
         if self.dual_reg:
@@ -581,12 +586,15 @@ class SZPC(IOD):
             self._gradient_descent(
                 tensors['LossDualLam'],
                 optimizer_keys=['dual_lam'],
+                params=[self.dual_lam.param],
             )
             if self.dual_dist == 's2_from_s':
                 self._gradient_descent(
                     tensors['LossDp'],
                     optimizer_keys=['dist_predictor'],
+                    params=self.dist_predictor.parameters(),
                 )
+
 
     def _optimize_op(self, tensors, internal_vars):
         self._update_loss_qf(tensors, internal_vars)
@@ -594,20 +602,23 @@ class SZPC(IOD):
         self._gradient_descent(
             tensors['LossQf1'] + tensors['LossQf2'],
             optimizer_keys=['qf'],
+            params=list(self.qf1.parameters()) + list(self.qf2.parameters()),
         )
 
         self._update_loss_op(tensors, internal_vars)
         self._gradient_descent(
             tensors['LossSacp'],
             optimizer_keys=['option_policy'],
+            params=self.option_policy.parameters(),
         )
 
-        self._update_loss_alpha(tensors, internal_vars)
+        self._update_loss_alpha(tensors, internal_vars) 
         self._gradient_descent(
             tensors['LossAlpha'],
             optimizer_keys=['log_alpha'],
+            params=[self.log_alpha.param],
         )
-
+        
         sac_utils.update_targets(self)
 
     def _update_rewards(self, tensors, v):
@@ -678,13 +689,18 @@ class SZPC(IOD):
         delta_norm = self.norm((psi_s_next - psi_s))
         ## pos sample
         matrix = (1/d * (psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
-        direction_sim = torch.diag(matrix)
+        direction_sim = (1 * (psi_s_next - psi_s) * z_unit).sum(dim=-1)
         ## neg smaple
         def cal_softmax_obj(matrix, t=1):
-            dist_theta = 1e-2
-            distance_pos_neg = (z_unit.unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
-            mask = torch.where(distance_pos_neg > (1-dist_theta), 0, 1) + torch.eye(z_unit.shape[0], z_unit.shape[0]).to(self.device)
-            matrix = mask * matrix
+            # dist_theta = 1e-2
+            # distance_pos_neg = (z_unit.unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
+            # mask = torch.where(distance_pos_neg > (1-dist_theta), 0, 1) + torch.eye(z_unit.shape[0], z_unit.shape[0]).to(self.device)
+            # matrix = mask * matrix
+            
+            # dist_theta = 0.5
+            # distance_pos_neg = (z_unit.unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
+            # matrix = torch.where(distance_pos_neg < dist_theta, dist_theta, matrix)
+            
             matrix = matrix / t
             label = torch.arange(matrix.shape[0]).to(self.device)
             contrastive_sim = - F.cross_entropy(matrix, label) - F.cross_entropy(matrix.T, label)
@@ -698,11 +714,12 @@ class SZPC(IOD):
         else: 
             norm_matrix = (self.vec_norm(psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
             contrastive_sim = cal_softmax_obj(norm_matrix, t=self.Repr_temperature)
-            phi_obj = direction_sim + contrastive_sim
+            phi_obj = direction_sim + 1 * contrastive_sim
         
         # 2. Goal Arrival Reward
         reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
         policy_rewards = 1 * reward_g_distance
+        # policy_rewards = direction_sim
         
         v.update({
             'cur_z': cur_z,
@@ -718,6 +735,7 @@ class SZPC(IOD):
         
         tensors.update({
             'phi_obj': phi_obj.mean(),
+            'direction_sim': direction_sim.mean(),
             'reward_g_distance': reward_g_distance.mean(),
             'delta_norm': delta_norm.mean(),
             'direction_sim': direction_sim.mean(),
@@ -768,13 +786,23 @@ class SZPC(IOD):
             else:
                 raise NotImplementedError
 
-            
             if 'psi_s' in v.keys():
-                cst_penalty_1 = 1/self.max_path_length - (self.norm(v['psi_s']-v['psi_s_next']))
-                cst_penalty_2 = -self.norm(v['psi_s_0'])
-                cst_penalty = torch.clamp(cst_penalty_1, max=self.dual_slack)
+                # cst_penalty_1 = 1 - self.max_path_length * torch.square(v['psi_s'] - v['psi_s_next']).mean(dim=1) 
+                # cst_penalty_2 = - self.max_path_length * torch.square(v['psi_s_0']).mean(dim=1) 
+                # cst_penalty_1 = 1 - self.max_path_length * self.norm(v['psi_s'] - v['psi_s_next'])
+                # cst_penalty_2 = -self.norm(v['psi_s_0'])
                 
-                te_obj = rewards + dual_lam.detach() * cst_penalty + 0.1 * cst_penalty_2
+                cst_penalty_1 = 1 / self.max_path_length - self.norm(v['psi_s'] - v['psi_s_next'])
+                cst_penalty_2 = -self.norm(v['psi_s_0'])
+                
+                cst_penalty = torch.clamp(cst_penalty_1, max=self.dual_slack)
+                # cst_penalty_2 = torch.clamp(cst_penalty_2, min=-self.dual_slack2)
+                
+                te_obj = rewards + dual_lam.detach() * cst_penalty + cst_penalty_2
+                v.update({
+                    'cst_penalty': cst_penalty
+                    
+                })
                 tensors.update({
                     'cst_penalty_2': cst_penalty_2.mean(),
                     'cst_penalty_1': cst_penalty_1.mean(),
@@ -810,6 +838,7 @@ class SZPC(IOD):
             'DualLam': dual_lam,
             'LossDualLam': loss_dual_lam,
         })
+
 
     def _update_loss_qf(self, tensors, v):
         processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), v['options'].detach())
@@ -884,11 +913,10 @@ class SZPC(IOD):
             )
         
         elif env_name == 'kitchen':
-            self.eval_kitchen_metra(runner)
+            self.eval_metra(runner)
             
         else:
             self.eval_metra(runner)
-            
             
     def _save_pt(self, epoch):
         if wandb.run is not None:
@@ -899,11 +927,11 @@ class SZPC(IOD):
         torch.save({
             'discrete': self.discrete,
             'dim_option': self.dim_option,
-            # 'qf1': self.qf1,
-            # 'qf2': self.qf2,
-            # 'alpha': self.log_alpha,
+            'qf1': self.qf1,
+            'qf2': self.qf2,
+            'alpha': self.log_alpha,
             'policy': self.option_policy,
-            # 's0': self.s0,
+            's0': self.s0,
         }, file_name)
         file_name = path + 'traj_encoder-' + str(epoch) + '.pt'
         torch.save({
@@ -911,7 +939,15 @@ class SZPC(IOD):
             'dim_option': self.dim_option,
             'traj_encoder': self.traj_encoder,
         }, file_name)
-
+        file_name = path + 'SampleZPolicy-' + str(epoch) + '.pt'
+        torch.save({
+            'discrete': self.discrete,
+            'dim_option': self.dim_option,
+            'input_token': self.input_token,
+            'goal_sample_network': self.SampleZPolicy,
+            'window': self.DistWindow,
+        }, file_name)
+     
     def eval_kitchen_metra(self, runner):
         random_options = np.eye(self.dim_option)
         random_trajectories = self._get_trajectories(

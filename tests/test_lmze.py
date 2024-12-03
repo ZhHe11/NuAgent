@@ -99,7 +99,7 @@ else:
 
 env.reset()
 frames = []
-num_eval = 30
+num_eval = 100
 dim_option = 2
 device = 'cuda'
 # eval_type = 'random_psi'
@@ -137,6 +137,9 @@ for i in trange(num_eval):
         option = torch.tensor(random_options[i]).unsqueeze(0).to(device)
         if 'psi' not in eval_type:
             option = vec_norm(option)
+        else:
+            # option = vec_norm(option)
+            option = option
         goal = np.zeros((num_eval, 2))
             
     elif 'goal' in eval_type:

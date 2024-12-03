@@ -379,6 +379,8 @@ def run(ctxt=None):
         init_std=3e-1,
         min_std=1e-1,
         max_std=1,
+        # min_std=3e-1,
+        # max_std=3e-1,
         normal_distribution_cls=TanhNormal,
     )
     SampleZPolicy = module_cls(**module_kwargs)
