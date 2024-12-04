@@ -240,9 +240,13 @@ class SZPC(IOD):
         confidence = p_sf
         return confidence
     
-    def  get_confidence(self, buffer: list, dist_z, num_dist):
+    def get_confidence(self, buffer: list, dist_z, num_dist):
         sf_repr_buffer_tensor = torch.tensor(np.array(buffer), device=self.device)        
         # 调整形状以匹配 dist_z 的要求
+        if sf_repr_buffer_tensor.shape[0] % num_dist != 0:
+            CorrectLen = sf_repr_buffer_tensor.shape[0] - sf_repr_buffer_tensor.shape[0] % num_dist
+            sf_repr_buffer_tensor = sf_repr_buffer_tensor[:CorrectLen]
+        
         x = sf_repr_buffer_tensor.reshape(-1, num_dist, self.dim_option)  # 确保 x 的形状符合 log_prob 的要求
 
         # 计算 log_prob
@@ -370,7 +374,7 @@ class SZPC(IOD):
             extras = self._generate_option_extras(random_options)
 
             if self.method['explore'] == 'SZN' and self.buffer_ready: 
-                if self.NumSampleTimes == self.SZN_repeat_time:
+                if self.NumSampleTimes == self.SZN_repeat_time * len(self.DistWindow):
                     # window pool operation: PopDist   
                     # Method 2. pop the dist whose Regret less than 0;
                     def PopDistDeque(window_size=5):
@@ -714,7 +718,7 @@ class SZPC(IOD):
         else: 
             norm_matrix = (self.vec_norm(psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
             contrastive_sim = cal_softmax_obj(norm_matrix, t=self.Repr_temperature)
-            phi_obj = direction_sim + 1 * contrastive_sim
+            phi_obj = direction_sim + 1 / self.max_path_length * contrastive_sim
         
         # 2. Goal Arrival Reward
         reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
@@ -787,11 +791,14 @@ class SZPC(IOD):
                 raise NotImplementedError
 
             if 'psi_s' in v.keys():
-                # cst_penalty_1 = 1 - self.max_path_length * torch.square(v['psi_s'] - v['psi_s_next']).mean(dim=1) 
-                # cst_penalty_2 = - self.max_path_length * torch.square(v['psi_s_0']).mean(dim=1) 
+                ## using diff
+                # cst_penalty_1 = 1 / self.max_path_length - torch.square(v['psi_s'] - v['psi_s_next']).mean(dim=1) 
+                # cst_penalty_2 = - torch.square(v['psi_s_0']).mean(dim=1) 
+                
                 # cst_penalty_1 = 1 - self.max_path_length * self.norm(v['psi_s'] - v['psi_s_next'])
                 # cst_penalty_2 = -self.norm(v['psi_s_0'])
                 
+                ##  using norm
                 cst_penalty_1 = 1 / self.max_path_length - self.norm(v['psi_s'] - v['psi_s_next'])
                 cst_penalty_2 = -self.norm(v['psi_s_0'])
                 

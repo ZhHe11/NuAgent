@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=3
+export CUDA_VISIBLE_DEVICES=6
 export D4RL_SUPPRESS_IMPORT_ERROR=1
 export TF_ENABLE_ONEDNN_OPTS=0
 export TF_CPP_MIN_LOG_LEVEL=3
@@ -10,9 +10,7 @@ export MUJOCO_GL="osmesa"
 
 # # regret
 python tests/main.py --run_group MazeReady --env ant_maze --max_path_length 300 --seed 0 --traj_batch_size 16 --n_parallel 2 --normalizer_type off --sac_max_buffer_size 3000000  --n_epochs_per_log 50 --n_epochs_per_eval 200 --n_epochs_per_save 1000 --n_epochs_per_pt_save 1000 --discrete 0 --dim_option 4 --sac_scale_reward 1 \
-    --algo SZPC --exp_name Ep_woDecay-dim4-lr1e_4-tempr0 --phi_type Projection --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 75 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 --common_lr 1e-4 --lr_te 1e-4 --dual_lr 1e-5 --SZN_w2 10 --SZN_w3 3 --SZN_window_size 10 --SZN_repeat_time 5 --Repr_temperature 0 --z_unit 0 --model_master_num_layers 2 --n_epochs 8000 
-
-
+    --algo SZPC --exp_name Ours_basic --phi_type Projection --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 75 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 --common_lr 1e-4 --lr_te 1e-3 --dual_lr 1e-4 --SZN_w2 10 --SZN_w3 3 --SZN_window_size 10 --SZN_repeat_time 5 --Repr_temperature 0 --z_unit 0 --model_master_num_layers 2 --n_epochs 8000 
 
 
 #     --algo PSZP --exp_name Baseline --phi_type baseline --explore_type baseline --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 75 --target_theta 1 --is_wandb 1 --trans_minibatch_size 1024 --common_lr 1e-4 --model_master_num_layers 2 --wandb_note 'Baseline and others settings'  
