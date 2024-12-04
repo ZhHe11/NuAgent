@@ -802,7 +802,7 @@ class SZPC(IOD):
                 cst_penalty_1 = 1 / self.max_path_length - self.norm(v['psi_s'] - v['psi_s_next'])
                 cst_penalty_2 = -self.norm(v['psi_s_0'])
                 
-                cst_penalty = torch.clamp(cst_penalty_1, max=self.dual_slack)
+                cst_penalty = torch.clamp(cst_penalty_1, max=self.dual_slack * 1 / self.max_path_length)
                 # cst_penalty_2 = torch.clamp(cst_penalty_2, min=-self.dual_slack2)
                 
                 te_obj = rewards + dual_lam.detach() * cst_penalty + cst_penalty_2
