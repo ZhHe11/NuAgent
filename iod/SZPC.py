@@ -718,7 +718,7 @@ class SZPC(IOD):
         else: 
             norm_matrix = ((psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
             contrastive_sim = cal_softmax_obj(norm_matrix, t=self.Repr_temperature)
-            phi_obj = direction_sim + contrastive_sim
+            phi_obj = 0 * direction_sim + contrastive_sim
         
         # 2. Goal Arrival Reward
         reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
