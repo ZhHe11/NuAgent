@@ -155,7 +155,7 @@ def get_argparser():
     parser.add_argument('--SZN_window_size', type=float, default=10.)
     parser.add_argument('--SZN_repeat_time', type=float, default=5.)
     parser.add_argument('--Repr_temperature', type=float, default=0.5)
-    parser.add_argument('--Repr_max_step', type=float, default=5.)
+    parser.add_argument('--Repr_max_step', type=float, default=300.)
     
     parser.add_argument('--z_unit', type=int, default=0)
     
