@@ -902,7 +902,7 @@ class SZPC(IOD):
     '''
     @torch.no_grad()
     def _evaluate_policy(self, runner, env_name):
-        if env_name == 'ant_maze' or env_name == 'lm':  
+        if env_name in ['lm', 'ant_maze', 'ant_maze_large']:  
             if wandb.run is not None:
                 path = wandb.run.dir + '/E' + str(runner.step_itr) + '-'
             else:

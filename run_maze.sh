@@ -14,5 +14,5 @@ python tests/main.py --run_group MazeReady --env ant_maze --max_path_length 300 
     --common_lr 1e-4 --lr_te 1e-3 --dual_lr 1e-4 \
     --SZN_w2 5 --SZN_w3 1 --SZN_window_size 20 --SZN_repeat_time 3 \
     --Repr_temperature 0 --z_unit 0 --model_master_num_layers 2 --n_epochs 8000 --Repr_max_step 5 \
-    --dual_slack 1e-1 
+    --dual_slack 1e-3 
 

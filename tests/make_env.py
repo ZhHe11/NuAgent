@@ -46,6 +46,11 @@ def make_env(args, max_path_length):
         # env = MazeWrapper("antmaze-umaze-v0", random_init=False)
         # env = MazeWrapper("maze2d-umaze-v1", random_init=False)
 
+    elif args.env == 'ant_maze_large':
+        from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
+        env = MazeWrapper("antmaze-large-diverse-v0", random_init=False)
+
+
     elif args.env == 'lm':
         from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
         env = MazeWrapper("maze2d-large-v1", random_init=False)

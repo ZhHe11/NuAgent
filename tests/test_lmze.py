@@ -151,7 +151,6 @@ device = 'cuda'
 save_gif = False
 
 fig, axes = plt.subplots(1,2, figsize=(8,3))
-plt.title('Epoch:' + str(epoch_num))
 ax1 = axes[0]
 ax2 = axes[1]
 np_random = np.random.default_rng(seed=0) 

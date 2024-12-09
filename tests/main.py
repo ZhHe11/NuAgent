@@ -67,7 +67,7 @@ def get_argparser():
     parser.add_argument('--exp_name', type=str, default='')
 
     parser.add_argument('--env', type=str, default='kitchen', choices=[
-        'maze', 'half_cheetah', 'ant', 'dmc_cheetah', 'dmc_quadruped', 'dmc_humanoid', 'kitchen', 'ant_maze', 'lm'
+        'maze', 'half_cheetah', 'ant', 'dmc_cheetah', 'dmc_quadruped', 'dmc_humanoid', 'kitchen', 'ant_maze', 'lm', 'ant_maze_large',
     ])
     parser.add_argument('--frame_stack', type=int, default=None)
 

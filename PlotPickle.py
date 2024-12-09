@@ -17,6 +17,7 @@ def LoadDictData(path):
         reader = csv.DictReader(f)
         data = [row for row in reader]
     for dict_i in data:
+        print(dict_i)
         if dict_i['epoch'] == '0':
             dict_data = {}
             dict_data = defaultdict(list) 
@@ -38,17 +39,17 @@ def PlotSaveKey(key, paths, labels):
 
 
 
-path2 = '/mnt/nfs2/zhanghe/NuAgent/exp/LM-ready/baselinesd000_1733132528_lm_metra_bl/metrics_random.csv'
+# path2 = '/mnt/nfs2/zhanghe/NuAgent/exp/LM-ready/baselinesd000_1733132528_lm_metra_bl/metrics_random.csv'
 
-path3 = '/mnt/nfs2/zhanghe/NuAgent/exp/LM-ready/baselinesd000_1733133625_lm_metra_bl/metrics_random.csv'
+# path3 = '/mnt/nfs2/zhanghe/NuAgent/exp/LM-ready/baselinesd000_1733133625_lm_metra_bl/metrics_random.csv'
 
-path4 = '/mnt/nfs2/zhanghe/NuAgent/exp/LM-ready/baselinesd002_1733235429_lm_metra_bl/metrics_random.csv'
+# path4 = '/mnt/nfs2/zhanghe/NuAgent/exp/LM-ready/baselinesd002_1733235429_lm_metra_bl/metrics_random.csv'
 
-path5 = '/mnt/nfs2/zhanghe/NuAgent/exp/LM-ready/baselinesd004_1733241785_lm_metra_bl/metrics_random.csv'
+# path5 = '/mnt/nfs2/zhanghe/NuAgent/exp/LM-ready/baselinesd004_1733241785_lm_metra_bl/metrics_random.csv'
 
-# path2 = '/mnt/nfs2/zhanghe/NuAgent/exp/LM-ready/Ours-OnlyRegretScale-lr_te_1e_3-wodsd000_1733208892_lm_SZPC/metrics_random_psi.csv'
+# # path2 = '/mnt/nfs2/zhanghe/NuAgent/exp/LM-ready/Ours-OnlyRegretScale-lr_te_1e_3-wodsd000_1733208892_lm_SZPC/metrics_random_psi.csv'
 
-# path_2 = ''
+# # path_2 = ''
 
 
 
@@ -66,7 +67,7 @@ def GetXY(paths, x_key, y_key):
     x = []
     y = []
     for i in range(len(paths)):
-        dict_i = LoadDictData(paths[i])
+        dict_i = LoadDictData(paths[i]+'/metrics.csv')
         x.append(dict_i[x_key])
         y.append(dict_i[y_key])
         
@@ -95,17 +96,27 @@ def PlotCurve(x,y,ModelName,color):
 # load data
 x_key = 'epoch'
 y_key = 'CoverCoords'
-
 plt.figure(figsize=(10, 6))
 
-paths = [path2, path3, path4, path5]
+## model 1
+paths = [
+            '/mnt/nfs2/zhanghe/NuAgent/test/baselinesd032_1733504921_ant_metra_bl',
+            '/mnt/nfs2/zhanghe/NuAgent/exp/ant/baselinesd002_1733416521_ant_metra_bl',
+            '/mnt/nfs2/zhanghe/NuAgent/exp/ant/baselinesd004_1733438971_ant_metra_bl',
+            '/mnt/nfs2/zhanghe/NuAgent/exp/ant/baselinesd008_1733460821_ant_metra_bl',
+            '/mnt/nfs2/zhanghe/NuAgent/exp/ant/baselinesd016_1733482995_ant_metra_bl',
+        ]
 x,y = GetXY(paths, x_key, y_key)
 PlotCurve(x,y,ModelName='METRA',color='blue')
 
+
+## model 2
 paths = [
-            '/mnt/nfs2/zhanghe/NuAgent/exp/LM-ready/Ours-OnlyRegretScale-lr_te_1e_3-wodsd000_1733208892_lm_SZPC/metrics_random_psi.csv',
-            '/mnt/nfs2/zhanghe/NuAgent/exp/LM-ready/Ours-OnlyRegretScale-lr_te_1e_3-wodsd004_1733213229_lm_SZPC/metrics_random_psi.csv',
-            '/mnt/nfs2/zhanghe/NuAgent/exp/LM-ready/Ours-OnlyRegretScale-lr_te_1e_3-wodsd008_1733213261_lm_SZPC/metrics_random_psi.csv',
+            '/mnt/nfs2/zhanghe/NuAgent/exp/ant/Ours-Win20sd000_1733465312_ant_SZPC',
+            '/mnt/nfs2/zhanghe/NuAgent/exp/ant/Ours-Win20sd002_1733489607_ant_SZPC',
+            '/mnt/nfs2/zhanghe/NuAgent/exp/ant/Ours-Win20sd004_1733491014_ant_SZPC',
+            '/mnt/nfs2/zhanghe/NuAgent/exp/ant/Ours-Win20sd008_1733516784_ant_SZPC',
+            '/mnt/nfs2/zhanghe/NuAgent/exp/ant/Ours-Win20sd016_1733541990_ant_SZPC',
         ]
 x,y = GetXY(paths, x_key, y_key)
 PlotCurve(x,y,ModelName='PDSD',color='red')
@@ -120,7 +131,7 @@ plt.grid(True)
 
 # 显示图表
 plt.show()
-plt.savefig('LittleMazeLarge')
-print('save as ./LittleMazeLarge.png')
+plt.savefig('Ant.png')
+print('save as ./Ant.png')
 
 
