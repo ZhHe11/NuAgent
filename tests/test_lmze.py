@@ -20,6 +20,45 @@ import copy
 import pickle
 
 import argparse
+import torch.distributions as dist
+
+
+def UpdateGMM(dists, GMM=None, mix_dist_prob=None, device='cuda'):
+    if GMM is None:
+        component_distribution = dist.Independent(
+            dist.Normal(
+                loc=torch.stack([g.mean[0] for g in dists]),
+                scale=torch.stack([g.stddev[0] for g in dists])
+            ),
+            reinterpreted_batch_ndims=1
+        )
+        if mix_dist_prob is None:
+            # 创建均匀的 mixture_distribution
+            mixture_distribution = dist.Categorical(
+                probs=(torch.ones(len(dists)) / len(dists)).to(device)
+            )
+        else: 
+            mixture_distribution = dist.Categorical(
+                probs=mix_dist_prob
+            )
+        # 组合成一个 MixtureSameFamily 分布
+        window_dist = dist.MixtureSameFamily(
+            mixture_distribution=mixture_distribution,
+            component_distribution=component_distribution
+        )
+        return window_dist
+
+    else:
+        component_distribution = GMM.component_distribution
+        mixture_distribution = mixture_distribution
+
+        window_dist = dist.MixtureSameFamily(
+            mixture_distribution=mixture_distribution,
+            component_distribution=component_distribution
+        )
+
+        return window_dist
+
 
 def calc_eval_metrics(trajectories, is_option_trajectories, coord_dims=[0,1]):
     eval_metrics = {}
@@ -89,17 +128,22 @@ filepath = './'
 policy_path = paths
 traj_encoder_path = policy_path.replace('option_policy', 'traj_encoder')
 
+
 load_option_policy_base = torch.load(policy_path)
 load_traj_encoder_base = torch.load(traj_encoder_path)
+
 agent_policy = load_option_policy_base['policy'].eval()
-if "target_traj_encoder" in load_traj_encoder_base.keys():
-    agent_traj_encoder = load_traj_encoder_base['target_traj_encoder'].eval()
-else:
-    agent_traj_encoder = load_traj_encoder_base['traj_encoder'].eval()
+agent_traj_encoder = load_traj_encoder_base['traj_encoder'].eval()
+
+if 'psi' in args.eval_type:
+    SZN_path =policy_path.replace('option_policy', 'SampleZPolicy')
+    load_SZN_base = torch.load(SZN_path)
+    window = load_SZN_base['window']
+
 
 env.reset()
 frames = []
-num_eval = 100
+num_eval = 500
 dim_option = 2
 device = 'cuda'
 # eval_type = 'random_psi'
@@ -133,15 +177,18 @@ for i in trange(num_eval):
     phi_obs_ = agent_traj_encoder(obs).mean
     
     # getting key;
-    if eval_type in ['random', 'random_psi'] :
+    if eval_type in ['random', 'random_psi', 'uniform'] :
         option = torch.tensor(random_options[i]).unsqueeze(0).to(device)
-        if 'psi' not in eval_type:
+        if 'uniform' not in eval_type:
             option = vec_norm(option)
-        else:
-            # option = vec_norm(option)
-            option = option
         goal = np.zeros((num_eval, 2))
-            
+    
+    elif eval_type in ['window_psi']:
+        window_dist = UpdateGMM(window, device=device)
+        option = window_dist.sample((1,))
+        option = vec_norm(option)
+        goal = np.zeros((num_eval, 2))
+    
     elif 'goal' in eval_type:
         goal = GoalList[i]
         tensor_goal = torch.tensor(goal).to(device)

@@ -156,6 +156,8 @@ def get_argparser():
     parser.add_argument('--SZN_repeat_time', type=float, default=5.)
     parser.add_argument('--Repr_temperature', type=float, default=0.5)
     parser.add_argument('--Repr_max_step', type=float, default=300.)
+    parser.add_argument('--SZN_std_min', type=float, default=1e-1)
+    parser.add_argument('--SZN_std_max', type=float, default=5e-1)
     
     parser.add_argument('--z_unit', type=int, default=0)
     
@@ -377,8 +379,8 @@ def run(ctxt=None):
         input_dim=args.traj_batch_size,
         output_dim=args.dim_option,
         init_std=3e-1,
-        min_std=1e-1,
-        max_std=5e-1,
+        min_std=args.SZN_std_min,   # 1e-1
+        max_std=args.SZN_std_max,   # 5e-1
         # min_std=3e-1,
         # max_std=3e-1,
         normal_distribution_cls=TanhNormal,
