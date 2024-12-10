@@ -264,7 +264,7 @@ class IOD(RLAlgorithm):
                 Pepr_viz = True
                 PhiGoal_viz = True
                 Z_viz = True
-                if self.env_name == 'ant_maze':
+                if 'maze' in self.env_name:
                     fig, ax = plt.subplots()
                     env = runner._env
                     env.draw(ax)
@@ -274,9 +274,6 @@ class IOD(RLAlgorithm):
                     for i in range(len(trajectories)):
                         # plot phi
                         if Pepr_viz:
-                            # phi_s = trajectories[i]['agent_infos']['phi_s']
-                            # phi_g = trajectories[i]['agent_infos']['phi_sub_goal']
-                            # psi_s = self.Psi(self.traj_encoder(torch.tensor(trajectories[i]['observations']).to(self.device)).mean,  self.traj_encoder(self.obs0).mean).cpu().numpy()
                             if self.method['phi'] == 'Projection':
                                 psi_s = self.Psi(self.traj_encoder(torch.tensor(trajectories[i]['observations']).to(self.device)).mean).cpu().numpy()
                             else:

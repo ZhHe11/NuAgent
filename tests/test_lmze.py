@@ -143,7 +143,7 @@ if 'psi' in args.eval_type:
 
 env.reset()
 frames = []
-num_eval = 500
+num_eval = 50
 dim_option = 2
 device = 'cuda'
 # eval_type = 'random_psi'
@@ -295,7 +295,7 @@ for i in range(Repr_obs_array.shape[0]):
     ax2.scatter(Repr_goal_array[:,0], Repr_goal_array[:,1], marker='*', color=colors)
 
 
-plt.savefig('lm.png')
-print('saved at ', './lm.png')
+plt.savefig('./lm' + str(epoch_num) + '.png')
+print('saved at ', './lm' + str(epoch_num) + '.png')
 
 

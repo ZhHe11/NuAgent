@@ -457,7 +457,7 @@ class SZPC(IOD):
                 window_dist_raw = self.UpdateGMM(self.DistWindow, device=self.device).component_distribution
                 window_len = len(self.DistWindow)
                 mix_dist_prob = F.softmax(self.get_confidence_mix(self.new_trial, window_dist_raw, num_dist=window_len) - self.get_confidence_mix(self.last_trial, window_dist_raw, num_dist=window_len))
-                min_prob = 0.01
+                min_prob = 1 / self.SZN_window_size * 0.1
                 adjusted_probs = torch.maximum(mix_dist_prob, torch.tensor(min_prob))
                 adjusted_probs = adjusted_probs / torch.sum(adjusted_probs)
                 print(f"mix_dist_prob: {adjusted_probs.detach()}")
@@ -470,16 +470,6 @@ class SZPC(IOD):
                 self.NumSampleTimes += 1
                 if len(self.SfReprBuffer) == 0:
                     self.last_trial = []
-                
-                # # Epsilon:
-                # if np.random.rand() < max(0.8 ** int(runner.step_itr / 10), 0.1): 
-                #     random_options = np.random.uniform(-1,1, (runner._train_args.batch_size, self.dim_option))
-                #     if self.z_unit:
-                #         random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
-                #     extras = self._generate_option_extras(random_options, psi_g=random_options)
-                # else:
-                #     np_z = self.last_z.cpu().numpy()
-                #     extras = self._generate_option_extras(np_z, psi_g=np_z)   
                 
                 np_z = self.last_z.cpu().numpy()
                 extras = self._generate_option_extras(np_z, psi_g=np_z)   

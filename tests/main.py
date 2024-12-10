@@ -79,7 +79,7 @@ def get_argparser():
     parser.add_argument('--n_parallel', type=int, default=4)
     parser.add_argument('--n_thread', type=int, default=1)
 
-    parser.add_argument('--n_epochs', type=int, default=10000)
+    parser.add_argument('--n_epochs', type=int, default=1000000)
     parser.add_argument('--traj_batch_size', type=int, default=8)
     parser.add_argument('--trans_minibatch_size', type=int, default=256)
     parser.add_argument('--trans_optimization_epochs', type=int, default=200)
@@ -462,7 +462,7 @@ def run(ctxt=None):
 
     replay_buffer = PathBufferTensor(capacity_in_transitions=int(args.sac_max_buffer_size), pixel_shape=pixel_shape)
 
-    if args.algo in ['metra', 'dads', 'causer', 'metra_bl', 'SZN', 'SZN_batch', 'SZN_Z', 'SZN_P', 'SZN_PP', 'SZN_PPP', 'SZN_PPAU', 'P_SZN_AU', 'PSZP', 'PRR', 'P_PZ', 'PSZP_k', 'SZPC']:
+    if args.algo in ['metra', 'dads', 'metra_bl', 'SZN', 'SZN_batch', 'SZN_Z', 'SZN_P', 'SZN_PP', 'SZN_PPP', 'SZN_PPAU', 'P_SZN_AU', 'PSZP', 'PRR', 'P_PZ', 'PSZP_k', 'SZPC']:
         qf1 = ContinuousMLPQFunctionEx(
             obs_dim=policy_q_input_dim,
             action_dim=action_dim,
