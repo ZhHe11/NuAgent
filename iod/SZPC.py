@@ -377,16 +377,21 @@ class SZPC(IOD):
                 if self.NumSampleTimes == self.SZN_repeat_time * len(self.DistWindow):
                     # window pool operation: PopDist   
                     # Method 2. pop the dist whose Regret less than 0;
-                    def PopDistDeque(window_size=5):
+                    def PopDistDeque(window_size=5, pop_min=False):
                         if len(self.DistWindow) >= window_size:
-                            self.DistWindow.pop(0)
+                            if pop_min:
+                                All_Regrets = torch.tensor(np.array([self.cal_regeret(dist_i.sample(), self.init_obs)[0] for dist_i in self.DistWindow]))
+                                min_index = torch.argmin(All_Regrets)
+                                self.DistWindow.pop(min_index)
+                            else:
+                                self.DistWindow.pop(0)
                         return self.DistWindow
-                    with torch.no_grad():
-                        self.DistWindow = PopDistDeque(self.SZN_window_size)
-                        
+                    
                     self.NumSampleTimes = 0
                     self.copy_params(self.ResetSZPolicy, self.SampleZPolicy)
                     self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=3e-2)
+                    with torch.no_grad():
+                        self.DistWindow = PopDistDeque(self.SZN_window_size)
                     window_dist = self.UpdateGMM(self.DistWindow, device=self.device)
                     
                     for t in trange(100):
@@ -406,7 +411,7 @@ class SZPC(IOD):
                         kl_window = pz * (log_pz - log_qz)
                         # weight of Confidence Factor
                         confidence = self.get_confidence(self.SfReprBuffer, dist_z, num_dist=self.num_random_trajectories)  
-                        # confidence = torch.clamp(confidence, max=2)
+                        confidence = torch.clamp(confidence, max=0)
                         # total loss
                         loss_SZP = (-z_logp * (V_szn.detach()) - self.SZN_w2 * kl_window).mean() - self.SZN_w3 * confidence.mean()
                         

@@ -681,7 +681,7 @@ if __name__ == '__main__':
     max_path_length = 200
     
     
-    for epoch in [0, 1000, 2000, 3000, 4000, 5000, 6000, 7000]:
+    for epoch in [7000]:
         # 1. define the env:
         from envs.mujoco.ant_env import AntEnv
         from iod.utils import get_normalizer_preset
@@ -728,7 +728,7 @@ if __name__ == '__main__':
             else:
                 return phi_x
             
-        FD, AR, eval_metrics = PlotNormalTraj(env, agent_traj_encoder, agent_policy, device, __Psi, dim_option=dim_option, max_path_length=max_path_length, path=path, option_type=eval_type, eval_num=8)
+        FD, AR, eval_metrics = PlotNormalTraj(env, agent_traj_encoder, agent_policy, device, __Psi, dim_option=dim_option, max_path_length=max_path_length, path=path, option_type=eval_type, eval_num=100)
         
         # 5. save to csv:
         import pandas as pd

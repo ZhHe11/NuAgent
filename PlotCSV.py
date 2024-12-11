@@ -32,15 +32,17 @@ def plot_data(data_dict, key, label, color):
     plt.fill_between(epochs, data_dict[key+'_min'], data_dict[key+'_max'], color=color, alpha=0.2)
 
 
+
 #1. load data
-env_name = 'LittleMaze'
+env_name = 'Ant'
 plt.figure(figsize=(10, 6))
-all_data = pd.read_csv('full_lm.csv', index_col=None)
+all_data = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/wandb_export_2024-12-11T12_07_43.828+08_00.csv', index_col=None)
+
+all_data = all_data.dropna(how='all', subset=['Name: dads - MjNumUniqueCoords'])
 
 #2. setings:
-model_names = ['LSD', 'DIAYN', 'Ours', 'baseline']
 x_label = 'Steps'
-max_path_length = 300
+max_path_length = 200
 traj_batch_size = 16
 
 #3. Models
@@ -64,6 +66,11 @@ model_name = 'DIAYN'
 data_dict = get_data(all_data, model_name)
 plot_data(data_dict, key=model_name, label='DIAYN', color='grey')
 
+## Dads
+model_name = 'dads' 
+data_dict = get_data(all_data, model_name)
+plot_data(data_dict, key=model_name, label='DADS', color='orange')
+
 
 #4. Plot
 plt.xlabel(x_label)
@@ -72,6 +79,8 @@ plt.title(env_name)
 plt.legend()
 plt.grid(True)
 
-plt.savefig('/mnt/nfs2/zhanghe/NuAgent/plots/' + env_name + '.png')
+savepath = '/mnt/nfs2/zhanghe/NuAgent/plots/' + env_name + '.png'
+plt.savefig(savepath)
+print(f'saved as {savepath}')
 
 
