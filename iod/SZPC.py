@@ -377,10 +377,10 @@ class SZPC(IOD):
                 if self.NumSampleTimes == self.SZN_repeat_time * len(self.DistWindow):
                     # window pool operation: PopDist   
                     # Method 2. pop the dist whose Regret less than 0;
-                    def PopDistDeque(window_size=5, pop_min=False):
+                    def PopDistDeque(window_size=5, pop_min=True):
                         if len(self.DistWindow) >= window_size:
                             if pop_min:
-                                All_Regrets = torch.tensor(np.array([self.cal_regeret(dist_i.sample(), self.init_obs)[0] for dist_i in self.DistWindow]))
+                                All_Regrets = torch.tensor([(self.cal_regeret(dist_i.sample(), self.init_obs)[0]).mean() for dist_i in self.DistWindow])
                                 min_index = torch.argmin(All_Regrets)
                                 self.DistWindow.pop(min_index)
                             else:
@@ -391,7 +391,7 @@ class SZPC(IOD):
                     self.copy_params(self.ResetSZPolicy, self.SampleZPolicy)
                     self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=3e-2)
                     with torch.no_grad():
-                        self.DistWindow = PopDistDeque(self.SZN_window_size)
+                        self.DistWindow = PopDistDeque(self.SZN_window_size, pop_min=True)
                     window_dist = self.UpdateGMM(self.DistWindow, device=self.device)
                     
                     for t in trange(100):
@@ -471,6 +471,8 @@ class SZPC(IOD):
                 self.last_z = window_dist.sample((self.num_random_trajectories,))
                 if self.z_unit:
                     self.last_z = self.vec_norm(self.last_z)
+                else:
+                    self.last_z = torch.clamp(self.last_z, min=-1, max=1)
 
                 self.NumSampleTimes += 1
                 if len(self.SfReprBuffer) == 0:
@@ -706,14 +708,28 @@ class SZPC(IOD):
 
             return contrastive_sim
         
+        def cic(matrix, t=1):
+            eps = 1e-6
+            sim = torch.exp(matrix / t)
+            neg = sim.sum(dim=-1)
+            row_sub = torch.Tensor(neg.shape).fill_(torch.e**(1 / t)).to(self.device)
+            neg = torch.clamp(neg - row_sub, min=eps) 
+            pos = torch.exp(torch.diagonal(matrix) / t)
+            neg_loss = torch.log(pos / (neg + eps))
+            return neg_loss
+        
         ## pos and neg obj.
         if  self.Repr_temperature == 0:
             contrastive_sim = cal_softmax_obj(matrix, t=1)
             phi_obj = direction_sim
         else: 
-            norm_matrix = ((psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
-            contrastive_sim = cal_softmax_obj(norm_matrix, t=self.Repr_temperature)
-            phi_obj = 0 * direction_sim + contrastive_sim
+            # norm_matrix = ((psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
+            # contrastive_sim = cal_softmax_obj(norm_matrix, t=self.Repr_temperature)
+            # contrastive_sim = cal_softmax_obj(matrix, t=self.Repr_temperature)
+            # phi_obj = 1 * direction_sim + 1e-4 * contrastive_sim
+            contrastive_sim = cic(matrix, t=self.Repr_temperature)
+            phi_obj = direction_sim + contrastive_sim
+            
         
         # 2. Goal Arrival Reward
         reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)

@@ -169,7 +169,7 @@ def get_argparser():
 
 args = get_argparser().parse_args()
 if args.is_wandb == 0:
-    args.sac_min_buffer_size = 2000
+    args.sac_min_buffer_size = 5000
 else:
     import warnings
     warnings.filterwarnings("ignore")

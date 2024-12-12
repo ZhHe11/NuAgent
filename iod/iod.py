@@ -199,7 +199,7 @@ class IOD(RLAlgorithm):
                     p.eval()
                 self.traj_encoder.eval()
                 # test process
-                if self.n_epochs_per_eval != 0 and runner.step_itr % self.n_epochs_per_eval == 0 and wandb.run is not None:
+                if self.n_epochs_per_eval != 0 and runner.step_itr % self.n_epochs_per_eval == 0 and wandb.run is not None and runner.step_itr != 0:
                     self._evaluate_policy(runner, self.env_name)
                 # change mode
                 for p in self.policy.values():
