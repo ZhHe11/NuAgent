@@ -101,7 +101,7 @@ class SZPC3(IOD):
         self.dual_slack = dual_slack
         self.dual_dist = dual_dist
 
-        self.dual_slack2 = dual_slack
+        self.target_traj_encoder = copy.deepcopy(self.traj_encoder)
         
         self.num_alt_samples = num_alt_samples
         self.split_group = split_group
@@ -122,7 +122,7 @@ class SZPC3(IOD):
         '''
         policy_for_agent = {
             "default_policy": self.option_policy,
-            "traj_encoder": self.traj_encoder,
+            "traj_encoder": self.target_traj_encoder,
         }
         self.policy_for_agent = AgentWrapper(policies=policy_for_agent) 
         
@@ -167,7 +167,10 @@ class SZPC3(IOD):
         self.SfReprBuffer = []
         
         self.z_unit = z_unit
-        self.Part_count = 0
+        
+        self.target_theta = target_theta
+        
+        
     
     def Psi(self, phi_x, phi_x0=None):
         if 'Projection' in self.method['phi']:   
@@ -207,12 +210,17 @@ class SZPC3(IOD):
         E_V = values.mean(dim=0)        # [b, 1]
 
         return E_V.squeeze(-1)
-    
+   
+    '''
+    For soft-update
+    '''
+    def update_target_traj(self, theta=2e-5):
+        for t_param, param in zip(self.target_traj_encoder.parameters(), self.traj_encoder.parameters()):
+            t_param.data.copy_(t_param.data * (1.0 - theta) + param.data * theta) 
 
     def copy_params(self, ori_model, target_model):
         for t_param, param in zip(target_model.parameters(), ori_model.parameters()):
             t_param.data.copy_(param.data)
-
 
     def cal_regeret(self, z, state):
         '''
@@ -460,15 +468,15 @@ class SZPC3(IOD):
                     self.copyed = 1
                     self.SfReprBuffer = []
                 
-                window_dist_raw = self.UpdateGMM(self.DistWindow, device=self.device).component_distribution
-                window_len = len(self.DistWindow)
-                mix_dist_prob = F.softmax(self.get_confidence_mix(self.new_trial, window_dist_raw, num_dist=window_len) - self.get_confidence_mix(self.last_trial, window_dist_raw, num_dist=window_len))
-                min_prob = 1 / self.SZN_window_size * 0.1
-                adjusted_probs = torch.maximum(mix_dist_prob, torch.tensor(min_prob))
-                adjusted_probs = adjusted_probs / torch.sum(adjusted_probs)
-                print(f"mix_dist_prob: {adjusted_probs.detach()}")
-                window_dist = self.UpdateGMM(self.DistWindow, mix_dist_prob=adjusted_probs, device=self.device)
-                # window_dist = self.UpdateGMM(self.DistWindow, mix_dist_prob=None, device=self.device)
+                # window_dist_raw = self.UpdateGMM(self.DistWindow, device=self.device).component_distribution
+                # window_len = len(self.DistWindow)
+                # mix_dist_prob = F.softmax(self.get_confidence_mix(self.new_trial, window_dist_raw, num_dist=window_len) - self.get_confidence_mix(self.last_trial, window_dist_raw, num_dist=window_len))
+                # min_prob = 1 / self.SZN_window_size * 0.1
+                # adjusted_probs = torch.maximum(mix_dist_prob, torch.tensor(min_prob))
+                # adjusted_probs = adjusted_probs / torch.sum(adjusted_probs)
+                # print(f"mix_dist_prob: {adjusted_probs.detach()}")
+                # window_dist = self.UpdateGMM(self.DistWindow, mix_dist_prob=adjusted_probs, device=self.device)
+                window_dist = self.UpdateGMM(self.DistWindow, mix_dist_prob=None, device=self.device)
                 self.last_z = window_dist.sample((self.num_random_trajectories,))
                 if self.z_unit:
                     self.last_z = self.vec_norm(self.last_z)
@@ -521,7 +529,7 @@ class SZPC3(IOD):
 
             sfs = np.stack(sfs, axis=0)
             with torch.no_grad():
-                SfRepr = self.Psi(self.traj_encoder(torch.tensor(sfs).to(self.device)).mean)
+                SfRepr = self.Psi(self.target_traj_encoder(torch.tensor(sfs).to(self.device)).mean)
             self.SfReprBuffer.extend(SfRepr.cpu().numpy())
             self.new_trial.extend(SfRepr.cpu().numpy())
 
@@ -560,40 +568,18 @@ class SZPC3(IOD):
         if self.replay_buffer is not None and self.replay_buffer.n_transitions_stored < self.min_buffer_size:
             return {}
         self.buffer_ready = 1
-        
-        # # update ap:
-        if self.NumSampleTimes <= 1/2 * self.SZN_repeat_time * len(self.DistWindow):
-            for _ in trange(self._trans_optimization_epochs):
-                tensors = {}
-                if self.replay_buffer is None:
-                    v = self._get_mini_tensors(epoch_data)
-                else:
-                    v = self._sample_replay_buffer()
-                with torch.no_grad():
-                    self._update_rewards(tensors, v)
-                self._optimize_op(tensors, v)
-        
-        # # update phi:
-        # else:
-        #     for _ in trange(self._trans_optimization_epochs):
-        #         tensors = {}
-        #         if self.replay_buffer is None:
-        #             v = self._get_mini_tensors(epoch_data)
-        #         else:
-        #             v = self._sample_replay_buffer()
-        #         self._optimize_te(tensors, v)
-        
-        # for _ in trange(self._trans_optimization_epochs):
-        #     tensors = {}
-        #     if self.replay_buffer is None:
-        #         v = self._get_mini_tensors(epoch_data)
-        #     else:
-        #         v = self._sample_replay_buffer()
-        #     self._optimize_te(tensors, v)
-        #     with torch.no_grad():
-        #         self._update_rewards(tensors, v)
-        #     self._optimize_op(tensors, v)
-        
+        for _ in trange(self._trans_optimization_epochs):
+            tensors = {}
+            if self.replay_buffer is None:
+                v = self._get_mini_tensors(epoch_data)
+            else:
+                v = self._sample_replay_buffer()
+                # self.epoch_data = v
+            self._optimize_te(tensors, v)
+            with torch.no_grad():
+                self._update_rewards(tensors, v, target=True)
+            self._optimize_op(tensors, v)
+
         return tensors
 
     def _optimize_te(self, tensors, internal_vars):
@@ -604,6 +590,8 @@ class SZPC3(IOD):
             optimizer_keys=['traj_encoder'],
             params=self.traj_encoder.parameters(),
         )
+        
+        self.update_target_traj(theta=self.target_theta)
 
         if self.dual_reg:
             self._update_loss_dual_lam(tensors, internal_vars)
@@ -645,16 +633,21 @@ class SZPC3(IOD):
         
         sac_utils.update_targets(self)
 
-    def _update_rewards(self, tensors, v):
+    def _update_rewards(self, tensors, v, target=False):
+        if target:
+            traj_encoder = self.target_traj_encoder
+        else:
+            traj_encoder = self.traj_encoder
+            
         if self.method['phi'] == 'Projection':
-            self._update_rewards_C(tensors, v)
+            self._update_rewards_C(tensors, v, target=target)
         else:
             obs = v['obs']
             next_obs = v['next_obs']
             
             if self.inner:
-                cur_z = self.traj_encoder(obs).mean
-                next_z = self.traj_encoder(next_obs).mean
+                cur_z = traj_encoder(obs).mean
+                next_z = traj_encoder(next_obs).mean
                 target_z = next_z - cur_z
 
                 if self.discrete:
@@ -670,7 +663,7 @@ class SZPC3(IOD):
                     'next_z': next_z,
                 })
             else:
-                target_dists = self.traj_encoder(next_obs)
+                target_dists = traj_encoder(next_obs)
 
                 if self.discrete:
                     logits = target_dists.mean
@@ -686,16 +679,21 @@ class SZPC3(IOD):
             v['rewards'] = rewards
     
     
-    def _update_rewards_C(self, tensors, v):
+    def _update_rewards_C(self, tensors, v, target=False):
+        if target:
+            traj_encoder = self.target_traj_encoder
+        else:
+            traj_encoder = self.traj_encoder
+            
         obs = v['obs']
         next_obs = v['next_obs']
-        cur_z = self.traj_encoder(obs).mean
-        next_z = self.traj_encoder(next_obs).mean
+        cur_z = traj_encoder(obs).mean
+        next_z = traj_encoder(next_obs).mean
         psi_g = v['options']
         
         z_unit = self.vec_norm(psi_g)
-        phi_s_0 = self.traj_encoder(v['s_0']).mean
-        phi_init_obs = self.traj_encoder(self.s0).mean
+        phi_s_0 = traj_encoder(v['s_0']).mean
+        phi_init_obs = traj_encoder(self.s0).mean
         phi_s = cur_z
         phi_s_next = next_z
         
@@ -743,7 +741,7 @@ class SZPC3(IOD):
         
         ## pos and neg obj.
         if  self.Repr_temperature == 0:
-            contrastive_sim = cal_softmax_obj(matrix, t=1)
+            contrastive_sim = cic(matrix, t=1)
             phi_obj = direction_sim
         else: 
             # norm_matrix = ((psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
@@ -753,10 +751,10 @@ class SZPC3(IOD):
             contrastive_sim = cic(matrix, t=self.Repr_temperature)
             phi_obj = direction_sim + contrastive_sim
             
-        
         # 2. Goal Arrival Reward
         reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
-        policy_rewards = 1 * reward_g_distance
+        contrastive_sim_bm = (contrastive_sim - contrastive_sim.mean()) / (contrastive_sim.std() + 1e-6)
+        policy_rewards = 1 * reward_g_distance + 0 * contrastive_sim_bm
         # policy_rewards = direction_sim
         
         v.update({
@@ -784,7 +782,7 @@ class SZPC3(IOD):
     
 
     def _update_loss_te(self, tensors, v):
-        self._update_rewards(tensors, v)
+        self._update_rewards(tensors, v, target=False)
         rewards = v['rewards']
 
         obs = v['obs']
@@ -942,7 +940,7 @@ class SZPC3(IOD):
             else:
                 path = '.'
                 
-            FD, AR, eval_metrics = PlotMazeTraj(runner._env, self.traj_encoder, self.option_policy, self.device, Psi=partial(self.Psi), dim_option=self.dim_option, max_path_length=self.max_path_length, path=path, option_type=self.method['eval'])
+            FD, AR, eval_metrics = PlotMazeTraj(runner._env, self.target_traj_encoder, self.option_policy, self.device, Psi=partial(self.Psi), dim_option=self.dim_option, max_path_length=self.max_path_length, path=path, option_type=self.method['eval'])
     
             wandb.log(  
                 {
@@ -978,7 +976,7 @@ class SZPC3(IOD):
         torch.save({
             'discrete': self.discrete,
             'dim_option': self.dim_option,
-            'traj_encoder': self.traj_encoder,
+            'traj_encoder': self.target_traj_encoder,
         }, file_name)
         file_name = path + 'SampleZPolicy-' + str(epoch) + '.pt'
         torch.save({
@@ -1053,7 +1051,7 @@ class SZPC3(IOD):
 
         data = self.process_samples(random_trajectories)
         last_obs = torch.stack([torch.from_numpy(ob[-1]).to(self.device) for ob in data['obs']])
-        option_dists = self.traj_encoder(last_obs)
+        option_dists = self.target_traj_encoder(last_obs)
 
         option_means = option_dists.mean.detach().cpu().numpy()
         if self.inner:

@@ -16,11 +16,9 @@ def get_data(all_data, key):
     data_dict['epoch'] = np.array(all_data['epoch'])
     for key in all_data.columns:
         if model_name in key:
-            if 'MIN' in key:
-                data_dict[model_name+'_min'] = np.array(all_data[key])
-            elif 'MAX' in key:
-                data_dict[model_name+'_max'] = np.array(all_data[key])
-            else:
+            if 'std' in key:
+                data_dict[model_name+'_std'] = np.array(all_data[key])
+            elif 'mean' in key:
                 data_dict[model_name] = np.array(all_data[key])
                                 
     return data_dict
@@ -28,27 +26,35 @@ def get_data(all_data, key):
 
 def plot_data(data_dict, key, label, color):
     epochs = data_dict['epoch'] * traj_batch_size * max_path_length
-    plt.plot(epochs, data_dict[key], label=label, color=color)
-    plt.fill_between(epochs, data_dict[key+'_min'], data_dict[key+'_max'], color=color, alpha=0.2)
+    epoch_subset = epochs[epochs % 200 == 0]
+    data_subset = data_dict[key][epochs % 200 == 0]
+    data_subset_std = data_dict[key+'_std'][epochs % 200 == 0]
+    
+    # 高斯平滑
+    from scipy.ndimage import gaussian_filter1d
+    data_subset = gaussian_filter1d(data_subset, sigma=2)
+    data_subset[0] = 0
+    plt.plot(epoch_subset, data_subset, label=label, color=color)
+    plt.fill_between(epochs, data_subset-data_subset_std, data_subset+data_subset_std, color=color, alpha=0.1)
 
 
 
 #1. load data
-env_name = 'Ant'
 plt.figure(figsize=(10, 6))
-all_data = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/wandb_export_2024-12-11T12_07_43.828+08_00.csv', index_col=None)
-
-all_data = all_data.dropna(how='all', subset=['Name: dads - MjNumUniqueCoords'])
+env_name = 'AntMaze'
+all_data = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/wandb_export_2024-12-13T15_42_51.381+08_00.csv', index_col=None)
+# all_data = all_data.dropna(how='all', subset=['Name: dads - MjNumUniqueCoords'])
 
 #2. setings:
 x_label = 'Steps'
-max_path_length = 200
+max_path_length = 300
 traj_batch_size = 16
 
 #3. Models
-## Ours
+# ## Ours
 model_name = 'Ours' 
-data_dict = get_data(all_data, model_name)
+data_ours = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/wandb_export_2024-12-13T16_26_22.570+08_00.csv', index_col=None)
+data_dict = get_data(data_ours, model_name)
 plot_data(data_dict, key=model_name, label='PDSD', color='red')
 
 ## METRA
