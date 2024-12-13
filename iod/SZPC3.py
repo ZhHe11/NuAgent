@@ -384,8 +384,6 @@ class SZPC3(IOD):
 
             if self.method['explore'] == 'SZN' and self.buffer_ready: 
                 if self.NumSampleTimes == self.SZN_repeat_time * len(self.DistWindow):
-                    # window pool operation: PopDist   
-                    # Method 2. pop the dist whose Regret less than 0;
                     def PopDistDeque(window_size=5, pop_min=True):
                         if len(self.DistWindow) >= window_size:
                             if pop_min:
@@ -568,17 +566,29 @@ class SZPC3(IOD):
         if self.replay_buffer is not None and self.replay_buffer.n_transitions_stored < self.min_buffer_size:
             return {}
         self.buffer_ready = 1
-        for _ in trange(self._trans_optimization_epochs):
-            tensors = {}
-            if self.replay_buffer is None:
-                v = self._get_mini_tensors(epoch_data)
-            else:
-                v = self._sample_replay_buffer()
-                # self.epoch_data = v
-            self._optimize_te(tensors, v)
-            with torch.no_grad():
-                self._update_rewards(tensors, v, target=True)
-            self._optimize_op(tensors, v)
+        
+        if self.NumSampleTimes < 1/2 * self.SZN_repeat_time * len(self.DistWindow):
+            for _ in trange(self._trans_optimization_epochs):
+                tensors = {}
+                if self.replay_buffer is None:
+                    v = self._get_mini_tensors(epoch_data)
+                else:
+                    v = self._sample_replay_buffer()
+                with torch.no_grad():
+                    self._update_rewards(tensors, v, target=True)
+                self._optimize_op(tensors, v)
+        
+        else:
+            for _ in trange(self._trans_optimization_epochs):
+                tensors = {}
+                if self.replay_buffer is None:
+                    v = self._get_mini_tensors(epoch_data)
+                else:
+                    v = self._sample_replay_buffer()
+                self._optimize_te(tensors, v)
+    
+    
+        self._evaluate_policy(self.runner, self.env_name)
 
         return tensors
 
