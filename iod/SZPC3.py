@@ -170,6 +170,9 @@ class SZPC3(IOD):
         
         self.target_theta = target_theta
         
+        self.train_policy = False
+        self.train_phi = False
+        self.save_debug = False
         
     
     def Psi(self, phi_x, phi_x0=None):
@@ -566,9 +569,17 @@ class SZPC3(IOD):
         if self.replay_buffer is not None and self.replay_buffer.n_transitions_stored < self.min_buffer_size:
             return {}
         self.buffer_ready = 1
-        
+        if self.NumSampleTimes == int(1/2 * self.SZN_repeat_time * len(self.DistWindow)):
+            self.save_debug = True
+        elif self.NumSampleTimes == self.SZN_repeat_time * len(self.DistWindow) - 1:
+            self.save_debug = True
+        else:
+            self.save_debug = False
+
         if self.NumSampleTimes < 1/2 * self.SZN_repeat_time * len(self.DistWindow):
             for _ in trange(self._trans_optimization_epochs):
+                self.train_policy = True
+                self.train_phi = False
                 tensors = {}
                 if self.replay_buffer is None:
                     v = self._get_mini_tensors(epoch_data)
@@ -579,16 +590,15 @@ class SZPC3(IOD):
                 self._optimize_op(tensors, v)
         
         else:
-            for _ in trange(self._trans_optimization_epochs):
+            for _ in trange(self._trans_optimization_epochs * 2):
+                self.train_policy = False
+                self.train_phi = True
                 tensors = {}
                 if self.replay_buffer is None:
                     v = self._get_mini_tensors(epoch_data)
                 else:
                     v = self._sample_replay_buffer()
                 self._optimize_te(tensors, v)
-    
-    
-        self._evaluate_policy(self.runner, self.env_name)
 
         return tensors
 
@@ -752,7 +762,7 @@ class SZPC3(IOD):
         ## pos and neg obj.
         if  self.Repr_temperature == 0:
             contrastive_sim = cic(matrix, t=1)
-            phi_obj = direction_sim
+            phi_obj = 1 * direction_sim + reward_g_distance
         else: 
             # norm_matrix = ((psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
             # contrastive_sim = cal_softmax_obj(norm_matrix, t=self.Repr_temperature)

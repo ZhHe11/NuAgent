@@ -260,14 +260,16 @@ class IOD(RLAlgorithm):
         plot training traj
         '''
         with torch.no_grad():
-            if (runner.step_itr + 2) % self.n_epochs_per_log == 0 and wandb.run is not None:
+            # if (runner.step_itr + 2) % self.n_epochs_per_log == 0 and wandb.run is not None:
+            if wandb.run is not None:
                 Pepr_viz = True
                 PhiGoal_viz = True
                 Z_viz = True
                 if 'maze' in self.env_name:
-                    fig, ax = plt.subplots()
+                    fig, ax = plt.subplots(1, 2, figsize=(15, 6))
+                    fig.suptitle("Epoch:" + str(runner.step_itr))
                     env = runner._env
-                    env.draw(ax)
+                    env.draw(ax[0])
                     list_viz_traj = []
                     All_Repr_obs_list = []
                     All_Goal_obs_list = []
@@ -293,16 +295,20 @@ class IOD(RLAlgorithm):
                         for j in range(len(trajectories[i]['observations'])):
                             viz_traj['info'].append({'x':viz_traj['observation'][j][0], 'y':viz_traj['observation'][j][1]})
                         list_viz_traj.append(viz_traj)
-                    plot_trajectories(env, list_viz_traj, fig, ax)
-                    ax.legend(loc='lower right')
+                    plot_trajectories(env, list_viz_traj, fig, ax[0])
+                    title_txt = "train_policy: " + str(self.train_policy) + "\n train_phi: " + str(self.train_phi)
+                    ax[0].set_title(title_txt)
+                    ax[0].legend(loc='lower right')
                     path = wandb.run.dir
+                    PCA_plot_traj(ax[1], All_Repr_obs_list, All_Goal_obs_list, path, path_len=self.max_path_length, is_goal=True)
+                    ax[1].set_xlim(-1, 1) 
+                    ax[1].set_ylim(-1, 1) 
                     filepath = os.path.join(path, "train_Maze_traj.png")
                     print(filepath)
                     plt.savefig(filepath) 
-                    wandb.log(({"train_Maze_traj": wandb.Image(filepath)}))
-                    PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=self.max_path_length, is_goal=True)
-                    # viz_SZN_dist(self.SampleZPolicy, self.input_token, path=path)
-                
+                    if self.save_debug == True:
+                        wandb.log(({"train_Maze_traj": wandb.Image(filepath)}))
+
                 else:
                     fig, ax = plt.subplots()
                     env = runner._env
@@ -322,23 +328,7 @@ class IOD(RLAlgorithm):
         
                     path = wandb.run.dir
                     PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=self.max_path_length, is_goal=True)
-
-            
-            elif 'phi_s' in trajectories[0]['agent_infos'].keys():
-                All_Repr_obs_list = []
-                All_Goal_obs_list = []
-                for i in range(len(trajectories)):
-                    # plot phi
-                    if Pepr_viz:
-                        phi_s = trajectories[i]['agent_infos']['phi_s']
-                        All_Repr_obs_list.append(phi_s)
-                        if PhiGoal_viz:
-                            phi_g = trajectories[i]['agent_infos']['phi_sub_goal']
-                            All_Goal_obs_list.append(phi_g)
-                        if Z_viz:
-                            phi_g = trajectories[i]['agent_infos']['option'] + phi_s[0]
-                            All_Goal_obs_list.append(phi_g)
-            
+  
         return trajectories
 
 
