@@ -577,7 +577,7 @@ class SZPC3(IOD):
             self.save_debug = False
 
         if self.NumSampleTimes < 1/2 * self.SZN_repeat_time * len(self.DistWindow):
-            for _ in trange(self._trans_optimization_epochs):
+            for _ in trange(self._trans_optimization_epochs * 2):
                 self.train_policy = True
                 self.train_phi = False
                 tensors = {}
@@ -720,6 +720,7 @@ class SZPC3(IOD):
         psi_s = self.Psi(phi_s)
         psi_s_next = self.Psi(phi_s_next)
         psi_s_0 = self.Psi(phi_s_0)
+        psi_s_f = self.Psi(traj_encoder(v['sub_goal']).mean)
         # 0. updated option
         updated_option = psi_g
         updated_next_option = psi_g
@@ -730,8 +731,12 @@ class SZPC3(IOD):
         # 1. Similarity Reward
         delta_norm = self.norm((psi_s_next - psi_s))
         ## pos sample
-        matrix = (1/d * (psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
-        direction_sim = (1 * (psi_s_next - psi_s) * z_unit).sum(dim=-1)
+        matrix = (self.vec_norm(psi_s_f).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
+        # direction_sim = (1 * (psi_s_next - psi_s) * z_unit).sum(dim=-1)
+        
+        direction_sim = (1 * (psi_s_next - psi_s) * self.vec_norm(psi_g - psi_s.detach())).sum(dim=-1)
+        
+        
         ## neg smaple
         def cal_softmax_obj(matrix, t=1):
             # dist_theta = 1e-2
@@ -762,7 +767,7 @@ class SZPC3(IOD):
         ## pos and neg obj.
         if  self.Repr_temperature == 0:
             contrastive_sim = cic(matrix, t=1)
-            phi_obj = 1 * direction_sim + reward_g_distance
+            phi_obj = 1 * direction_sim + 1e-3 * contrastive_sim
         else: 
             # norm_matrix = ((psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
             # contrastive_sim = cal_softmax_obj(norm_matrix, t=self.Repr_temperature)
