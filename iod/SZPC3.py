@@ -737,7 +737,7 @@ class SZPC3(IOD):
         
         # direction_sim = (1 * (psi_s_next - psi_s) * self.vec_norm(psi_g - psi_s.detach())).sum(dim=-1)
         direction_sim = (1 * (psi_s_next - psi_s) * self.vec_norm(psi_g)).sum(dim=-1)
-        
+
         ## neg smaple
         def cal_softmax_obj(matrix, t=1):
             # dist_theta = 1e-2
