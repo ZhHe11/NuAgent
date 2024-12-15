@@ -734,8 +734,9 @@ class SZPC3(IOD):
         matrix = (self.vec_norm(psi_s_f).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
         # direction_sim = (1 * (psi_s_next - psi_s) * z_unit).sum(dim=-1)
         
-        direction_sim = (1 * (psi_s_next - psi_s) * self.vec_norm(psi_g - psi_s.detach())).sum(dim=-1)
         
+        # direction_sim = (1 * (psi_s_next - psi_s) * self.vec_norm(psi_g - psi_s.detach())).sum(dim=-1)
+        direction_sim = (1 * (psi_s_next - psi_s) * self.vec_norm(psi_g)).sum(dim=-1)
         
         ## neg smaple
         def cal_softmax_obj(matrix, t=1):
