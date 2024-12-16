@@ -198,6 +198,8 @@ class TrajectoryBatch(
                 'of dtype {} instead.'.format(terminals.dtype))
 
         # env_infos
+        if 'TimeLimit.truncated' in env_infos:
+            del env_infos['TimeLimit.truncated']
         for key, val in env_infos.items():
             if not isinstance(val, (dict, np.ndarray)):
                 raise ValueError(
@@ -207,6 +209,7 @@ class TrajectoryBatch(
 
             if (isinstance(val, np.ndarray)
                     and val.shape[0] != inferred_batch_size):
+                print(key, val)
                 if not (val.shape[0] == len(lengths) and sum([len(v) for v in val]) == inferred_batch_size):
                     raise ValueError(
                         'Each entry in env_infos must have a batch dimension of '

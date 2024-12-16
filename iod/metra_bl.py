@@ -13,6 +13,8 @@ from iod.utils import get_torch_concat_obs, FigManager, get_option_colors, recor
 import wandb
 from iod.agent import AgentWrapper
 
+from iod.viz_utils import PlotMazeTraj
+
 
 class METRA_bl(IOD):
     def __init__(
@@ -100,6 +102,14 @@ class METRA_bl(IOD):
             # "target_traj_encoder": self.target_traj_encoder,
         }
         self.policy_for_agent = AgentWrapper(policies=policy_for_agent) 
+        
+        self.method = {
+            "eval": 'random',
+            "phi": phi_type,
+            "policy": policy_type,
+            "explore": explore_type,
+        }
+        
         
     def vec_norm(self, vec):
         return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
@@ -239,21 +249,6 @@ class METRA_bl(IOD):
                 masks = (v['options'] - v['options'].mean(dim=1, keepdim=True)) * self.dim_option / (self.dim_option - 1 if self.dim_option != 1 else 1)
                 rewards = (target_z * masks).sum(dim=1)
             else:
-                # ## 对比学习phi_g
-                # # zhanghe begin 20240924
-                # phi_g = self.traj_encoder(v['sub_goal']).mean
-                # phi_s0 = self.traj_encoder(v['s_0']).mean
-                # v['options'] = self.vec_norm(phi_g - phi_s0)
-                # v['next_options'] = v['options']
-                # new_reward1 = (target_z * v['options']).sum(dim=-1)
-                # option_sim = (v['options'].unsqueeze(1) * v['options'].unsqueeze(0)).sum(dim=-1)    
-                # mask1 = torch.where(option_sim>0.99, 0, 1)
-                # option_sim = option_sim * mask1
-                # new_reward2 = option_sim.sum(dim=-1) / ((mask1).sum(dim=-1) + 1e-6)
-                # weight = 1 / self.max_path_length
-                # rewards = new_reward1 - weight * new_reward2
-                # # zhanghe end
-                
                 ## baseline
                 inner = (target_z * v['options']).sum(dim=1)
                 rewards = inner
@@ -399,8 +394,22 @@ class METRA_bl(IOD):
     '''
     @torch.no_grad()
     def _evaluate_policy(self, runner, env_name):
-        if env_name == 'ant_maze':  
-            self.eval_maze(runner)
+        if env_name in ['lm', 'ant_maze', 'ant_maze_large']:  
+            if wandb.run is not None:
+                path = wandb.run.dir + '/E' + str(runner.step_itr) + '-'
+            else:
+                path = '.'
+                
+            FD, AR, eval_metrics = PlotMazeTraj(runner._env, self.traj_encoder, self.option_policy, self.device, Psi=None, dim_option=self.dim_option, max_path_length=self.max_path_length, path=path, option_type=self.method['eval'])
+    
+            wandb.log(  
+                {
+                    "epoch": runner.step_itr,
+                    "SampleSteps": runner.step_itr * self.max_path_length * self.num_random_trajectories,
+                    "CoordsCover": eval_metrics['MjNumUniqueCoords'], 
+                    "Maze_traj": wandb.Image(path + "-Maze_traj.png"),
+                },
+            )
         
         elif env_name == 'kitchen':
             self.eval_kitchen_metra(runner)
@@ -409,18 +418,22 @@ class METRA_bl(IOD):
             self.eval_metra(runner)
             
             
-    def _save_pt(self):
+    def _save_pt(self, epoch):
         if wandb.run is not None:
             path = wandb.run.dir
         else:
             path = '.'
-        file_name = path + 'option_policy.pt'
+        file_name = path + 'option_policy-' + str(epoch) + '.pt'
         torch.save({
             'discrete': self.discrete,
             'dim_option': self.dim_option,
+            # 'qf1': self.qf1,
+            # 'qf2': self.qf2,
+            # 'alpha': self.log_alpha,
             'policy': self.option_policy,
+            # 's0': self.s0,
         }, file_name)
-        file_name = path + 'traj_encoder.pt'
+        file_name = path + 'traj_encoder-' + str(epoch) + '.pt'
         torch.save({
             'discrete': self.discrete,
             'dim_option': self.dim_option,
@@ -468,7 +481,8 @@ class METRA_bl(IOD):
                 random_option_colors.extend([cm.get_cmap(cmap)(colors[i])[:3]])
             random_option_colors = np.array(random_option_colors)
         else:
-            random_options = np.random.randn(self.num_random_trajectories, self.dim_option)
+            eval_num = 8
+            random_options = np.random.randn(eval_num, self.dim_option)
             if self.unit_length:
                 random_options = random_options / np.linalg.norm(random_options, axis=1, keepdims=True)
             random_option_colors = get_option_colors(random_options * 4)
@@ -547,7 +561,9 @@ class METRA_bl(IOD):
 
         eval_option_metrics.update(runner._env.calc_eval_metrics(random_trajectories, is_option_trajectories=True))
         if wandb.run is not None:
-            eval_option_metrics.update({'epoch': runner.step_itr})
+            eval_option_metrics.update({'epoch': runner.step_itr,
+                                        'interaction_steps': runner.step_itr * self.num_random_trajectories * self.max_path_length,
+                                        })
             wandb.log(eval_option_metrics)
 
         

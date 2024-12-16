@@ -117,6 +117,8 @@ class OptionWorker(DefaultWorker):
                     if cur_extra is None:
                         cur_extra = self._prev_extra
                         self._cur_extras[self._cur_extra_idx][cur_extra_key][self._path_length] = cur_extra
+                    phi_s = None
+                    
                 else:
                     cur_extra = self._cur_extras[self._cur_extra_idx][cur_extra_key]
                     
@@ -145,10 +147,16 @@ class OptionWorker(DefaultWorker):
                     #     token = self._cur_extras[self._cur_extra_idx]['token']
                     #     self._agent_infos['token'].append(token)
                     
+                
+                if self.agent.InjectPhi == 1:
+                    agent_input = self.agent._get_concat_obs(
+                        torch.tensor(self._prev_obs).unsqueeze(0).to('cuda'), torch.tensor(cur_extra).unsqueeze(0).to('cuda'), 
+                    ).squeeze(0).cpu().numpy()
                     
-                agent_input = get_np_concat_obs(
-                    self._prev_obs, cur_extra,
-                )
+                else:
+                    agent_input = get_np_concat_obs(
+                        self._prev_obs, cur_extra, 
+                    )
                 self._prev_extra = cur_extra
 
             if self._deterministic_policy is not None:

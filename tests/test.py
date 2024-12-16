@@ -45,7 +45,6 @@ def viz_Regert_in_Psi(base1, base2, state, Repr_goal_array=None, State_goal_arra
     # Special Points:
     if Repr_goal_array is None:
         Repr_goal_array = np.load('/mnt/nfs2/zhanghe/NuAgent/test/PSZP-6-cal_softmaxsd000_1730088991_ant_maze_PSZP-Repr_goal_list.npy')
-
         Repr_obs_array = np.load('/mnt/nfs2/zhanghe/NuAgent/test/PSZP-6-cal_softmaxsd000_1730088991_ant_maze_PSZP-Repr_obs_list.npy')
     
     x_points = Repr_goal_array[:, 0]
@@ -113,9 +112,9 @@ args = parser.parse_args()
 
 env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
 epoch_num = args.epoch_num
-policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-8-GMM1-Deque10-std1_3e1_1e1sd000_1730290115_ant_maze_PSZP/wandb/latest-run/filesoption_policy-" + str(epoch_num) +'.pt'
-policy_path1 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-8-GMM1-Deque10-std1_3e1_1e1sd000_1730290115_ant_maze_PSZP/wandb/latest-run/filesoption_policy-" + str(epoch_num-100) +'.pt'
-policy_path2 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-8-GMM1-Deque10-std1_3e1_1e1sd000_1730290115_ant_maze_PSZP/wandb/latest-run/filesoption_policy-" + str(epoch_num-200) +'.pt'
+policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-23-reward_goal_conditionsd000_1730892016_ant_maze_PSZP/wandb/latest-run/filesoption_policy-" + str(epoch_num) +'.pt'
+# policy_path1 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-8-GMM1-Deque10-std1_3e1_1e1sd000_1730290115_ant_maze_PSZP/wandb/latest-run/filesoption_policy-" + str(epoch_num-100) +'.pt'
+# policy_path2 = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-8-GMM1-Deque10-std1_3e1_1e1sd000_1730290115_ant_maze_PSZP/wandb/latest-run/filesoption_policy-" + str(epoch_num-200) +'.pt'
 
 
 traj_encoder_path = policy_path.replace("option_policy", "traj_encoder")
@@ -154,12 +153,14 @@ ax[0,1].set_title('Estimate Value in Z Space')
 
 max_path_length=300
 isCover=0
+baseline=1
 
 def Psi(phi_x, phi_x0=None):
     # if phi_x0 is None:
     #     x0 = self.s0        # [1, dim_obs]; phi_x: [batch, dim_z]
     #     phi_x0 = self.traj_encoder(x0).mean     # [1, dim_z]
     return torch.tanh(1/150 * (phi_x))
+    # return phi_x
 
 # def Psi(phi_x, phi_x0):
 #     # if phi_x0 is None:
@@ -172,14 +173,16 @@ def Psi(phi_x, phi_x0=None):
 
 
 
-
 # # Traj. Map:
 run_env = 1
 if run_env:
     All_Goal_obs_list = []
-    ax[0,0], FinallDistanceList, All_Repr_obs_list, All_Goal_obs_list, All_trajs_list, FinallDistanceList, ArriveList, All_Cover_list = eval_cover_rate(env, agent_traj_encoder, policy, dim_option, device, Psi=Psi, freq=2, ax=ax[0,0], max_path_length=max_path_length)
+    ax[0,0], FinallDistanceList, All_Repr_obs_list, All_Goal_obs_list, All_trajs_list, FinallDistanceList, ArriveList, All_Cover_list = eval_cover_rate(env, agent_traj_encoder, policy, dim_option, device, Psi=Psi, freq=2, ax=ax[0,0], max_path_length=max_path_length, option_type='Projection')
     ax[0,0] = plot_trajectories(env, All_trajs_list, fig, ax[0,0])
     ax[1,0] = PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=True, ax=ax[1,0])
+    # eval_metrics
+    eval_metrics = calc_eval_metrics(All_Cover_list, is_option_trajectories=True)
+    print('[eval_metrics]:', eval_metrics)
 
     # Value Map: 
     fig = viz_Value_in_Psi(policy, alpha, qf1, qf2, state=s0, num_samples=10, device=device, path=path, fig=fig)
@@ -191,6 +194,11 @@ if run_env:
     np.save(filepath, np.array(All_Goal_obs_list)[:,0,:])
     print("save as ", filepath)
 
+
+    fig.suptitle("Policy Epoch: " + str(epoch_num), fontsize=16)
+    filepath = path + "-RegertMap.png"
+    fig.savefig(filepath) 
+    print(filepath)
 
 # # # Window Dist：
 
@@ -241,5 +249,5 @@ if __name__ == '__main__':
         ReprGoalPath = "/mnt/nfs2/zhanghe/NuAgent/tests/savenp/testRepr_goal_array.npy"
     else:
         ReprGoalPath = None
-        
-    RegretMap(ax, ReprGoalPath=ReprGoalPath, All_Goal_obs_list=All_Goal_obs_list)
+    if not baseline:
+        RegretMap(ax, ReprGoalPath=ReprGoalPath, All_Goal_obs_list=All_Goal_obs_list)

@@ -264,3 +264,9 @@ np_ad = np.array(all_distane)
 
 
 
+
+
+
+
+
+

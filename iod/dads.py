@@ -1,10 +1,10 @@
 import numpy as np
 import torch
 
-from iod.metra import METRA
+from iod.metra_bl import METRA_bl
 
 
-class DADS(METRA):
+class DADS(METRA_bl):
     def __init__(
             self,
             **kwargs,

@@ -65,6 +65,7 @@ class IOD(RLAlgorithm):
             sample_type=None,
             num_her=0,
             _trans_online_sample_epochs=1,
+            save_pt_step=500,
     ):
         self.env_name = env_name
         self.algo = algo
@@ -131,6 +132,7 @@ class IOD(RLAlgorithm):
         self.sample_type=sample_type
         self.num_her=num_her
         self._trans_online_sample_epochs = _trans_online_sample_epochs
+        self.save_pt_step = save_pt_step 
 
     @property
     def policy(self):
@@ -197,8 +199,8 @@ class IOD(RLAlgorithm):
                     p.eval()
                 self.traj_encoder.eval()
                 # test process
-                if self.n_epochs_per_eval != 0 and runner.step_itr % self.n_epochs_per_eval == 0 and wandb.run is not None:
-                    self._evaluate_policy(runner, self.env_name)
+                # if self.n_epochs_per_eval != 0 and runner.step_itr % self.n_epochs_per_eval == 0 and wandb.run is not None and runner.step_itr != 0:
+                self._evaluate_policy(runner, self.env_name)
                 # change mode
                 for p in self.policy.values():
                     p.train()
@@ -217,7 +219,7 @@ class IOD(RLAlgorithm):
                         },
                     )
                 # save model
-                if runner.step_itr % 100 == 0:
+                if runner.step_itr % self.save_pt_step == 0:
                     self._save_pt(runner.step_itr)
                 runner.step_itr += 1
 
@@ -258,24 +260,26 @@ class IOD(RLAlgorithm):
         plot training traj
         '''
         with torch.no_grad():
-            if (runner.step_itr + 2) % self.n_epochs_per_log == 0 and wandb.run is not None:
+            # if (runner.step_itr + 2) % self.n_epochs_per_log == 0 and wandb.run is not None:
+            if wandb.run is not None:
                 Pepr_viz = True
                 PhiGoal_viz = True
                 Z_viz = True
-                if self.env_name == 'ant_maze':
-                    fig, ax = plt.subplots()
+                if 'maze' in self.env_name or 'lm' in self.env_name:
+                    fig, ax = plt.subplots(1, 2, figsize=(15, 6))
+                    fig.suptitle("Epoch:" + str(runner.step_itr))
                     env = runner._env
-                    env.draw(ax)
+                    env.draw(ax[0])
                     list_viz_traj = []
                     All_Repr_obs_list = []
                     All_Goal_obs_list = []
                     for i in range(len(trajectories)):
                         # plot phi
                         if Pepr_viz:
-                            # phi_s = trajectories[i]['agent_infos']['phi_s']
-                            # phi_g = trajectories[i]['agent_infos']['phi_sub_goal']
-                            # psi_s = self.Psi(self.traj_encoder(torch.tensor(trajectories[i]['observations']).to(self.device)).mean,  self.traj_encoder(self.obs0).mean).cpu().numpy()
-                            psi_s = self.Psi(self.traj_encoder(torch.tensor(trajectories[i]['observations']).to(self.device)).mean).cpu().numpy()
+                            if self.method['phi'] == 'Projection':
+                                psi_s = self.Psi(self.traj_encoder(torch.tensor(trajectories[i]['observations']).to(self.device)).mean).cpu().numpy()
+                            else:
+                                psi_s = self.traj_encoder(torch.tensor(trajectories[i]['observations']).to(self.device)).mean.cpu().numpy()
                             psi_g = trajectories[i]['agent_infos']['option']
                             All_Repr_obs_list.append(psi_s)
                             All_Goal_obs_list.append(psi_g)
@@ -291,31 +295,40 @@ class IOD(RLAlgorithm):
                         for j in range(len(trajectories[i]['observations'])):
                             viz_traj['info'].append({'x':viz_traj['observation'][j][0], 'y':viz_traj['observation'][j][1]})
                         list_viz_traj.append(viz_traj)
-                    plot_trajectories(env, list_viz_traj, fig, ax)
-                    ax.legend(loc='lower right')
+                    plot_trajectories(env, list_viz_traj, fig, ax[0])
+                    title_txt = "train_policy: " + str(self.train_policy) + "\n train_phi: " + str(self.train_phi)
+                    ax[0].set_title(title_txt)
+                    ax[0].legend(loc='lower right')
                     path = wandb.run.dir
+                    PCA_plot_traj(ax[1], All_Repr_obs_list, All_Goal_obs_list, path, path_len=self.max_path_length, is_goal=True)
+                    ax[1].set_xlim(-1, 1) 
+                    ax[1].set_ylim(-1, 1) 
                     filepath = os.path.join(path, "train_Maze_traj.png")
                     print(filepath)
                     plt.savefig(filepath) 
-                    wandb.log(({"train_Maze_traj": wandb.Image(filepath)}))
+                    if self.save_debug == True:
+                        wandb.log(({"train_Maze_traj": wandb.Image(filepath)}))
+
+                else:
+                    fig, ax = plt.subplots()
+                    env = runner._env
+                    list_viz_traj = []
+                    All_Repr_obs_list = []
+                    All_Goal_obs_list = []
+                    for i in range(len(trajectories)):
+                        # plot phi
+                        if Pepr_viz:
+                            if self.method['phi'] == 'Projection':
+                                psi_s = self.Psi(self.traj_encoder(torch.tensor(trajectories[i]['observations']).to(self.device)).mean).cpu().numpy()
+                            else:
+                                psi_s = self.traj_encoder(torch.tensor(trajectories[i]['observations']).to(self.device)).mean.cpu().numpy()
+                            psi_g = trajectories[i]['agent_infos']['option']
+                            All_Repr_obs_list.append(psi_s)
+                            All_Goal_obs_list.append(psi_g)
+        
+                    path = wandb.run.dir
                     PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=self.max_path_length, is_goal=True)
-                    viz_SZN_dist(self.SampleZPolicy, self.input_token, path=path)
-                
-            elif 'phi_s' in trajectories[0]['agent_infos'].keys():
-                All_Repr_obs_list = []
-                All_Goal_obs_list = []
-                for i in range(len(trajectories)):
-                    # plot phi
-                    if Pepr_viz:
-                        phi_s = trajectories[i]['agent_infos']['phi_s']
-                        All_Repr_obs_list.append(phi_s)
-                        if PhiGoal_viz:
-                            phi_g = trajectories[i]['agent_infos']['phi_sub_goal']
-                            All_Goal_obs_list.append(phi_g)
-                        if Z_viz:
-                            phi_g = trajectories[i]['agent_infos']['option'] + phi_s[0]
-                            All_Goal_obs_list.append(phi_g)
-            
+  
         return trajectories
 
 
@@ -375,8 +388,8 @@ class IOD(RLAlgorithm):
             if 'phi_sub_goal' in path['agent_infos']:
                 data['phi_sub_goal'].append(path["agent_infos"]["phi_sub_goal"])
                 
-            if 'token' in path['agent_infos']:
-                data['token'].append(path["agent_infos"]["token"])
+            # if 'token' in path['agent_infos']:
+            #     data['token'].append(path["agent_infos"]["token"])
                 
             if 'psi_g' in path['agent_infos']:
                 data['psi_g'].append(path['agent_infos']["psi_g"])

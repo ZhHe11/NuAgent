@@ -1,6 +1,9 @@
 import sys
 import os
-os.environ["MUJOCO_GL"] = "osmesa"
+# os.environ['PYOPENGL_PLATFORM'] = "osmesa"
+os.environ['MUJOCO_GL'] = 'egl'
+if 'SLURM_STEP_GPUS' in os.environ:
+    os.environ['EGL_DEVICE_ID'] = os.environ['SLURM_STEP_GPUS']
 from garagei.envs.consistent_normalized_env import consistent_normalize
 from iod.utils import get_normalizer_preset
 
@@ -8,7 +11,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import imageio
 
-import lexa.d4rl as d4rl
+# import lexa.d4rl as d4rl
 import torch
 from sklearn.decomposition import PCA
 import matplotlib.cm as cm
@@ -26,20 +29,30 @@ env = FrameStackWrapper(env, 3)
 # funtions
 def vec_norm(vec):
     return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
-    
+
 # 加载模型
-path = "/data/zh/project12_Metra/METRA/exp/kitchen/k-blsd000_1726053626_kitchen_SZN"
+path = "/mnt/nfs2/zhanghe/NuAgent/exp/kitchen_debug/d0-SZN-baselinesd000_1732880289_kitchen_SZPC"
+epoch_num = '500'
 path = path + '/'
-load_option_policy_base = torch.load(path + "wandb/latest-run/filesoption_policy.pt")
-load_traj_encoder_base = torch.load(path + "wandb/latest-run/filestaregt_traj_encoder.pt")
+load_option_policy_base = torch.load(path + "wandb/latest-run/filesoption_policy-" + epoch_num + ".pt")
+load_traj_encoder_base = torch.load(path + "wandb/latest-run/filestraj_encoder-" + epoch_num + ".pt")
+# load_SZN_base = torch.load(path + "wandb/latest-run/filesSampleZPolicy-" + epoch_num + ".pt")
+
+is_Psi = False
+Given_g = False
+def Psi(phi_x, phi_x0=None):
+    if is_Psi:
+        return torch.tanh(2/50 * (phi_x))
+    else:
+        return phi_x
+
 policy = load_option_policy_base['policy']
-traj_encoder = load_traj_encoder_base['target_traj_encoder']
+traj_encoder = load_traj_encoder_base['traj_encoder']
+# window = load_SZN_base['window']
 
 # settings：
-max_path_length = 300
+max_path_length = 50
 option_dim = load_option_policy_base['dim_option']
-# path = '/data/zh/project12_Metra/METRA/tests/videos/local_test/'
-Given_g = True
 PhiPlot = True
 LoadNpy = False
 num_task = 6
@@ -56,51 +69,70 @@ if Given_g:
     all_goal_obs = []
     for i in range(num_task):
         goal_obs = env.render_goal(i)
+        from PIL import Image
+        im = Image.fromarray(goal_obs)
+        im.save("Goal-" + str(i) + ".png")
         all_goal_obs.append(goal_obs)
     all_goal_obs_tensor = torch.tensor(all_goal_obs, dtype=torch.float)
     eval_times = num_task
     support_vec = torch.eye(option_dim).to(device)
     
 else:
-    if option_dim == 2:
+    option_type = 'random'
+    if option_type == 'support':
         directions = [[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1],[0,-1],[1,-1]]
-        support_options = torch.tensor(directions).to(device)
+    elif option_type == 'random':
+        num_eval = 50
+        directions = np.random.uniform(-1,1, (num_eval, option_dim))
+        print(directions)
+
+    support_options = torch.tensor(directions).to(device)
     eval_times = support_options.shape[0]
 
 def interact_with_env():
     # interact with env
+    all_success = np.zeros(num_task)
     for i in trange(eval_times):
         # 初始化
         obs = env.reset()
         frames = []
         obs_tensor = torch.tensor(obs, dtype=torch.float).unsqueeze(0).to('cuda')
         phi_s_0 = traj_encoder(obs_tensor).mean
+        psi_s_0 = Psi(phi_s_0)
         if Given_g:
             goal_tensor = torch.tile(all_goal_obs_tensor[i].reshape(-1), (3,1)).reshape(-1).unsqueeze(0).to('cuda')
+            
             phi_g = traj_encoder(goal_tensor).mean
+            psi_g = Psi(phi_g)
             # if biaoding
             # weight = (phi_g * support_vec).sum(-1)
             # index = torch.argmax(weight).cpu().numpy()
             # support_option = support_vec[index].unsqueeze(0)
             # if freeze at start 
-            freeze_option = vec_norm(phi_g - phi_s_0) 
-            freeze_option = vec_norm(torch.randn_like(freeze_option).to(device))
+            # freeze_option = vec_norm(psi_g - phi_s_0) 
+            # freeze_option = vec_norm(torch.randn_like(freeze_option).to(device))
+            freeze_option = psi_g
         else:
             support_option = support_options[i].unsqueeze(0)
+            support_option = vec_norm(support_option)
+
         if PhiPlot: 
             Traj = []
             if Given_g:
-                Traj.append(phi_g)
+                Traj.append(psi_g)
         # 每一条轨迹
         for t in trange(max_path_length):
             # policy inference:
-            phi_s = traj_encoder(obs_tensor).mean
+            Repr_s = Psi(traj_encoder(obs_tensor).mean)
             if Given_g: 
                 # to do; 需要映射；
-                # option = vec_norm(phi_g - phi_s)
-                option = freeze_option
+                # baseline:
+                if is_Psi:
+                    option = freeze_option
+                else:
+                    option = vec_norm(phi_g - phi_s_0)
             else:
-                option = support_option
+                option = vec_norm(support_option)
             obs_option = torch.cat((obs_tensor, option), -1).float()
             action_tensor = policy(obs_option)[1]['mean']
             action = action_tensor[0].detach().cpu().numpy()
@@ -111,19 +143,21 @@ def interact_with_env():
             obs_img = info['image']
             frames.append(obs_img)
             if PhiPlot:
-                Traj.append(phi_s)
+                Traj.append(Repr_s)
                 
         # metrics:
         success = np.zeros(num_task)
         for id_task in range(num_task):
             success[id_task] = env.compute_success(id_task)[0]
+        all_success = all_success + success
         print('success', success, 'option', option)
         # save traj. as gif
         gif_name = path+ str(i) + '.gif'
         imageio.mimsave(gif_name, frames, 'GIF', duration=1)
         print('saved', gif_name)
         Trajs.append(Traj)
-        
+    
+    print(f'all_succes{all_success}')
     return Trajs
     
 def plot_phi_traj(Trajs, load_npy_path):

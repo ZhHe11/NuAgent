@@ -170,3 +170,4 @@ tmp*
 test
 wandb
 .*
+*.csv
