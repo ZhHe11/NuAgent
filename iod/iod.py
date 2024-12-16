@@ -199,8 +199,8 @@ class IOD(RLAlgorithm):
                     p.eval()
                 self.traj_encoder.eval()
                 # test process
-                if self.n_epochs_per_eval != 0 and runner.step_itr % self.n_epochs_per_eval == 0 and wandb.run is not None and runner.step_itr != 0:
-                    self._evaluate_policy(runner, self.env_name)
+                # if self.n_epochs_per_eval != 0 and runner.step_itr % self.n_epochs_per_eval == 0 and wandb.run is not None and runner.step_itr != 0:
+                self._evaluate_policy(runner, self.env_name)
                 # change mode
                 for p in self.policy.values():
                     p.train()
@@ -265,7 +265,7 @@ class IOD(RLAlgorithm):
                 Pepr_viz = True
                 PhiGoal_viz = True
                 Z_viz = True
-                if 'maze' in self.env_name:
+                if 'maze' in self.env_name or 'lm' in self.env_name:
                     fig, ax = plt.subplots(1, 2, figsize=(15, 6))
                     fig.suptitle("Epoch:" + str(runner.step_itr))
                     env = runner._env

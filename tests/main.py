@@ -47,6 +47,7 @@ from iod.dads import DADS
 from iod.PSZP import PSZP
 from iod.SZPC import SZPC
 from iod.SZPC3 import SZPC3
+from iod.SZPC3Policy import SZPC3Policy
 from tests.make_env import make_env
 
 EXP_DIR = 'exp'
@@ -337,7 +338,11 @@ def run(ctxt=None):
         init_std=1.,
     ))
 
-    policy_q_input_dim = module_obs_dim + args.dim_option
+    if args.algo == 'SZPC3Policy':
+        policy_q_input_dim = module_obs_dim + 2 * args.dim_option
+    else:
+        policy_q_input_dim = module_obs_dim + args.dim_option
+        
     policy_module = module_cls(
         input_dim=policy_q_input_dim,
         output_dim=action_dim,
@@ -461,7 +466,7 @@ def run(ctxt=None):
 
     replay_buffer = PathBufferTensor(capacity_in_transitions=int(args.sac_max_buffer_size), pixel_shape=pixel_shape)
 
-    if args.algo in ['metra', 'dads', 'metra_bl', 'SZN', 'SZN_batch', 'SZN_Z', 'SZN_P', 'SZN_PP', 'SZN_PPP', 'SZN_PPAU', 'P_SZN_AU', 'PSZP', 'PRR', 'P_PZ', 'PSZP_k', 'SZPC', 'SZPC3']:
+    if args.algo in ['metra', 'dads', 'metra_bl', 'SZN', 'SZN_batch', 'SZN_Z', 'SZN_P', 'SZN_PP', 'SZN_PPP', 'SZN_PPAU', 'P_SZN_AU', 'PSZP', 'PRR', 'P_PZ', 'PSZP_k', 'SZPC', 'SZPC3', 'SZPC3Policy']:
         qf1 = ContinuousMLPQFunctionEx(
             obs_dim=policy_q_input_dim,
             action_dim=action_dim,
@@ -593,6 +598,23 @@ def run(ctxt=None):
         
     elif args.algo == 'SZPC3':
         algo = SZPC3(
+            **algo_kwargs,
+            SampleZPolicy=SampleZPolicy,
+            **skill_common_args,
+            _trans_phi_optimization_epochs=args._trans_phi_optimization_epochs,
+            _trans_policy_optimization_epochs=args._trans_policy_optimization_epochs,
+            _trans_online_sample_epochs=args._trans_online_sample_epochs,
+            SZN_w2=args.SZN_w2,
+            SZN_w3=args.SZN_w3,
+            SZN_window_size=args.SZN_window_size,
+            SZN_repeat_time=args.SZN_repeat_time,
+            Repr_temperature=args.Repr_temperature,
+            Repr_max_step=args.Repr_max_step,
+        )
+    
+    
+    elif args.algo == 'SZPC3Policy':
+        algo = SZPC3Policy(
             **algo_kwargs,
             SampleZPolicy=SampleZPolicy,
             **skill_common_args,

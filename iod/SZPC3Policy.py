@@ -25,7 +25,7 @@ from iod.viz_utils import PlotMazeTrajDist, PlotMazeTrajWindowDist, viz_dist_cir
 from functools import partial
 
 
-class SZPC3(IOD):
+class SZPC3Policy(IOD):
     def __init__(
             self,
             *,
@@ -130,12 +130,13 @@ class SZPC3(IOD):
         policy_for_agent = {
             "default_policy": self.option_policy,
             "traj_encoder": self.target_traj_encoder,
-            "InjectPhi": 0, 
+            "InjectPhi": 1, 
             "method": self.method,
             "max_path_length": self.max_path_length,
         }
         self.policy_for_agent = AgentWrapper(policies=policy_for_agent) 
         
+
         ### new alternative:
         self.init_obs = torch.tensor(init_obs).unsqueeze(0).expand(self.num_random_trajectories, -1).to(self.device)
         self.s0 = torch.tensor(init_obs).unsqueeze(0).to(self.device)
@@ -197,7 +198,9 @@ class SZPC3(IOD):
         }
 
     def _get_concat_obs(self, obs, option):
-        return get_torch_concat_obs(obs, option)
+        x = get_torch_concat_obs(obs, option)
+        psi_s = self.Psi(self.target_traj_encoder(obs).mean.detach())
+        return get_torch_concat_obs(x, psi_s)
 
 
     @torch.no_grad()

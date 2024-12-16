@@ -30,20 +30,37 @@ class AgentWrapper(object):
     #         return z
         
     
-    @torch.no_grad()
-    def gen_z(self, psi_g, obs, device="cpu", ret_emb: bool = False):
-        traj_encoder = self.target_traj_encoder.to(device)
-        goal_z = traj_encoder(sub_goal).mean
-        target_cur_z = traj_encoder(obs).mean
+    # @torch.no_grad()
+    # def gen_z(self, psi_g, obs, device="cpu", ret_emb: bool = False):
+    #     traj_encoder = self.target_traj_encoder.to(device)
+    #     goal_z = traj_encoder(sub_goal).mean
+    #     target_cur_z = traj_encoder(obs).mean
 
-        z = self.vec_norm(goal_z - target_cur_z)
-        if ret_emb:
-            return z, target_cur_z, goal_z
+    #     z = self.vec_norm(goal_z - target_cur_z)
+    #     if ret_emb:
+    #         return z, target_cur_z, goal_z
+    #     else:
+    #         return z
+
+    def get_torch_concat_obs(self, obs, option, dim=1):
+        concat_obs = torch.cat([obs] + [option], dim=dim)
+        return concat_obs
+        
+        
+    def Psi(self, phi_x, phi_x0=None):
+        if 'Projection' in self.method['phi']:   
+            return torch.tanh(2/self.max_path_length * (phi_x))
         else:
-            return z
+            return phi_x
         
         
+    @torch.no_grad()  
+    def _get_concat_obs(self, obs, option):
+        x = self.get_torch_concat_obs(obs, option)
+        psi_s = self.Psi(self.target_traj_encoder(obs).mean.detach())
+        return self.get_torch_concat_obs(x, psi_s)
         
+
     @torch.no_grad()
     def gen_z_phi_g(self, phi_g, obs, device='cpu', ret_emb: bool = False):
         traj_encoder = self.target_traj_encoder.to(device)
@@ -65,7 +82,8 @@ class AgentWrapper(object):
     def get_param_values(self):
         param_dict = {}
         for k, v in self.__dict__.items():
-            param_dict[k] = v.state_dict() if hasattr(v, "state_dict") else v.get_param_values()
+            if isinstance(v, torch.nn.Module):
+                param_dict[k] = v.state_dict() if hasattr(v, "state_dict") else v.get_param_values()
 
         return param_dict
 
@@ -76,11 +94,13 @@ class AgentWrapper(object):
 
     def eval(self):
         for v in self.__dict__.values():
-            v.eval()
+            if isinstance(v, torch.nn.Module):  # 仅对神经网络调用 eval()
+                v.eval()
 
     def train(self):
         for v in self.__dict__.values():
-            v.train()
+            if isinstance(v, torch.nn.Module):  # 仅对神经网络调用 eval()
+                v.train()
 
     def reset(self):
         self.default_policy.reset()
