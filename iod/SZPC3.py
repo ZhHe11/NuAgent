@@ -735,8 +735,8 @@ class SZPC3(IOD):
         # direction_sim = (1 * (psi_s_next - psi_s) * z_unit).sum(dim=-1)
         
         
-        # direction_sim = (1 * (psi_s_next - psi_s) * self.vec_norm(psi_g - psi_s.detach())).sum(dim=-1)
-        direction_sim = (1 * (psi_s_next - psi_s) * self.vec_norm(psi_g)).sum(dim=-1)
+        direction_sim = (1 * (psi_s_next - psi_s) * self.vec_norm(psi_g - psi_s.detach())).sum(dim=-1)
+        # direction_sim = (1 * (psi_s_next - psi_s) * self.vec_norm(psi_g)).sum(dim=-1)
 
         ## neg smaple
         def cal_softmax_obj(matrix, t=1):
@@ -768,7 +768,7 @@ class SZPC3(IOD):
         ## pos and neg obj.
         if  self.Repr_temperature == 0:
             contrastive_sim = cic(matrix, t=1)
-            phi_obj = 1 * direction_sim + 1e-3 * contrastive_sim
+            phi_obj = 1 * direction_sim + 0 * contrastive_sim
         else: 
             # norm_matrix = ((psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
             # contrastive_sim = cal_softmax_obj(norm_matrix, t=self.Repr_temperature)
