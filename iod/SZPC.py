@@ -117,15 +117,6 @@ class SZPC(IOD):
         self.last_w = None
         self.epoch_data = None
         
-        '''
-        wrapper for agent for online interaction.
-        '''
-        policy_for_agent = {
-            "default_policy": self.option_policy,
-            "traj_encoder": self.traj_encoder,
-        }
-        self.policy_for_agent = AgentWrapper(policies=policy_for_agent) 
-        
         self.method = {
             "eval": 'random',
             "phi": phi_type,
@@ -133,6 +124,18 @@ class SZPC(IOD):
             "explore": explore_type,
         }
         
+        '''
+        wrapper for agent for online interaction.
+        '''
+        policy_for_agent = {
+            "default_policy": self.option_policy,
+            "traj_encoder": self.traj_encoder,
+            "InjectPhi": 0, 
+            "method": self.method,
+            "max_path_length": self.max_path_length,
+        }
+        self.policy_for_agent = AgentWrapper(policies=policy_for_agent) 
+    
         ### new alternative:
         self.init_obs = torch.tensor(init_obs).unsqueeze(0).expand(self.num_random_trajectories, -1).to(self.device)
         self.s0 = torch.tensor(init_obs).unsqueeze(0).to(self.device)
@@ -167,6 +170,11 @@ class SZPC(IOD):
         self.SfReprBuffer = []
         
         self.z_unit = z_unit
+    
+        self.train_policy = False
+        self.train_phi = False
+        self.save_debug = False
+    
     
     def Psi(self, phi_x, phi_x0=None):
         if 'Projection' in self.method['phi']:   
@@ -690,7 +698,7 @@ class SZPC(IOD):
         delta_norm = self.norm((psi_s_next - psi_s))
         ## pos sample
         matrix = (1/d * (psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
-        direction_sim = (1 * (psi_s_next - psi_s) * z_unit).sum(dim=-1)
+        direction_sim = (1 * (psi_s_next - psi_s) * self.vec_norm(psi_g - psi_s.detach())).sum(dim=-1)
         ## neg smaple
         def cal_softmax_obj(matrix, t=1):
             # dist_theta = 1e-2

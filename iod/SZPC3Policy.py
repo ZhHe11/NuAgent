@@ -583,7 +583,7 @@ class SZPC3Policy(IOD):
             self.save_debug = False
 
         if self.NumSampleTimes < 1/2 * self.SZN_repeat_time * len(self.DistWindow):
-            for _ in trange(self._trans_optimization_epochs * 2):
+            for _ in trange(int(self._trans_optimization_epochs * 2)):
                 self.train_policy = True
                 self.train_phi = False
                 tensors = {}
@@ -596,7 +596,7 @@ class SZPC3Policy(IOD):
                 self._optimize_op(tensors, v)
         
         else:
-            for _ in trange(self._trans_optimization_epochs * 2):
+            for _ in trange(int(self._trans_optimization_epochs)):
                 self.train_policy = False
                 self.train_phi = True
                 tensors = {}

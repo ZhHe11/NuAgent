@@ -277,7 +277,7 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, a
         for t in range(max_path_length):
             # option, phi_obs_, phi_target_obs = gen_z(target_obs, obs, traj_encoder=agent_traj_encoder, device=device, ret_emb=True)
             phi_obs_ = agent_traj_encoder(obs).mean
-            obs_option = torch.cat((obs, option, phi_obs_), -1).float()
+            obs_option = torch.cat((obs, option), -1).float()
             # for viz
             # import pdb; pdb.set_trace()
             Repr_obs_list.append(Psi(phi_obs_, phi_obs0).cpu().numpy()[0])
