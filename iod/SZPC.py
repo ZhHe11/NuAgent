@@ -481,6 +481,8 @@ class SZPC(IOD):
                     self.last_z = self.vec_norm(self.last_z)
                 else:
                     self.last_z = torch.clamp(self.last_z, min=-1, max=1)
+                self.last_z[0] = self.last_z[0] * 0
+                self.last_z[0][0] = 1
 
                 self.NumSampleTimes += 1
                 if len(self.SfReprBuffer) == 0:
@@ -579,6 +581,11 @@ class SZPC(IOD):
                 self._update_rewards(tensors, v)
             self._optimize_op(tensors, v)
 
+        if self.NumSampleTimes == 0:
+            self.save_debug = True
+        else:
+            self.save_debug = False
+            
         return tensors
 
     def _optimize_te(self, tensors, internal_vars):
