@@ -62,6 +62,9 @@ def PCA_plot_traj(ax, All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, 
     ax.set_title('traj. in representation space')
     # plt.legend()
     plt.savefig(path_file_traj)
+    plt.close()
+    
+    
     
     
 def viz_SZN_dist(SZN, input_token, path):

@@ -21,7 +21,7 @@ from tqdm import trange, tqdm
 from iod.GradCLipper import GradClipper
 import matplotlib.pyplot as plt
 import torch.distributions as dist
-from iod.viz_utils import PlotMazeTrajDist, PlotMazeTrajWindowDist, viz_dist_circle
+from iod.viz_utils import PlotMazeTrajDist, PlotMazeTrajWindowDist, viz_dist_circle, PlotGMM
 from functools import partial
 
 
@@ -447,19 +447,17 @@ class SZPC(IOD):
                                 break
                         if is_different == 1:
                             self.DistWindow.append(dist)
-                        if wandb.run is not None:
+                        if wandb.run is not None:           
                             path = wandb.run.dir + '/E' + str(runner.step_itr)
-                            fig = plt.figure(figsize=(18, 9), facecolor='w')
-                            ax1 = fig.add_subplot(121, projection='3d')
-                            ax2 = fig.add_subplot(122)
-                            self.viz_Regert_in_Psi(state=self.s0, device=self.device, path=path, ax=ax1)
-                            viz_dist_circle(self.DistWindow, path=path, psi_z=np.array(self.SfReprBuffer), ax=ax2)
+                            fig, ax = plt.subplots(figsize=(8, 6))
+                            window_dist = self.UpdateGMM(self.DistWindow, mix_dist_prob=None, device=self.device)
+                            PlotGMM(window_dist, psi_z=np.array(self.SfReprBuffer), fig=fig, ax=ax, device=self.device)
                             plt.savefig(path + '-Regret' + '.png')
                             print('save at: ' + path + '-Regret' + '.png')
                             plt.close()
                                 
+                                
                     # save k-1 policy and qf
-                    # Attention this part should process after all other things
                     self.copy_params(self.option_policy, self.last_policy)
                     self.copy_params(self.log_alpha, self.last_alpha)
                     self.copy_params(self.qf1, self.last_qf1)
@@ -481,8 +479,6 @@ class SZPC(IOD):
                     self.last_z = self.vec_norm(self.last_z)
                 else:
                     self.last_z = torch.clamp(self.last_z, min=-1, max=1)
-                self.last_z[0] = self.last_z[0] * 0
-                self.last_z[0][0] = 1
 
                 self.NumSampleTimes += 1
                 if len(self.SfReprBuffer) == 0:
@@ -581,7 +577,7 @@ class SZPC(IOD):
                 self._update_rewards(tensors, v)
             self._optimize_op(tensors, v)
 
-        if self.NumSampleTimes == 0:
+        if self.NumSampleTimes == 1:
             self.save_debug = True
         else:
             self.save_debug = False

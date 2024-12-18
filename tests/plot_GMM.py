@@ -40,35 +40,35 @@ def UpdateGMM(dists, GMM=None, mix_dist_prob=None, device='cuda'):
 
         return window_dist
 
-
-
-
 SZN_load = torch.load('/mnt/nfs2/zhanghe/NuAgent/exp/Large/woAdp-trianMoresd000_1734058195_ant_maze_large_SZPC3/wandb/latest-run/filesSampleZPolicy-3000.pt')
 
 window = SZN_load['window']
 device = 'cuda'
 window_dist = UpdateGMM(window, mix_dist_prob=None, device=device)
 
-x_grid = np.linspace(-1, 1, 100)
-y_grid = np.linspace(-1, 1, 100)
-X_grid, Y_grid = np.meshgrid(x_grid, y_grid)
-grid_points = np.vstack([X_grid.ravel(), Y_grid.ravel()]).T
+fig, ax = plt.subplots(figsize=(8, 6))
 
+def PlotGMM(window_dist, ax):
+    x_grid = np.linspace(-1, 1, 100)
+    y_grid = np.linspace(-1, 1, 100)
+    X_grid, Y_grid = np.meshgrid(x_grid, y_grid)
+    grid_points = np.vstack([X_grid.ravel(), Y_grid.ravel()]).T
+    grid_points_tensor = torch.tensor(grid_points).to(device)
+    zeros_tensor = torch.zeros(grid_points_tensor.shape[0], 2).to(device)
+    grid_points_tensor_expanded = torch.cat((grid_points_tensor, zeros_tensor), dim=1)
 
+    log_prob = window_dist.log_prob(grid_points_tensor_expanded).cpu().numpy()
+    prob_density = np.exp(log_prob).reshape(X_grid.shape)
 
-grid_points_tensor = torch.tensor(grid_points).to(device)
-zeros_tensor = torch.zeros(grid_points_tensor.shape[0], 2).to(device)
-grid_points_tensor_expanded = torch.cat((grid_points_tensor, zeros_tensor), dim=1)
+    contour = ax.contourf(X_grid, Y_grid, prob_density, levels=20, cmap='viridis')
+    cbar = fig.colorbar(contour, ax=ax)
+    cbar.set_ticks([])
+    ax.scatter( [0], [0], alpha=0.5, color='gray', edgecolor='none', marker='o', s=5)
+    ax.set_title('GMM Probability Density')
+    ax.set_xlabel('Z0')
+    ax.set_ylabel('Z1')
 
-log_prob = window_dist.log_prob(grid_points_tensor_expanded).cpu().numpy()
-prob_density = np.exp(log_prob).reshape(X_grid.shape)
-
-plt.figure(figsize=(8, 6))
-plt.contourf(X_grid, Y_grid, prob_density, 20, cmap='viridis')
-# plt.scatter(x, y, s=5, color='red', alpha=0.5)
-plt.title('GMM 4D (projected to 2D) Probability Density')
-plt.xlabel('X1')
-plt.ylabel('X2')
-plt.colorbar(label='Density')
+PlotGMM(window_dist, ax)
 plt.savefig('GMM.png')
+
 

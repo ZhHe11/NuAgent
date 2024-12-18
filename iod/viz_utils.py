@@ -629,8 +629,26 @@ def viz_Regert_in_Psi(self, state, device='cpu', path='./', ax=None):
         plt.close()
     
     
-    
-    
+
+def PlotGMM(window_dist, psi_z, fig, ax, device):
+    x_grid = np.linspace(-1, 1, 100)
+    y_grid = np.linspace(-1, 1, 100)
+    X_grid, Y_grid = np.meshgrid(x_grid, y_grid)
+    grid_points = np.vstack([X_grid.ravel(), Y_grid.ravel()]).T
+    grid_points_tensor = torch.tensor(grid_points).to(device)
+    zeros_tensor = torch.zeros(grid_points_tensor.shape[0], 2).to(device)
+    grid_points_tensor_expanded = torch.cat((grid_points_tensor, zeros_tensor), dim=1)
+    log_prob = window_dist.log_prob(grid_points_tensor_expanded).cpu().numpy()
+    prob_density = np.exp(log_prob).reshape(X_grid.shape)
+    contour = ax.contourf(X_grid, Y_grid, prob_density, levels=20, cmap='viridis')
+    cbar = fig.colorbar(contour, ax=ax)
+    cbar.set_ticks([])
+    if psi_z is not None:
+        ax.scatter(psi_z[:, 0], psi_z[:, 1], alpha=0.5, color='gray', edgecolor='none', marker='o', s=5)
+    ax.set_title('GMM Probability Density')
+    ax.set_xlabel('Z[0]')
+    ax.set_ylabel('Z[1]')
+
 
 if __name__ == '__main__':
     
