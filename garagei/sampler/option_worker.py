@@ -121,42 +121,10 @@ class OptionWorker(DefaultWorker):
                     
                 else:
                     cur_extra = self._cur_extras[self._cur_extra_idx][cur_extra_key]
-                    
-                    # if 'psi_g' in self._cur_extras[self._cur_extra_idx].keys():
-                    #     with torch.no_grad():
-                    #         psi_g = self._cur_extras[self._cur_extra_idx]['psi_g']
-                    #         psi_g = torch.tensor(psi_g).to('cuda')
-                    #         phi_s = self.agent.target_traj_encoder(torch.tensor(self._prev_obs).to('cuda')).mean
-                    #         psi_s = torch.tanh(phi_s)
-                    #         cur_extra = (psi_g - psi_s).cpu().numpy()
-                    
-                    # if 'sub_goal' in self._cur_extras[self._cur_extra_idx].keys():
-                    #     sub_goal = self._cur_extras[self._cur_extra_idx]['sub_goal']
-                    #     cur_extra = self.agent.gen_z(torch.tensor(sub_goal), torch.tensor(self._prev_obs), device="cpu").numpy()
-                    
-                    # if 'phi_sub_goal' in self._cur_extras[self._cur_extra_idx].keys():
-                    #     phi_sub_goal = self._cur_extras[self._cur_extra_idx]['phi_sub_goal']
-                    #     cur_extra, target_cur_z, goal_z = self.agent.gen_z_phi_g(torch.tensor(phi_sub_goal), torch.tensor(self._prev_obs), device="cpu", ret_emb=True)
-                    #     self._agent_infos['phi_s'].append(target_cur_z)
-                    
-                    # else:
-                    #     target_cur_z = self.agent.gen_phi_s(torch.tensor(self._prev_obs), device="cpu")
-                    #     self._agent_infos['phi_s'].append(target_cur_z)
-                    
-                    # if 'token' in self._cur_extras[self._cur_extra_idx].keys():
-                    #     token = self._cur_extras[self._cur_extra_idx]['token']
-                    #     self._agent_infos['token'].append(token)
-                    
-                
-                if self.agent.InjectPhi == 1:
-                    agent_input = self.agent._get_concat_obs(
-                        torch.tensor(self._prev_obs).unsqueeze(0).to('cuda'), torch.tensor(cur_extra).unsqueeze(0).to('cuda'), 
-                    ).squeeze(0).cpu().numpy()
-                    
-                else:
-                    agent_input = get_np_concat_obs(
-                        self._prev_obs, cur_extra, 
-                    )
+     
+                agent_input = get_np_concat_obs(
+                    self._prev_obs, cur_extra, 
+                )
                 self._prev_extra = cur_extra
 
             if self._deterministic_policy is not None:

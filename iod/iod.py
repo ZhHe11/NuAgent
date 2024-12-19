@@ -301,13 +301,15 @@ class IOD(RLAlgorithm):
                     ax[0].legend(loc='lower right')
                     path = wandb.run.dir
                     PCA_plot_traj(ax[1], All_Repr_obs_list, All_Goal_obs_list, path, path_len=self.max_path_length, is_goal=True)
-                    ax[1].set_xlim(-1, 1) 
-                    ax[1].set_ylim(-1, 1) 
-                    if self.save_debug == True:
-                        filepath = os.path.join(path, "train_Maze_traj.png")
-                        print(filepath)
-                        plt.savefig(filepath) 
-                        plt.close()
+                    if self.method['phi'] == 'Projection':
+                        ax[1].set_xlim(-1, 1)
+                        ax[1].set_ylim(-1, 1)
+                    
+                    filepath = os.path.join(path, "train_Maze_traj.png")
+                    print(filepath)
+                    plt.savefig(filepath) 
+                    plt.close()
+                    if self.save_debug == True or runner.step_itr % self.n_epochs_per_eval == 0:
                         wandb.log(({"train_Maze_traj": wandb.Image(filepath)}))
 
                 else:

@@ -56,14 +56,9 @@ def PCA_plot_traj(ax, All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, 
         ax.scatter(Repr_obs_2d[start_index:end_index, 0], Repr_obs_2d[start_index:end_index, 1], color=color, s=5)
         if is_goal:
             ax.scatter(All_Goal_obs_2d[start_index:end_index, 0], All_Goal_obs_2d[start_index:end_index, 1], color=color, s=100, marker='*', edgecolors='black')
-    path_file_traj = path + "-traj.png"
     ax.set_xlabel('z[0]')
     ax.set_ylabel('z[1]')
     ax.set_title('traj. in representation space')
-    # plt.legend()
-    plt.savefig(path_file_traj)
-    plt.close()
-    
     
     
     

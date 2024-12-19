@@ -732,7 +732,7 @@ class SZPC(IOD):
         ## pos and neg obj.
         if  self.Repr_temperature == 0:
             contrastive_sim = cal_softmax_obj(matrix, t=1)
-            phi_obj = direction_sim
+            phi_obj = direction_sim 
         else: 
             # norm_matrix = ((psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
             # contrastive_sim = cal_softmax_obj(norm_matrix, t=self.Repr_temperature)
@@ -744,7 +744,7 @@ class SZPC(IOD):
         
         # 2. Goal Arrival Reward
         reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
-        policy_rewards = 1 * reward_g_distance
+        policy_rewards = 1 * reward_g_distance + 1/d * direction_sim
         # policy_rewards = direction_sim
         
         v.update({

@@ -110,6 +110,10 @@ class METRA_bl(IOD):
             "explore": explore_type,
         }
         
+        self.train_policy = False
+        self.train_phi = False
+        self.save_debug = False
+        
         
     def vec_norm(self, vec):
         return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
