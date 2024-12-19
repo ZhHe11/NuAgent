@@ -419,7 +419,7 @@ class SZPC(IOD):
                         kl_window = pz * (log_pz - log_qz)
                         # weight of Confidence Factor
                         confidence = self.get_confidence(self.SfReprBuffer, dist_z, num_dist=self.num_random_trajectories)  
-                        confidence = torch.clamp(confidence, max=0)
+                        # confidence = torch.clamp(confidence, max=0)
                         # total loss
                         loss_SZP = (-z_logp * (V_szn.detach()) - self.SZN_w2 * kl_window).mean() - self.SZN_w3 * confidence.mean()
                         
@@ -451,7 +451,7 @@ class SZPC(IOD):
                             path = wandb.run.dir + '/E' + str(runner.step_itr)
                             fig, ax = plt.subplots(figsize=(8, 6))
                             window_dist = self.UpdateGMM(self.DistWindow, mix_dist_prob=None, device=self.device)
-                            PlotGMM(window_dist, psi_z=np.array(self.SfReprBuffer), fig=fig, ax=ax, device=self.device)
+                            PlotGMM(window_dist, psi_z=np.array(self.SfReprBuffer), fig=fig, ax=ax, device=self.device, dim=self.dim_option)
                             plt.savefig(path + '-Regret' + '.png')
                             print('save at: ' + path + '-Regret' + '.png')
                             plt.close()
@@ -700,23 +700,13 @@ class SZPC(IOD):
         # 1. Similarity Reward
         delta_norm = self.norm((psi_s_next - psi_s))
         ## pos sample
-        matrix = (1/d * (psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
+        matrix = (self.vec_norm(psi_s_next - psi_s).unsqueeze(1) * self.vec_norm(psi_g - psi_s.detach()).unsqueeze(0)).sum(dim=-1)
         direction_sim = (1 * (psi_s_next - psi_s) * self.vec_norm(psi_g - psi_s.detach())).sum(dim=-1)
         ## neg smaple
         def cal_softmax_obj(matrix, t=1):
-            # dist_theta = 1e-2
-            # distance_pos_neg = (z_unit.unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
-            # mask = torch.where(distance_pos_neg > (1-dist_theta), 0, 1) + torch.eye(z_unit.shape[0], z_unit.shape[0]).to(self.device)
-            # matrix = mask * matrix
-            
-            # dist_theta = 0.5
-            # distance_pos_neg = (z_unit.unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
-            # matrix = torch.where(distance_pos_neg < dist_theta, dist_theta, matrix)
-            
             matrix = matrix / t
             label = torch.arange(matrix.shape[0]).to(self.device)
             contrastive_sim = - F.cross_entropy(matrix, label) - F.cross_entropy(matrix.T, label)
-
             return contrastive_sim
         
         def cic(matrix, t=1):
@@ -734,17 +724,12 @@ class SZPC(IOD):
             contrastive_sim = cal_softmax_obj(matrix, t=1)
             phi_obj = direction_sim 
         else: 
-            # norm_matrix = ((psi_s_next - psi_s).unsqueeze(1) * z_unit.unsqueeze(0)).sum(dim=-1)
-            # contrastive_sim = cal_softmax_obj(norm_matrix, t=self.Repr_temperature)
-            # contrastive_sim = cal_softmax_obj(matrix, t=self.Repr_temperature)
-            # phi_obj = 1 * direction_sim + 1e-4 * contrastive_sim
             contrastive_sim = cic(matrix, t=self.Repr_temperature)
-            phi_obj = direction_sim + contrastive_sim
-            
-        
+            phi_obj = direction_sim
+
         # 2. Goal Arrival Reward
         reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
-        policy_rewards = 1 * reward_g_distance + 1/d * direction_sim
+        policy_rewards = 1 * reward_g_distance + 1e-2 * contrastive_sim
         # policy_rewards = direction_sim
         
         v.update({
@@ -768,6 +753,7 @@ class SZPC(IOD):
             'contrastive_sim': contrastive_sim.mean(),
             "distance_s0_init_obs": self.norm(v['s_0'] - self.s0).mean(),
             "distance_phi_s0_phi_init_obs": self.norm(phi_s_0 - phi_init_obs).mean(),
+            "policy_rewards": policy_rewards.mean(),
         })
     
 

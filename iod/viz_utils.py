@@ -630,13 +630,13 @@ def viz_Regert_in_Psi(self, state, device='cpu', path='./', ax=None):
     
     
 
-def PlotGMM(window_dist, psi_z, fig, ax, device):
+def PlotGMM(window_dist, psi_z, fig, ax, device, dim=4):
     x_grid = np.linspace(-1, 1, 100)
     y_grid = np.linspace(-1, 1, 100)
     X_grid, Y_grid = np.meshgrid(x_grid, y_grid)
     grid_points = np.vstack([X_grid.ravel(), Y_grid.ravel()]).T
     grid_points_tensor = torch.tensor(grid_points).to(device)
-    zeros_tensor = torch.zeros(grid_points_tensor.shape[0], 2).to(device)
+    zeros_tensor = torch.zeros(grid_points_tensor.shape[0], dim-2).to(device)
     grid_points_tensor_expanded = torch.cat((grid_points_tensor, zeros_tensor), dim=1)
     log_prob = window_dist.log_prob(grid_points_tensor_expanded).cpu().numpy()
     prob_density = np.exp(log_prob).reshape(X_grid.shape)
