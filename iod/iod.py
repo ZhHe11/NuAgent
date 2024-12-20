@@ -22,6 +22,7 @@ import matplotlib.pyplot as plt
 import os
 from iod.ant_eval import *
 from iod.agent import *
+from iod.viz_utils import PlotMazeTrajDist, PlotMazeTrajWindowDist, viz_dist_circle, PlotGMM
 
 
 class IOD(RLAlgorithm):
@@ -300,11 +301,18 @@ class IOD(RLAlgorithm):
                     ax[0].set_title(title_txt)
                     ax[0].legend(loc='lower right')
                     path = wandb.run.dir
-                    PCA_plot_traj(ax[1], All_Repr_obs_list, All_Goal_obs_list, path, path_len=self.max_path_length, is_goal=True)
                     if self.method['phi'] == 'Projection':
                         ax[1].set_xlim(-1, 1)
                         ax[1].set_ylim(-1, 1)
-                    
+                        # plot GMM
+                        window_dist = self.UpdateGMM(self.DistWindow, mix_dist_prob=None, device=self.device)
+                        if len(self.SfReprBuffer) > 0:
+                            psi_z = np.array(self.SfReprBuffer)
+                        else:
+                            psi_z = None
+                        PlotGMM(window_dist, psi_z=psi_z, fig=fig, ax=ax[1], device=self.device, dim=self.dim_option)
+                    # plot Traj in Z-space
+                    PCA_plot_traj(ax[1], All_Repr_obs_list, All_Goal_obs_list, path, path_len=self.max_path_length, is_goal=True)
                     filepath = os.path.join(path, "train_Maze_traj.png")
                     print(filepath)
                     plt.savefig(filepath) 

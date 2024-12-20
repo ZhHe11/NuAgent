@@ -382,7 +382,7 @@ class SZPC(IOD):
             extras = self._generate_option_extras(random_options)
 
             if self.method['explore'] == 'SZN' and self.buffer_ready: 
-                if self.NumSampleTimes == self.SZN_repeat_time * len(self.DistWindow):
+                if self.NumSampleTimes == self.SZN_repeat_time:
                     # window pool operation: PopDist   
                     # Method 2. pop the dist whose Regret less than 0;
                     def PopDistDeque(window_size=5, pop_min=True):
@@ -419,7 +419,7 @@ class SZPC(IOD):
                         kl_window = pz * (log_pz - log_qz)
                         # weight of Confidence Factor
                         confidence = self.get_confidence(self.SfReprBuffer, dist_z, num_dist=self.num_random_trajectories)  
-                        # confidence = torch.clamp(confidence, max=0)
+                        confidence = torch.clamp(confidence, max=0)
                         # total loss
                         loss_SZP = (-z_logp * (V_szn.detach()) - self.SZN_w2 * kl_window).mean() - self.SZN_w3 * confidence.mean()
                         
@@ -447,15 +447,6 @@ class SZPC(IOD):
                                 break
                         if is_different == 1:
                             self.DistWindow.append(dist)
-                        if wandb.run is not None:           
-                            path = wandb.run.dir + '/E' + str(runner.step_itr)
-                            fig, ax = plt.subplots(figsize=(8, 6))
-                            window_dist = self.UpdateGMM(self.DistWindow, mix_dist_prob=None, device=self.device)
-                            PlotGMM(window_dist, psi_z=np.array(self.SfReprBuffer), fig=fig, ax=ax, device=self.device, dim=self.dim_option)
-                            plt.savefig(path + '-Regret' + '.png')
-                            print('save at: ' + path + '-Regret' + '.png')
-                            plt.close()
-                                
                                 
                     # save k-1 policy and qf
                     self.copy_params(self.option_policy, self.last_policy)
@@ -729,7 +720,8 @@ class SZPC(IOD):
 
         # 2. Goal Arrival Reward
         reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
-        policy_rewards = 1 * reward_g_distance + 1e-2 * contrastive_sim
+        
+        policy_rewards = 1 * reward_g_distance + 1/d * direction_sim
         # policy_rewards = direction_sim
         
         v.update({
