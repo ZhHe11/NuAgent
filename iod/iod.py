@@ -391,7 +391,7 @@ class IOD(RLAlgorithm):
             #     data['sub_goal'].append(path["agent_infos"]["sub_goal"])
             # else:
             #     data['sub_goal'].append(np.tile(path['observations'][-1], (traj_len, 1)))
-            data['sub_goal'].append(np.tile(path['observations'][-1], (traj_len, 1)))
+            # data['sub_goal'].append(np.tile(path['observations'][-1], (traj_len, 1)))
             data['s_0'].append(np.tile(path['observations'][0], (traj_len, 1)))
             # data['sub_goal'].append(traj_len - 1 - index)
             # data['s_0'].append(-index)

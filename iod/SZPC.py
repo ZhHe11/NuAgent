@@ -308,7 +308,7 @@ class SZPC(IOD):
     def _get_train_trajectories_kwargs(self, runner):
         if self.discrete:
             if self.method['explore'] == 'SZN' and self.buffer_ready:
-                if self.NumSampleTimes == self.SZN_repeat_time * self.dim_option:
+                if self.NumSampleTimes == self.SZN_repeat_time:
                     self.NumSampleTimes = 0
                     self.copy_params(self.ResetSZPolicy, self.SampleZPolicy)
                     self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=3e-2)
@@ -382,7 +382,7 @@ class SZPC(IOD):
             extras = self._generate_option_extras(random_options)
 
             if self.method['explore'] == 'SZN' and self.buffer_ready: 
-                if self.NumSampleTimes == self.SZN_repeat_time:
+                if self.NumSampleTimes == self.SZN_repeat_time * len(self.DistWindow):
                     # window pool operation: PopDist   
                     # Method 2. pop the dist whose Regret less than 0;
                     def PopDistDeque(window_size=5, pop_min=True):
