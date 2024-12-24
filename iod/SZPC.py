@@ -668,65 +668,30 @@ class SZPC(IOD):
     def _update_rewards_C(self, tensors, v):
         obs = v['obs']
         next_obs = v['next_obs']
-        cur_z = self.traj_encoder(obs).mean
-        next_z = self.traj_encoder(next_obs).mean
+        phi_s = self.traj_encoder(obs).mean
+        phi_s_next = self.traj_encoder(next_obs).mean
         psi_g = v['options']
-        
-        z_unit = self.vec_norm(psi_g)
         phi_s_0 = self.traj_encoder(v['s_0']).mean
-        phi_init_obs = self.traj_encoder(self.s0).mean
-        phi_s = cur_z
-        phi_s_next = next_z
-        
         psi_s = self.Psi(phi_s)
         psi_s_next = self.Psi(phi_s_next)
         psi_s_0 = self.Psi(phi_s_0)
-        # 0. updated option
         updated_option = psi_g
         updated_next_option = psi_g
         k = self.Repr_max_step
         d = 1 / self.max_path_length
-        reward_g_distance = torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
         
         # 1. Similarity Reward
         delta_norm = self.norm((psi_s_next - psi_s))
-        ## pos sample
-        matrix = (self.vec_norm(psi_s_next - psi_s).unsqueeze(1) * self.vec_norm(psi_g - psi_s.detach()).unsqueeze(0)).sum(dim=-1)
-        direction_sim = (1 * (psi_s_next - psi_s) * self.vec_norm(psi_g - psi_s.detach())).sum(dim=-1)
-        ## neg smaple
-        def cal_softmax_obj(matrix, t=1):
-            matrix = matrix / t
-            label = torch.arange(matrix.shape[0]).to(self.device)
-            contrastive_sim = - F.cross_entropy(matrix, label) - F.cross_entropy(matrix.T, label)
-            return contrastive_sim
-        
-        def cic(matrix, t=1):
-            eps = 1e-6
-            sim = torch.exp(matrix / t)
-            neg = sim.sum(dim=-1)
-            row_sub = torch.Tensor(neg.shape).fill_(torch.e**(1 / t)).to(self.device)
-            neg = torch.clamp(neg - row_sub, min=eps) 
-            pos = torch.exp(torch.diagonal(matrix) / t)
-            neg_loss = torch.log(pos / (neg + eps))
-            return neg_loss
-        
-        ## pos and neg obj.
-        if  self.Repr_temperature == 0:
-            contrastive_sim = cal_softmax_obj(matrix, t=1)
-            phi_obj = direction_sim 
-        else: 
-            contrastive_sim = cic(matrix, t=self.Repr_temperature)
-            phi_obj = direction_sim
+        direction_sim = (1 * (psi_s_next - psi_s) * self.vec_norm(psi_g - psi_s.detach())).sum(dim=-1)        
+        phi_obj = direction_sim
 
         # 2. Goal Arrival Reward
         reward_g_distance = 1/d * torch.clamp(self.norm(psi_g - psi_s) - self.norm(psi_g - psi_s_next), min=-k*d, max=k*d)
-        
-        policy_rewards = 1 * reward_g_distance + 1/d * direction_sim
-        # policy_rewards = direction_sim
+        policy_rewards = 1 * reward_g_distance
         
         v.update({
-            'cur_z': cur_z,
-            'next_z': next_z,
+            'cur_z': phi_s,
+            'next_z': phi_s_next,
             'rewards': phi_obj,
             'policy_rewards': policy_rewards,
             'psi_s_0': psi_s_0,
@@ -742,9 +707,6 @@ class SZPC(IOD):
             'reward_g_distance': reward_g_distance.mean(),
             'delta_norm': delta_norm.mean(),
             'direction_sim': direction_sim.mean(),
-            'contrastive_sim': contrastive_sim.mean(),
-            "distance_s0_init_obs": self.norm(v['s_0'] - self.s0).mean(),
-            "distance_phi_s0_phi_init_obs": self.norm(phi_s_0 - phi_init_obs).mean(),
             "policy_rewards": policy_rewards.mean(),
         })
     
@@ -791,24 +753,14 @@ class SZPC(IOD):
                 raise NotImplementedError
 
             if 'psi_s' in v.keys():
-                ## using diff
-                # cst_penalty_1 = 1 / self.max_path_length - torch.square(v['psi_s'] - v['psi_s_next']).mean(dim=1) 
-                # cst_penalty_2 = - torch.square(v['psi_s_0']).mean(dim=1) 
-                
-                # cst_penalty_1 = 1 - self.max_path_length * self.norm(v['psi_s'] - v['psi_s_next'])
-                # cst_penalty_2 = -self.norm(v['psi_s_0'])
-                
                 ##  using norm
                 cst_penalty_1 = 1 / self.max_path_length - self.norm(v['psi_s'] - v['psi_s_next'])
                 cst_penalty_2 = -self.norm(v['psi_s_0'])
-                
                 cst_penalty = torch.clamp(cst_penalty_1, max=self.dual_slack * 1 / self.max_path_length)
-                # cst_penalty_2 = torch.clamp(cst_penalty_2, min=-self.dual_slack2)
                 
                 te_obj = rewards + dual_lam.detach() * cst_penalty + cst_penalty_2
                 v.update({
                     'cst_penalty': cst_penalty
-                    
                 })
                 tensors.update({
                     'cst_penalty_2': cst_penalty_2.mean(),
@@ -845,7 +797,6 @@ class SZPC(IOD):
             'DualLam': dual_lam,
             'LossDualLam': loss_dual_lam,
         })
-
 
     def _update_loss_qf(self, tensors, v):
         processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(v['obs']), v['options'].detach())
