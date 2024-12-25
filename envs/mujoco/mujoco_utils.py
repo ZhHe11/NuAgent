@@ -44,7 +44,7 @@ class MujocoTrait:
         return super().render(mode, width, height, camera_id, camera_name)
 
     def plot_trajectory(self, trajectory, color, ax):
-        ax.plot(trajectory[:, 0], trajectory[:, 1], color=color, linewidth=0.7)
+        ax.plot(trajectory[:, 0], trajectory[:, 1], color=color, linewidth=2)
 
     def plot_trajectories(self, trajectories, colors, plot_axis, ax):
         square_axis_limit = 0.0

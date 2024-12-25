@@ -262,10 +262,8 @@ class IOD(RLAlgorithm):
         '''
         with torch.no_grad():
             # if (runner.step_itr + 2) % self.n_epochs_per_log == 0 and wandb.run is not None:
-            if wandb.run is not None:
+            if wandb.run is not None and self.method['phi'] != 'baseline':
                 Pepr_viz = True
-                PhiGoal_viz = True
-                Z_viz = True
                 if 'maze' in self.env_name or 'lm' in self.env_name:
                     fig, ax = plt.subplots(1, 2, figsize=(15, 6))
                     fig.suptitle("Epoch:" + str(runner.step_itr))

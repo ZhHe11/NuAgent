@@ -2,6 +2,7 @@ import os
 import gym
 import numpy as np
 import matplotlib.pyplot as plt
+from pathlib import Path
 import imageio
 
 from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze, plot_trajectories, plot_value
@@ -11,6 +12,14 @@ from sklearn.decomposition import PCA
 import matplotlib.cm as cm
 from tqdm import trange, tqdm
 import copy
+from matplotlib import font_manager
+
+ArialPath = Path("/mnt/nfs2/zhanghe/NuAgent/fonts/Arial.ttf")
+# TimesPath = Path("/mnt/nfs2/zhanghe/NuAgent/fonts/Times New Roman.ttf")
+TimesPath = font_manager.FontProperties(fname="/mnt/nfs2/zhanghe/NuAgent/fonts/Times New Roman.ttf", weight='bold')
+
+print(TimesPath.get_name())  # 确认字体名称
+
 
 from iod.utils import get_torch_concat_obs
 import torch.distributions as dist
@@ -38,7 +47,7 @@ def calc_eval_metrics(trajectories, is_option_trajectories, coord_dims=[0,1]):
     return eval_metrics
 
 # save the traj. as fig
-def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_PCA=False, is_goal=True, ax=None):
+def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_PCA=False, is_goal=True, ax=None, colors=None):
     Repr_obs_array = np.array(All_Repr_obs_list[0])
     if is_goal:
         All_Goal_obs_array = np.array(All_Goal_obs_list[0])
@@ -52,13 +61,6 @@ def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_P
         # 对数据进行 PCA
         Repr_obs_2d = pca.fit_transform(Repr_obs_array)
     else:# # # Window Dist：
-
-# filepath = path + "-Maze_traj.png"
-# plt.savefig(filepath) 
-# print(filepath)
-
-# eval_metrics = calc_eval_metrics(All_Cover_list, is_option_trajectories=True)
-# print('[eval_metrics]:', eval_metrics)
         Repr_obs_2d = Repr_obs_array
         if is_goal:
             All_Goal_obs_2d = All_Goal_obs_array
@@ -66,7 +68,8 @@ def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_P
     if ax is None:
         fig = plt.figure(figsize=(8, 6))
         ax = fig.add_subplot(111)
-    colors = cm.rainbow(np.linspace(0, 1, len(All_Repr_obs_list)))
+    if colors is None:
+        colors = cm.rainbow(np.linspace(0, 1, len(All_Repr_obs_list)))
     for i in range(0,len(All_Repr_obs_list)):
         color = colors[i]
         start_index = i * path_len
@@ -75,9 +78,9 @@ def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_P
         if is_goal:
             ax.scatter(All_Goal_obs_2d[start_index:end_index, 0], All_Goal_obs_2d[start_index:end_index, 1], color=color, s=100, marker='*', edgecolors='black')
     path_file_traj = path + "-traj.png"
-    ax.set_xlabel('z[0]')
-    ax.set_ylabel('z[1]')
-    ax.set_title('Repr of Traj. in Z Space')
+    # ax.set_xlabel('z[0]')
+    # ax.set_ylabel('z[1]')
+    # ax.set_title('Repr of Traj. in Z Space')
     # plt.legend()
     if ax is None:
         plt.savefig(path_file_traj)
@@ -562,7 +565,7 @@ def PlotMazeTrajDist(env, SZN, input_token, agent_traj_encoder, qf1, qf2, alpha,
     ax[0,0] = plot_trajectories(env, All_trajs_list, fig, ax[0,0])
     ax[1,0] = PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=True, ax=ax[1,0])
     ax[1,1] = viz_SZN_dist_circle(SZN, input_token, path, psi_z=None, ax=ax[1,1])
-
+    plt.tight_layout() 
     filepath = path + "-Maze_traj.png"
     plt.savefig(filepath) 
     print(filepath)
@@ -625,6 +628,7 @@ def PlotMazeTraj(env, agent_traj_encoder, policy, device, Psi, dim_option=2, max
     ax[0] = plot_trajectories(env, All_trajs_list, fig, ax[0])
     ax[1] = PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=False, ax=ax[1])
     
+    plt.tight_layout() 
     filepath = path + "-Maze_traj.png"
     plt.savefig(filepath) 
     print(filepath)
@@ -653,15 +657,28 @@ def PlotNormalTraj(env, agent_traj_encoder, policy, device, Psi, dim_option=2, m
     cmap = 'tab10' if dim_option <= 10 else 'tab20'
     from iod.utils import get_torch_concat_obs, FigManager, get_option_colors, record_video, draw_2d_gaussians
     random_options = np.random.randn(eval_num, 2)
-    random_option_colors = get_option_colors(random_options * 4)
+    # random_option_colors = get_option_colors(random_options * 4)
+    
+    random_option_colors = cm.rainbow(np.linspace(0, 1, len(All_Repr_obs_list)))
+    
     env.render_trajectories(All_Cover_list, random_option_colors, [-50,50,-50,50], ax[0])
     
-    ax[1] = PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=False, ax=ax[1])
+    ax[1] = PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=False, ax=ax[1], colors=random_option_colors)
     
+    # 美化格式
+    for spine in ax[0].spines.values():
+        spine.set_linewidth(2) 
+    for spine in ax[1].spines.values():
+        spine.set_linewidth(2) 
+    ax[0].tick_params(axis='both', labelsize=35)
+    ax[1].tick_params(axis='both', labelsize=35)
+    ax[0].set_title('State Space', font=TimesPath, fontsize=75, pad=30)
+    ax[1].set_title('Repr. Space', font=TimesPath, fontsize=75, pad=30)
+    plt.tight_layout()
+    plt.legend()
     filepath = path + "-Maze_traj.png"
     plt.savefig(filepath) 
     print(filepath)
-    
     eval_metrics = calc_eval_metrics(All_Cover_list, is_option_trajectories=True)
     print('[eval_metrics]:', eval_metrics)
     
@@ -676,31 +693,37 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str, default='')
     parser.add_argument('--eval_type', type=str, default='random')
     args = parser.parse_args()
-    device = 'cuda'
+    device = 'cuda:5'
+    max_path_length = 300
+    args.eval_num = 100
+    args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/MazeReady/Baseline-dim4sd000_1733193086_ant_maze_metra_bl'
+    args.eval_type = 'random'
     eval_type = args.eval_type
-    max_path_length = 200
     
-    
+    # for epoch in [1000, 2000, 3000, 4000, 5000, 6000]:
     for epoch in [7000]:
         # 1. define the env:
+        # Ant;
         from envs.mujoco.ant_env import AntEnv
         from iod.utils import get_normalizer_preset
         from garagei.envs.consistent_normalized_env import consistent_normalize
-            
-        env = AntEnv(render_hw=100)
-        normalizer_name = 'ant'
-        normalizer_kwargs = {}
-        normalizer_mean, normalizer_std = get_normalizer_preset(f'{normalizer_name}_preset')
-        env = consistent_normalize(env, normalize_obs=True, mean=normalizer_mean, std=normalizer_std, **normalizer_kwargs)        
-        obs = env.reset()
-        
-        # 2. load model:
-        # Ours
-        # policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/ant/Ours-Win20sd000_1733465312_ant_SZPC/wandb/latest-run/filesoption_policy-" + str(epoch) + '.pt'
 
-        # Baseline
-        policy_path = args.model_path + '/wandb/latest-run/filesoption_policy-' + str(epoch) + '.pt'
+        # env = AntEnv(render_hw=100)
+        # normalizer_name = 'ant'
+        # normalizer_kwargs = {}
+        # normalizer_mean, normalizer_std = get_normalizer_preset(f'{normalizer_name}_preset')
+        # env = consistent_normalize(env, normalize_obs=True, mean=normalizer_mean, std=normalizer_std, **normalizer_kwargs)      
         
+        # AntMaze
+        from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
+        args.env = 'ant_maze'
+        env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
+        
+        normalizer_kwargs = {}
+        env = consistent_normalize(env, normalize_obs=False, **normalizer_kwargs)
+        
+        obs = env.reset()
+        policy_path = args.model_path + '/wandb/latest-run/filesoption_policy-' + str(epoch) + '.pt'
         traj_encoder_path = policy_path.replace('option_policy', 'traj_encoder')
         load_option_policy_base = torch.load(policy_path)
         load_traj_encoder_base = torch.load(traj_encoder_path)
@@ -727,8 +750,12 @@ if __name__ == '__main__':
                 return torch.tanh(2/max_path_length * (phi_x))
             else:
                 return phi_x
+
+        if 'maze' in args.env or 'lm' in args.env:
+            FD, AR, eval_metrics = PlotMazeTraj(env, agent_traj_encoder, agent_policy, device, __Psi, dim_option=dim_option, max_path_length=max_path_length, path=path, option_type=eval_type, eval_num=args.eval_num)
             
-        FD, AR, eval_metrics = PlotNormalTraj(env, agent_traj_encoder, agent_policy, device, __Psi, dim_option=dim_option, max_path_length=max_path_length, path=path, option_type=eval_type, eval_num=100)
+        else:
+            FD, AR, eval_metrics = PlotNormalTraj(env, agent_traj_encoder, agent_policy, device, __Psi, dim_option=dim_option, max_path_length=max_path_length, path=path, option_type=eval_type, eval_num=args.eval_num)
         
         # 5. save to csv:
         import pandas as pd

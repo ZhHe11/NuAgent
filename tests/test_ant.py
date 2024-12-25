@@ -98,7 +98,7 @@ device = 'cuda'
 # goal_tensor = torch.tensor(goal).to(device).float().unsqueeze(0)
 
 num_eval = 10
-num_model = 2
+num_model = 1
 max_path_length = 200
 def Psi(phi_x):  
     return torch.tanh(2/max_path_length * (phi_x))

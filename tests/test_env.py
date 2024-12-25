@@ -143,7 +143,7 @@ if __name__ == '__main__':
             
     # define the params
     args = get_argparser().parse_args()
-    args.env = 'kitchen'
+    args.env = 'ant'
     args.max_path_length = 50
     args.frame_stack = 3
     args.encoder = 1
@@ -156,7 +156,7 @@ if __name__ == '__main__':
     env = make_env(args, args.max_path_length)
 
     # # load model
-    load_option_policy = torch.load("/data/zh/project12_Metra/METRA/exp/KItchen_her/0709/option_policy9500.pt")
+    load_option_policy = torch.load("/mnt/nfs2/zhanghe/NuAgent/exp/ant/Ours-Win20sd000_1733465312_ant_SZPC/wandb/latest-run/filesoption_policy-7000.pt")
     load_traj_encoder = torch.load("/data/zh/project12_Metra/METRA/exp/KItchen_her/0709/traj_encoder9500.pt")
     # # eval mode
     agent_policy = load_option_policy['policy'].eval()
