@@ -44,7 +44,7 @@ def plot_data(data_dict, key, label, color):
 
 #1. load data
 plt.figure(figsize=(12, 8))
-env_name = 'AntMaze'
+env_name = 'Ant'
 
 #2. setings:
 x_label = 'Steps'
@@ -55,31 +55,31 @@ traj_batch_size = 16
 #3. Models
 # ## Ours
 model_name = 'Ours' 
-data_ours = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/zmetrics_csv/AntMaze/AntMazeMetricsOursE100.csv', index_col=None)
+data_ours = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/zmetrics_csv/LM/AntMazeMetricsOurs.csv', index_col=None)
 data_dict = get_data(data_ours, model_name)
 plot_data(data_ours, key=model_name, label='PDSD', color='red')
 
 ## METRA
 model_name = 'baseline' 
-data = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/zmetrics_csv/AntMaze/AntMazeMetricsBaselineE100.csv', index_col=None)
+data = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/zmetrics_csv/LM/AntMazeMetricsBaselineE100.csv', index_col=None)
 data_dict = get_data(data, model_name)
 plot_data(data_dict, key=model_name, label='METRA', color='blue')
 
 # ## LSD
 model_name = 'LSD' 
-data = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/zmetrics_csv/AntMaze/AntMazeMetricsLSDE100.csv', index_col=None)
+data = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/zmetrics_csv/LM/AntMazeMetricsLSD.csv', index_col=None)
 data_dict = get_data(data, model_name)
 plot_data(data_dict, key=model_name, label='LSD', color='green')
 
 # ## DIAYN
 model_name = 'DIAYN' 
-data = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/zmetrics_csv/AntMaze/AntMazeMetricsDIAYNE100.csv', index_col=None)
+data = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/zmetrics_csv/LM/AntMazeMetricsDiayn.csv', index_col=None)
 data_dict = get_data(data, model_name)
 plot_data(data_dict, key=model_name, label='DIAYN', color='grey')
 
 # ## Dads
 model_name = 'dads' 
-data = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/zmetrics_csv/AntMaze/AntMazeMetricsDADSE100.csv', index_col=None)
+data = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/zmetrics_csv/LM/AntMazeMetricsDads.csv', index_col=None)
 data_dict = get_data(data, model_name)
 plot_data(data_dict, key=model_name, label='DADS', color='orange')
 
@@ -94,7 +94,7 @@ plt.tick_params(axis='both', labelsize=20)
 plt.xlabel(x_label, font=TimesPath, fontsize=40)
 plt.ylabel('CoverCoords', font=TimesPath, fontsize=40)
 # plt.title(env_name, font=TimesPath, fontsize=40, pad=15)
-plt.legend(fontsize=60, prop=font_prop)
+plt.legend(fontsize=60, prop=font_prop, loc='lower right')
 plt.subplots_adjust(bottom=0.15)  
 plt.subplots_adjust(top=0.9)  
 plt.grid(True)
