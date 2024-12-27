@@ -44,7 +44,7 @@ def plot_data(data_dict, key, label, color):
 
 #1. load data
 plt.figure(figsize=(12, 8))
-env_name = 'Ant'
+env_name = 'AntLargeMaze'
 
 #2. setings:
 x_label = 'Steps'
@@ -55,31 +55,31 @@ traj_batch_size = 16
 #3. Models
 # ## Ours
 model_name = 'Ours' 
-data_ours = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/zmetrics_csv/LM/AntMazeMetricsOurs.csv', index_col=None)
+data_ours = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/zmetrics_csv/AntLargeMaze/AntMazeMetricsOurs.csv', index_col=None)
 data_dict = get_data(data_ours, model_name)
 plot_data(data_ours, key=model_name, label='PDSD', color='red')
 
 ## METRA
 model_name = 'baseline' 
-data = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/zmetrics_csv/LM/AntMazeMetricsBaselineE100.csv', index_col=None)
+data = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/zmetrics_csv/AntLargeMaze/AntMazeMetricsBaseline.csv', index_col=None)
 data_dict = get_data(data, model_name)
 plot_data(data_dict, key=model_name, label='METRA', color='blue')
 
 # ## LSD
 model_name = 'LSD' 
-data = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/zmetrics_csv/LM/AntMazeMetricsLSD.csv', index_col=None)
+data = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/zmetrics_csv/AntLargeMaze/AntMazeMetricsLSD.csv', index_col=None)
 data_dict = get_data(data, model_name)
 plot_data(data_dict, key=model_name, label='LSD', color='green')
 
 # ## DIAYN
 model_name = 'DIAYN' 
-data = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/zmetrics_csv/LM/AntMazeMetricsDiayn.csv', index_col=None)
+data = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/zmetrics_csv/AntLargeMaze/AntMazeMetricsDiYAN.csv', index_col=None)
 data_dict = get_data(data, model_name)
 plot_data(data_dict, key=model_name, label='DIAYN', color='grey')
 
 # ## Dads
 model_name = 'dads' 
-data = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/zmetrics_csv/LM/AntMazeMetricsDads.csv', index_col=None)
+data = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/zmetrics_csv/AntLargeMaze/AntMazeMetricsDADS.csv', index_col=None)
 data_dict = get_data(data, model_name)
 plot_data(data_dict, key=model_name, label='DADS', color='orange')
 
