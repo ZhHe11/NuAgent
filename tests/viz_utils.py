@@ -693,15 +693,15 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str, default='')
     parser.add_argument('--eval_type', type=str, default='random')
     args = parser.parse_args()
-    device = 'cuda:5'
+    device = 'cuda:4'
     max_path_length = 300
     args.eval_num = 100
-    args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/MazeReady/Baseline-dim4sd000_1733193086_ant_maze_metra_bl'
+    args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/LM-ready/baselinesd004_1733241785_lm_metra_bl'
     args.eval_type = 'random'
     eval_type = args.eval_type
+    args.epoch_list = [800]
     
-    # for epoch in [1000, 2000, 3000, 4000, 5000, 6000]:
-    for epoch in [7000]:
+    for epoch in args.epoch_list:
         # 1. define the env:
         # Ant;
         from envs.mujoco.ant_env import AntEnv
@@ -715,9 +715,14 @@ if __name__ == '__main__':
         # env = consistent_normalize(env, normalize_obs=True, mean=normalizer_mean, std=normalizer_std, **normalizer_kwargs)      
         
         # AntMaze
+        # from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
+        # args.env = 'ant_maze'
+        # env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
+        
+        # LM
         from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
-        args.env = 'ant_maze'
-        env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
+        args.env = 'lm'
+        env = MazeWrapper("maze2d-large-v1", random_init=False)
         
         normalizer_kwargs = {}
         env = consistent_normalize(env, normalize_obs=False, **normalizer_kwargs)
@@ -725,8 +730,8 @@ if __name__ == '__main__':
         obs = env.reset()
         policy_path = args.model_path + '/wandb/latest-run/filesoption_policy-' + str(epoch) + '.pt'
         traj_encoder_path = policy_path.replace('option_policy', 'traj_encoder')
-        load_option_policy_base = torch.load(policy_path)
-        load_traj_encoder_base = torch.load(traj_encoder_path)
+        load_option_policy_base = torch.load(policy_path, map_location=device)
+        load_traj_encoder_base = torch.load(traj_encoder_path, map_location=device)
         agent_policy = load_option_policy_base['policy'].eval()
         dim_option = load_traj_encoder_base['dim_option']
         agent_traj_encoder = load_traj_encoder_base['traj_encoder'].eval()
