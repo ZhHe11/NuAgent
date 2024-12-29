@@ -16,7 +16,7 @@ from matplotlib import font_manager
 
 ArialPath = Path("/mnt/nfs2/zhanghe/NuAgent/fonts/Arial.ttf")
 # TimesPath = Path("/mnt/nfs2/zhanghe/NuAgent/fonts/Times New Roman.ttf")
-TimesPath = font_manager.FontProperties(fname="/mnt/nfs2/zhanghe/NuAgent/fonts/Times New Roman.ttf", weight='bold')
+TimesPath =  .FontProperties(fname="/mnt/nfs2/zhanghe/NuAgent/fonts/Times New Roman.ttf", weight='bold')
 
 print(TimesPath.get_name())  # 确认字体名称
 
@@ -468,8 +468,10 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, a
         # goal
         if 'random' in option_type:
             if 'psi' in option_type:
-                # option = torch.tanh(torch.tensor(10000 * options[j]).unsqueeze(0).to(device).float())
-                option = vec_norm(torch.tensor(options[j]).unsqueeze(0).to(device).float())
+                if 'uniform' in option_type:
+                    option = torch.tensor(options[j]).unsqueeze(0).to(device).float()
+                else:
+                    option = vec_norm(torch.tensor(options[j]).unsqueeze(0).to(device).float())
             else:
                 option = vec_norm(torch.tensor(options[j]).unsqueeze(0).to(device).float())
         else: 
@@ -553,7 +555,7 @@ def PlotMazeTrajDist(env, SZN, input_token, agent_traj_encoder, qf1, qf2, alpha,
     fig.subplots_adjust(wspace=0.4, hspace=0.4) 
     np_random = np.random.default_rng(seed=0) 
     env.draw(ax[0,0])
-    ax[0,0].set_title('State of Traj. in Maze')
+    ax[0,0].set_title('State Space')
     ax[0,1].set_axis_off()
     ax[0,1].set_title('Estimate Value in Z Space')
     fig = viz_Value_in_Psi(policy, alpha, qf1, qf2, state=s0, num_samples=10, device=device, path=path, fig=fig)
@@ -611,11 +613,8 @@ def PlotMazeTrajWindowDist(env, window, agent_traj_encoder, qf1, qf2, alpha, pol
 @torch.no_grad()
 def PlotMazeTraj(env, agent_traj_encoder, policy, device, Psi, dim_option=2, max_path_length=300, path='./', option_type=None, eval_num=100): 
     obs0 = env.reset()
-    # s0 = torch.tensor(obs0).to(device).float()
-    fig, ax = plt.subplots(1,2, figsize=(16,8))
-    # fig.subplots_adjust(wspace=0.8, hspace=0.4) 
+    fig, ax = plt.subplots(1, 2, figsize=(7, 3))
     env.draw(ax[0])
-    ax[0].set_title('State of Traj. in Maze')
         
     if Psi is None:
         Psi = Psi_baseline
@@ -625,11 +624,34 @@ def PlotMazeTraj(env, agent_traj_encoder, policy, device, Psi, dim_option=2, max
     FD = np.array(FinallDistanceList).mean()
     AR = np.array(ArriveList).mean()
     print("FD:", FD, '\n', "AR:", AR)
-    ax[0] = plot_trajectories(env, All_trajs_list, fig, ax[0])
-    ax[1] = PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=False, ax=ax[1])
     
+    import iod.ant_eval
+    colors = cm.rainbow(np.linspace(0, 1, len(All_Repr_obs_list)))
+    
+    ax[0] = plot_trajectories(env, All_trajs_list, fig, ax[0], color_list=colors)
+
+    iod.ant_eval.PCA_plot_traj(ax[1], All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=False, colors=colors)
+    
+    # 美化格式
+    for spine in ax[0].spines.values():
+        spine.set_linewidth(2) 
+    for spine in ax[1].spines.values():
+        spine.set_linewidth(2) 
+    ax[0].set_title('State Sapce', font=TimesPath,fontsize=25, pad=10)
+
+    ax[1].grid()
+    if 'psi' in option_type:
+        ax[1].set_xlim(-0.5, 0.5)
+        ax[1].set_ylim(-0.5, 0.5)
+    else:
+        ax[1].set_xlim(-250, 250)
+        ax[1].set_ylim(-250, 250)
+    ax[1].set_title('Repr. Space', font=TimesPath, fontsize=25, pad=10)
+    ax[1].set_aspect('equal', adjustable='box')
+
+
     plt.tight_layout() 
-    filepath = path + "-Maze_traj.png"
+    filepath = path + "-Maze_traj1.png"
     plt.savefig(filepath) 
     print(filepath)
     
@@ -693,13 +715,16 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str, default='')
     parser.add_argument('--eval_type', type=str, default='random')
     args = parser.parse_args()
-    device = 'cuda:4'
+    device = 'cuda:3'
     max_path_length = 300
-    args.eval_num = 100
-    args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/LM-ready/baselinesd004_1733241785_lm_metra_bl'
+    args.eval_num = 150
+    # args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/Large/TheBestsd000_1735032511_ant_maze_large_SZPC'
+    # # args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/LM-ready/TheBest-1e-1sd000_1735213874_lm_SZPC'
+    # args.eval_type = 'random_psi'
+    args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/Large/Baseline-dim4sd000_1735034401_ant_maze_large_metra_bl'
     args.eval_type = 'random'
     eval_type = args.eval_type
-    args.epoch_list = [800]
+    args.epoch_list = [18000]
     
     for epoch in args.epoch_list:
         # 1. define the env:
@@ -718,11 +743,14 @@ if __name__ == '__main__':
         # from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
         # args.env = 'ant_maze'
         # env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
-        
-        # LM
+        args.env = 'ant_large_maze'
         from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
-        args.env = 'lm'
-        env = MazeWrapper("maze2d-large-v1", random_init=False)
+        env = MazeWrapper("antmaze-large-diverse-v0", random_init=False)
+        
+        # # LM
+        # from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
+        # args.env = 'lm'
+        # env = MazeWrapper("maze2d-large-v1", random_init=False)
         
         normalizer_kwargs = {}
         env = consistent_normalize(env, normalize_obs=False, **normalizer_kwargs)

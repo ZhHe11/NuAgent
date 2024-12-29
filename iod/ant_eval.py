@@ -25,7 +25,7 @@ def calc_eval_metrics(trajectories, is_option_trajectories, coord_dims=[0,1], k=
 
 
 # save the traj. as fig
-def PCA_plot_traj(ax, All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_PCA=False, is_goal=True):
+def PCA_plot_traj(ax, All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_PCA=False, is_goal=True, colors=None):
     if ax is None:
         fig, ax = plt.subplots()  
     if len(All_Goal_obs_list) == 0:
@@ -48,7 +48,8 @@ def PCA_plot_traj(ax, All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, 
         if is_goal:
             All_Goal_obs_2d = All_Goal_obs_array
     # 绘制 PCA 降维后的数据
-    colors = cm.rainbow(np.linspace(0, 1, len(All_Repr_obs_list)))
+    if colors is None:
+        colors = cm.rainbow(np.linspace(0, 1, len(All_Repr_obs_list)))
     for i in range(0,len(All_Repr_obs_list)):
         color = colors[i]
         start_index = i * path_len
@@ -56,9 +57,9 @@ def PCA_plot_traj(ax, All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, 
         ax.scatter(Repr_obs_2d[start_index:end_index, 0], Repr_obs_2d[start_index:end_index, 1], color=color, s=5)
         if is_goal:
             ax.scatter(All_Goal_obs_2d[start_index:end_index, 0], All_Goal_obs_2d[start_index:end_index, 1], color=color, s=100, marker='*', edgecolors='black')
-    ax.set_xlabel('z[0]')
-    ax.set_ylabel('z[1]')
-    ax.set_title('traj. in representation space')
+    # ax.set_xlabel('z[0]')
+    # ax.set_ylabel('z[1]')
+    # ax.set_title('traj. in representation space')
     
     
     
