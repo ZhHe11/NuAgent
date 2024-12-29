@@ -246,6 +246,10 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, a
     for j in trange(eval_num):
         goal = GoalList[j]
         ax.scatter(goal[0], goal[1], s=25, marker='o', alpha=1, edgecolors='black')
+        if 'maze2d' in env.env_name:
+            goal_tmp = (goal + 3.2) / 4
+            goal[0] = goal_tmp[1]
+            goal[1] = goal_tmp[0]
         tensor_goal = torch.tensor(goal).to(device)
         # s0
         obs_0 = env.reset()
@@ -261,9 +265,9 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, a
             phi_target_obs = agent_traj_encoder(target_obs).mean
             if option_type == 'baseline':
                 option = _vec_norm(phi_target_obs - phi_obs0)
-            elif option_type == 'Projection':
+            elif 'Projection' in option_type:
                 option = Psi(phi_target_obs, phi_obs0)
-            elif option_type == 'uniform':
+            elif 'uniform' in option_type:
                 option = torch.tensor(options[j]).unsqueeze(0).to(device).float()
 
         Repr_obs_list = []
@@ -273,9 +277,20 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, a
         traj_list["observation"] = []
         traj_list["info"] = []
         Cover_list = {}
+        arrive = 0
         for t in range(max_path_length):
-            # option, phi_obs_, phi_target_obs = gen_z(target_obs, obs, traj_encoder=agent_traj_encoder, device=device, ret_emb=True)
+            # # if re calculate option everytime
+            # if t % 50 == 0:
+            # obs_tmp = copy.deepcopy(obs)
+            # target_obs = env.get_target_obs(obs_tmp, tensor_goal)
+            # phi_target_obs = agent_traj_encoder(target_obs).mean
+            
             phi_obs_ = agent_traj_encoder(obs).mean
+            
+            # # if baseline change everytime
+            if option_type == 'baseline':
+                option = _vec_norm(phi_target_obs - phi_obs_)
+            
             obs_option = torch.cat((obs, option), -1).float()
             # for viz
             # import pdb; pdb.set_trace()
@@ -303,6 +318,14 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, a
             obs = torch.tensor(obs).unsqueeze(0).to(device).float()
             gt_reward = - gt_dist / (30 * max_path_length)
             gt_return_list.append(gt_reward)
+            if -gt_dist > -0.3:
+                arrive = 1
+                break
+        
+        if arrive == 1:
+            ArriveList.append(1)
+        else:
+            ArriveList.append(0)
             
         All_Repr_obs_list.append(Repr_obs_list)
         All_Goal_obs_list.append(Repr_goal_list)
@@ -311,11 +334,7 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, a
         Cover_list['env_infos']['coordinates'] = np.array(Cover_list['env_infos']['coordinates'])
         Cover_list['env_infos']['next_coordinates'] = np.array(Cover_list['env_infos']['next_coordinates'])
         All_Cover_list.append(Cover_list)
-        if -gt_dist > -1:
-            ArriveList.append(1)
-        else:
-            ArriveList.append(0)
-    
+
     return ax, FinallDistanceList, All_Repr_obs_list, All_Goal_obs_list, All_trajs_list, FinallDistanceList, ArriveList, All_Cover_list       
       
 def viz_SZN_dist_circle(SZN, input_token, path, psi_z=None, ax=None):

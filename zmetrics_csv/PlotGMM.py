@@ -222,6 +222,8 @@ if __name__ == '__main__':
         PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=False, ax=ax)
         
         
+        
+        
         # 美化格式
         from matplotlib import font_manager
         from pathlib import Path
