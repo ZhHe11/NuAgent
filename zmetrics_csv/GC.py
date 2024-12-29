@@ -8,17 +8,17 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str, default='')
     parser.add_argument('--eval_type', type=str, default='random')
     args = parser.parse_args()
-    device = 'cuda:3'
+    device = 'cuda:4'
     max_path_length = 300
     args.eval_num = 16
-    # args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/LM-ready/TheBestsd000_1735206880_lm_SZPC'
-    # args.eval_type = 'Projection_psi'
+    args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/Large/TheBestsd042_1735033571_ant_maze_large_SZPC'
+    args.eval_type = 'Projection_psi'
 
-    args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/MazeReady/Baseline-dim4sd000_1733193086_ant_maze_metra_bl'
-    args.eval_type = 'baseline'
+    # args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/Large/Baseline-dim4sd004_1735144621_ant_maze_large_metra_bl'
+    # args.eval_type = 'baseline'
     
     eval_type = args.eval_type
-    args.epoch_list = ['7500']
+    args.epoch_list = ['18000']
     
     for epoch in args.epoch_list:
         # 1. define the env:
@@ -35,11 +35,13 @@ if __name__ == '__main__':
         
         # AntMaze
         from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
-        args.env = 'ant_maze'
-        env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
-        # args.env = 'ant_large_maze'
-        # from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
-        # env = MazeWrapper("antmaze-large-diverse-v0", random_init=False)
+        # args.env = 'ant_maze'
+        # env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
+        
+        # AntMazeLarge
+        from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
+        args.env = 'ant_large_maze'
+        env = MazeWrapper("antmaze-large-diverse-v0", random_init=False)
         
         # # LM
         # from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
@@ -88,7 +90,7 @@ if __name__ == '__main__':
         plot_trajectories(env, All_trajs_list, fig, ax[0])
         PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=True, ax=ax[1])
         
-        info = f"FD: {FinallDistance}; AR: {ArriveRate}"
+        info = f"FD: {FinallDistance} AR: {ArriveRate}"
         ax[0].set_title(info)
         print(info)
         

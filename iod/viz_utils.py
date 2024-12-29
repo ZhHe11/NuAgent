@@ -272,6 +272,7 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, a
                 option = _vec_norm(phi_target_obs - phi_obs0)
             elif 'Projection' in option_type:
                 option = Psi(phi_target_obs, phi_obs0)
+                option = _vec_norm(option)
             elif 'uniform' in option_type:
                 option = torch.tensor(options[j]).unsqueeze(0).to(device).float()
 
@@ -284,17 +285,22 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, a
         Cover_list = {}
         arrive = 0
         for t in range(max_path_length):
-            # # if re calculate option everytime
-            # if t % 50 == 0:
-            # obs_tmp = copy.deepcopy(obs)
-            # target_obs = env.get_target_obs(obs_tmp, tensor_goal)
-            # phi_target_obs = agent_traj_encoder(target_obs).mean
-            
+                
             phi_obs_ = agent_traj_encoder(obs).mean
             
             # # if baseline change everytime
             if option_type == 'baseline':
+                if t % 120 == 0:
+                    obs_tmp = copy.deepcopy(obs)
+                    target_obs = env.get_target_obs(obs_tmp, tensor_goal)
+                    phi_target_obs = agent_traj_encoder(target_obs).mean
                 option = _vec_norm(phi_target_obs - phi_obs_)
+            else:
+                if t % 120 == 0:
+                    obs_tmp = copy.deepcopy(obs)
+                    target_obs = env.get_target_obs(obs_tmp, tensor_goal)
+                    phi_target_obs = agent_traj_encoder(target_obs).mean
+                
             
             obs_option = torch.cat((obs, option), -1).float()
             # for viz
@@ -323,8 +329,10 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, a
             obs = torch.tensor(obs).unsqueeze(0).to(device).float()
             gt_reward = - gt_dist / (30 * max_path_length)
             gt_return_list.append(gt_reward)
-            if -gt_dist > -0.3:
+            if -gt_dist > -1:
                 arrive = 1
+                print('arrive', goal)
+                ax.scatter(goal[0], goal[1], s=100, marker='o', alpha=1, edgecolors='black')
                 break
         
         if arrive == 1:
