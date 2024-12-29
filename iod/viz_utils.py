@@ -235,7 +235,12 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, a
     eval_num = 100
     if option_type != 'random':
         # to do: fix the map from the ant-maze
-        GoalList = np.load('/mnt/nfs2/zhanghe/NuAgent/tests/savenp/less-LargeMazeGoal.npy')
+        if 'antmaze-medium' in env.env_name:
+            np_random = np.random.default_rng(seed=0) 
+            GoalList = env.goal_sampler(np_random=np_random)
+            print(GoalList)
+        else:
+            GoalList = np.load('/mnt/nfs2/zhanghe/NuAgent/tests/savenp/less-LargeMazeGoal.npy')
         eval_num = len(GoalList)
     else:
         # provide a fake Goal List
