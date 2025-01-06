@@ -250,11 +250,13 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, a
     
     for j in trange(eval_num):
         goal = GoalList[j]
+        dist_theld = -1
         ax.scatter(goal[0], goal[1], s=25, marker='o', alpha=1, edgecolors='black')
         if 'maze2d' in env.env_name:
             goal_tmp = (goal + 3.2) / 4
             goal[0] = goal_tmp[1]
             goal[1] = goal_tmp[0]
+            dist_theld = -1/4
         tensor_goal = torch.tensor(goal).to(device)
         # s0
         obs_0 = env.reset()
@@ -285,10 +287,8 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, a
         Cover_list = {}
         arrive = 0
         for t in range(max_path_length):
-                
             phi_obs_ = agent_traj_encoder(obs).mean
-            
-            # # # if baseline change everytime
+            # # if baseline change everytime
             # if option_type == 'baseline':
             #     if t % 120 == 0:
             #         obs_tmp = copy.deepcopy(obs)
@@ -329,7 +329,7 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, a
             obs = torch.tensor(obs).unsqueeze(0).to(device).float()
             gt_reward = - gt_dist / (30 * max_path_length)
             gt_return_list.append(gt_reward)
-            if -gt_dist > -1:
+            if -gt_dist > dist_theld:
                 arrive = 1
                 print('arrive', goal)
                 ax.scatter(goal[0], goal[1], s=100, marker='o', alpha=1, edgecolors='black')

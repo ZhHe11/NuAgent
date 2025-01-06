@@ -8,17 +8,17 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str, default='')
     parser.add_argument('--eval_type', type=str, default='random')
     args = parser.parse_args()
-    device = 'cuda:4'
+    device = 'cuda:5'
     max_path_length = 300
     args.eval_num = 16
     # args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/Large/TheBestsd042_1735033571_ant_maze_large_SZPC'
     # args.eval_type = 'Projection_psi'
 
-    args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/MazeReady/Baseline-dim4sd008_1733194580_ant_maze_metra_bl'
+    args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/Large/DIAYNsd002_1735276404_ant_maze_large_metra_bl'
     args.eval_type = 'baseline'
     
     eval_type = args.eval_type
-    args.epoch_list = ['6000']
+    args.epoch_list = ['18000']
     
     for epoch in args.epoch_list:
         # 1. define the env:
@@ -34,14 +34,14 @@ if __name__ == '__main__':
         # env = consistent_normalize(env, normalize_obs=True, mean=normalizer_mean, std=normalizer_std, **normalizer_kwargs)      
         
         # AntMaze
-        from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
-        args.env = 'ant_maze'
-        env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
+        # from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
+        # args.env = 'ant_maze'
+        # env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
         
         # AntMazeLarge
-        # from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
-        # args.env = 'ant_large_maze'
-        # env = MazeWrapper("antmaze-large-diverse-v0", random_init=False)
+        from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
+        args.env = 'ant_large_maze'
+        env = MazeWrapper("antmaze-large-diverse-v0", random_init=False)
         
         # # LM
         # from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
