@@ -11,14 +11,14 @@ if __name__ == '__main__':
     device = 'cuda:4'
     max_path_length = 300
     args.eval_num = 16
-    args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/Large/TheBestsd042_1735033571_ant_maze_large_SZPC'
-    args.eval_type = 'Projection_psi'
+    # args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/Large/TheBestsd042_1735033571_ant_maze_large_SZPC'
+    # args.eval_type = 'Projection_psi'
 
-    # args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/Large/Baseline-dim4sd004_1735144621_ant_maze_large_metra_bl'
-    # args.eval_type = 'baseline'
+    args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/MazeReady/Baseline-dim4sd008_1733194580_ant_maze_metra_bl'
+    args.eval_type = 'baseline'
     
     eval_type = args.eval_type
-    args.epoch_list = ['18000']
+    args.epoch_list = ['6000']
     
     for epoch in args.epoch_list:
         # 1. define the env:
@@ -35,13 +35,13 @@ if __name__ == '__main__':
         
         # AntMaze
         from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
-        # args.env = 'ant_maze'
-        # env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
+        args.env = 'ant_maze'
+        env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
         
         # AntMazeLarge
-        from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
-        args.env = 'ant_large_maze'
-        env = MazeWrapper("antmaze-large-diverse-v0", random_init=False)
+        # from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
+        # args.env = 'ant_large_maze'
+        # env = MazeWrapper("antmaze-large-diverse-v0", random_init=False)
         
         # # LM
         # from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze

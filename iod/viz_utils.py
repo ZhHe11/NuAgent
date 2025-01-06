@@ -288,18 +288,18 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, a
                 
             phi_obs_ = agent_traj_encoder(obs).mean
             
-            # # if baseline change everytime
-            if option_type == 'baseline':
-                if t % 120 == 0:
-                    obs_tmp = copy.deepcopy(obs)
-                    target_obs = env.get_target_obs(obs_tmp, tensor_goal)
-                    phi_target_obs = agent_traj_encoder(target_obs).mean
-                option = _vec_norm(phi_target_obs - phi_obs_)
-            else:
-                if t % 120 == 0:
-                    obs_tmp = copy.deepcopy(obs)
-                    target_obs = env.get_target_obs(obs_tmp, tensor_goal)
-                    phi_target_obs = agent_traj_encoder(target_obs).mean
+            # # # if baseline change everytime
+            # if option_type == 'baseline':
+            #     if t % 120 == 0:
+            #         obs_tmp = copy.deepcopy(obs)
+            #         target_obs = env.get_target_obs(obs_tmp, tensor_goal)
+            #         phi_target_obs = agent_traj_encoder(target_obs).mean
+            #     option = _vec_norm(phi_target_obs - phi_obs_)
+            # else:
+            #     if t % 120 == 0:
+            #         obs_tmp = copy.deepcopy(obs)
+            #         target_obs = env.get_target_obs(obs_tmp, tensor_goal)
+            #         phi_target_obs = agent_traj_encoder(target_obs).mean
                 
             
             obs_option = torch.cat((obs, option), -1).float()
