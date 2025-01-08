@@ -84,19 +84,33 @@ def update_loss_sacp(
     with torch.no_grad():
         alpha = alpha.param.exp()
 
+    n = 10
+
     action_dists, *_ = policy(obs)
     if hasattr(action_dists, 'rsample_with_pre_tanh_value'):
-        new_actions_pre_tanh, new_actions = action_dists.rsample_with_pre_tanh_value()
+        new_actions_pre_tanh, new_actions = action_dists.rsample_with_pre_tanh_value([n])
         new_action_log_probs = action_dists.log_prob(new_actions, pre_tanh_value=new_actions_pre_tanh)
     else:
-        new_actions = action_dists.rsample()
+        new_actions = action_dists.rsample(n)
         new_actions = _clip_actions(algo, new_actions)
         new_action_log_probs = action_dists.log_prob(new_actions)
 
-    min_q_values = torch.min(
-        qf1(obs, new_actions).flatten(),
-        qf2(obs, new_actions).flatten(),
-    )
+    
+    if n > 1:
+        # import pdb; pdb.set_trace()
+        new_actions_flatten = new_actions.view(-1,new_actions.shape[-1])
+        obs_flatten = obs.unsqueeze(0).repeat([n,1,1]).view(-1,obs.shape[-1])
+
+        min_q_values = torch.min(
+            qf1(obs_flatten, new_actions_flatten).flatten(),
+            qf2(obs_flatten, new_actions_flatten).flatten(),
+        ).view(n,-1)
+        
+    else:
+        min_q_values = torch.min(
+            qf1(obs, new_actions).flatten(),
+            qf2(obs, new_actions).flatten(),
+        )
 
     loss_sacp = (alpha * new_action_log_probs - min_q_values).mean()
 

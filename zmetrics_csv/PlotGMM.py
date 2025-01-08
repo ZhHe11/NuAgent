@@ -46,24 +46,30 @@ def UpdateGMM(dists, GMM=None, mix_dist_prob=None, device='cuda'):
         return window_dist
 
 def PlotGMM(window_dist, psi_z, fig, ax, device, dim=4):
-    x_grid = np.linspace(-1, 1, 100)
-    y_grid = np.linspace(-1, 1, 100)
+    x_grid = np.linspace(-1, 1, 50)
+    y_grid = np.linspace(-1, 1, 50)
     X_grid, Y_grid = np.meshgrid(x_grid, y_grid)
     grid_points = np.vstack([X_grid.ravel(), Y_grid.ravel()]).T
     grid_points_tensor = torch.tensor(grid_points).to(device)
     zeros_tensor = torch.zeros(grid_points_tensor.shape[0], dim-2).to(device)
     grid_points_tensor_expanded = torch.cat((grid_points_tensor, zeros_tensor), dim=1)
-    log_prob = window_dist.log_prob(grid_points_tensor_expanded).cpu().numpy()
+    log_prob = torch.clip(window_dist.log_prob(grid_points_tensor_expanded), max=0)
+    log_prob = log_prob.cpu().numpy()
     prob_density = np.exp(log_prob).reshape(X_grid.shape)
     contour = ax.contourf(X_grid, Y_grid, prob_density, levels=20, cmap='viridis')
     cbar = fig.colorbar(contour, ax=ax)
-    cbar.set_ticks([])
+    entorpy = -(log_prob * (np.exp(log_prob))).mean()
+    # cbar.set_ticks([])
+    ax.set_xlabel(f'Entropy:{entorpy:.4f}')
+    print(f'Entropy:{entorpy:.4f}')
     if psi_z is not None:
         ax.scatter(psi_z[:, 0], psi_z[:, 1], alpha=0.5, color='gray', edgecolor='none', marker='o', s=5)
     # ax.set_title('GMM Probability Density')
     # ax.set_xlabel('Z[0]')
     # ax.set_ylabel('Z[1]')
 
+    
+    
 
 ## Main interation:
 @torch.no_grad()
@@ -145,10 +151,10 @@ if __name__ == '__main__':
     device = 'cuda:3'
     max_path_length = 300
     args.eval_num = 16
-    args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/Large/TheBestsd000_1735032511_ant_maze_large_SZPC'
+    args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/LM-ready/AB-win15sd000_1735633978_lm_SZPC'
     args.eval_type = 'random_psi'
     eval_type = args.eval_type
-    args.epoch_list = [12000, 14000, 16000, 18000]
+    args.epoch_list = [0, 200, 400, 600, 800, 1000]
     
     for epoch in args.epoch_list:
         # 1. define the env:
@@ -167,14 +173,14 @@ if __name__ == '__main__':
         # from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
         # args.env = 'ant_maze'
         # env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
-        args.env = 'ant_large_maze'
-        from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
-        env = MazeWrapper("antmaze-large-diverse-v0", random_init=False)
+        # args.env = 'ant_large_maze'
+        # from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
+        # env = MazeWrapper("antmaze-large-diverse-v0", random_init=False)
         
         # # LM
-        # from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
-        # args.env = 'lm'
-        # env = MazeWrapper("maze2d-large-v1", random_init=False)
+        from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
+        args.env = 'lm'
+        env = MazeWrapper("maze2d-large-v1", random_init=False)
         
         normalizer_kwargs = {}
         env = consistent_normalize(env, normalize_obs=False, **normalizer_kwargs)
@@ -214,24 +220,22 @@ if __name__ == '__main__':
     
         psi_z=None
         fig, ax = plt.subplots(1,1)
-        PlotGMM(window_dist, psi_z, fig, ax, device, dim=4)
+        PlotGMM(window_dist, psi_z, fig, ax, device, dim=dim_option)
+        
         args.eval_num = 16
         
-        options = window_dist.sample((args.eval_num, ))
-        ax, All_Repr_obs_list, All_Goal_obs_list, All_trajs_list, FinallDistanceList, ArriveList, All_Cover_list = eval_cover_rate(env, agent_traj_encoder, agent_policy, device, options=options, ax=ax, max_path_length=300, Psi=__Psi, option_type=args.eval_type)   
-        PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=False, ax=ax)
-        
-        
-        
+        # options = window_dist.sample((args.eval_num, ))
+        # ax, All_Repr_obs_list, All_Goal_obs_list, All_trajs_list, FinallDistanceList, ArriveList, All_Cover_list = eval_cover_rate(env, agent_traj_encoder, agent_policy, device, options=options, ax=ax, max_path_length=300, Psi=__Psi, option_type=args.eval_type)   
+        # PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=False, ax=ax)
         
         # 美化格式
-        from matplotlib import font_manager
-        from pathlib import Path
-        ArialPath = Path("/mnt/nfs2/zhanghe/NuAgent/fonts/Arial.ttf")
-        TimesPath = font_manager.FontProperties(fname="/mnt/nfs2/zhanghe/NuAgent/fonts/Times New Roman.ttf", weight='bold')
-        ax.tick_params(axis='both', labelsize=10)
-        ax.set_title('Repr. Sapce', font=TimesPath, fontsize=25, pad=10)
-        plt.subplots_adjust(right=0.99) 
+        # from matplotlib import font_manager
+        # from pathlib import Path
+        # ArialPath = Path("/mnt/nfs2/zhanghe/NuAgent/fonts/Arial.ttf")
+        # TimesPath = font_manager.FontProperties(fname="/mnt/nfs2/zhanghe/NuAgent/fonts/Times New Roman.ttf", weight='bold')
+        # ax.tick_params(axis='both', labelsize=10)
+        # ax.set_title('Repr. Sapce', font=TimesPath, fontsize=25, pad=10)
+        # plt.subplots_adjust(right=0.99) 
                         
         save_path = '/mnt/nfs2/zhanghe/NuAgent/zmetrics_csv/AntLargeMaze'
         filepath = save_path + '/GMM' + str(epoch) + '.pdf'

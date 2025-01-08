@@ -602,6 +602,8 @@ class PSZP(IOD):
                         if self.z_unit:
                             z = self.vec_norm(z)
                         V_szn, V_z = self.cal_regeret(z, self.init_obs)
+                        Regret = V_szn
+                        V_z_wandb = V_z
                         V_z = (V_z - V_z.mean()) / (V_z.std() + 1e-6)       # BN: 增加训练稳定性；
                         V_szn = (V_szn - V_szn.mean()) / (V_szn.std() + 1e-6)       # BN: 增加训练稳定性；
                         self.SampleZPolicy_optim.zero_grad()    
@@ -625,7 +627,8 @@ class PSZP(IOD):
                                 "SZN/entropy": dist_z.entropy().mean(),
                                 "SZN/kl_window": kl_window.mean(),
                                 "SZN/confidence": confidence.mean(),
-                                "SZN/V_z": V_z.mean(),
+                                "SZN/V_z": V_z_wandb.mean(),
+                                "SZN/Regret": Regret.mean(),
                                 "epoch": runner.step_itr,
                             })
                     # window queue operation    

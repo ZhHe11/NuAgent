@@ -266,7 +266,8 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, a
         phi_obs0 = copy.deepcopy(phi_obs_)
         # goal
         if option_type == 'random':
-            option = vec_norm(torch.tensor(options[j]).unsqueeze(0).to(device).float())
+            # option = vec_norm(torch.tensor(options[j]).unsqueeze(0).to(device).float())
+            option = torch.tensor(options[j]).unsqueeze(0).to(device).float()
         else: 
             target_obs = env.get_target_obs(obs_0, tensor_goal)
             phi_target_obs = agent_traj_encoder(target_obs).mean
@@ -274,7 +275,7 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, a
                 option = _vec_norm(phi_target_obs - phi_obs0)
             elif 'Projection' in option_type:
                 option = Psi(phi_target_obs, phi_obs0)
-                option = _vec_norm(option)
+                # option = _vec_norm(option)
             elif 'uniform' in option_type:
                 option = torch.tensor(options[j]).unsqueeze(0).to(device).float()
 
@@ -333,7 +334,8 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, a
                 arrive = 1
                 print('arrive', goal)
                 ax.scatter(goal[0], goal[1], s=100, marker='o', alpha=1, edgecolors='black')
-                break
+                if option_type != 'random':
+                    break
         
         if arrive == 1:
             ArriveList.append(1)

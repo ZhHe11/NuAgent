@@ -8,17 +8,18 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str, default='')
     parser.add_argument('--eval_type', type=str, default='random')
     args = parser.parse_args()
-    device = 'cuda:5'
+    device = 'cuda:4'
     max_path_length = 300
     args.eval_num = 16
     # args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/Large/TheBestsd042_1735033571_ant_maze_large_SZPC'
     # args.eval_type = 'Projection_psi'
 
-    args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/Large/DIAYNsd002_1735276404_ant_maze_large_metra_bl'
-    args.eval_type = 'baseline'
+    args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/LM-ready/AB-w3_3sd000_1735634378_lm_SZPC'
+    # args.eval_type = 'Projection_psi'
+    args.eval_type = 'random'
     
     eval_type = args.eval_type
-    args.epoch_list = ['18000']
+    args.epoch_list = ['800']
     
     for epoch in args.epoch_list:
         # 1. define the env:
@@ -39,14 +40,14 @@ if __name__ == '__main__':
         # env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
         
         # AntMazeLarge
-        from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
-        args.env = 'ant_large_maze'
-        env = MazeWrapper("antmaze-large-diverse-v0", random_init=False)
+        # from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
+        # args.env = 'ant_large_maze'
+        # env = MazeWrapper("antmaze-large-diverse-v0", random_init=False)
         
         # # LM
-        # from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
-        # args.env = 'lm'
-        # env = MazeWrapper("maze2d-large-v1", random_init=False)
+        from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
+        args.env = 'lm'
+        env = MazeWrapper("maze2d-large-v1", random_init=False)
         
         normalizer_kwargs = {}
         env = consistent_normalize(env, normalize_obs=False, **normalizer_kwargs)
@@ -86,6 +87,8 @@ if __name__ == '__main__':
         FinallDistance = np.array(FinallDistanceList).mean()
         ArriveRate = np.array(ArriveList).mean()
         
+        eval_metrics = calc_eval_metrics(All_Cover_list, is_option_trajectories=True)
+        print('[eval_metrics]:', eval_metrics)
         
         plot_trajectories(env, All_trajs_list, fig, ax[0])
         PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=True, ax=ax[1])
