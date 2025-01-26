@@ -17,30 +17,6 @@ class AgentWrapper(object):
     def vec_norm(self, vec):
         return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
         
-    # @torch.no_grad()
-    # def gen_z(self, sub_goal, obs, device="cpu", ret_emb: bool = False):
-    #     traj_encoder = self.target_traj_encoder.to(device)
-    #     goal_z = traj_encoder(sub_goal).mean
-    #     target_cur_z = traj_encoder(obs).mean
-
-    #     z = self.vec_norm(goal_z - target_cur_z)
-    #     if ret_emb:
-    #         return z, target_cur_z, goal_z
-    #     else:
-    #         return z
-        
-    
-    # @torch.no_grad()
-    # def gen_z(self, psi_g, obs, device="cpu", ret_emb: bool = False):
-    #     traj_encoder = self.target_traj_encoder.to(device)
-    #     goal_z = traj_encoder(sub_goal).mean
-    #     target_cur_z = traj_encoder(obs).mean
-
-    #     z = self.vec_norm(goal_z - target_cur_z)
-    #     if ret_emb:
-    #         return z, target_cur_z, goal_z
-    #     else:
-    #         return z
 
     def get_torch_concat_obs(self, obs, option, dim=1):
         concat_obs = torch.cat([obs] + [option], dim=dim)
@@ -94,12 +70,12 @@ class AgentWrapper(object):
 
     def eval(self):
         for v in self.__dict__.values():
-            if isinstance(v, torch.nn.Module):  # 仅对神经网络调用 eval()
+            if isinstance(v, torch.nn.Module): 
                 v.eval()
 
     def train(self):
         for v in self.__dict__.values():
-            if isinstance(v, torch.nn.Module):  # 仅对神经网络调用 eval()
+            if isinstance(v, torch.nn.Module): 
                 v.train()
 
     def reset(self):

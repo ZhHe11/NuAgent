@@ -86,7 +86,6 @@ def _Psi(phi_x, phi_x0=None):
         return torch.tanh(1/150 * phi_x)
     else:
         return torch.tanh(1/150 * (phi_x-phi_x0))
-        # return torch.tanh((phi_x-phi_x0))
 
 ## For viz SSP:
 def EstimateValue(policy, alpha, qf1, qf2, option, state, num_samples=1):
@@ -114,7 +113,6 @@ def EstimateValue(policy, alpha, qf1, qf2, option, state, num_samples=1):
     
     return E_V.squeeze(-1)
 
-## For viz SSP:
 def UpdateGMM(dists, GMM=None, mix_dist_prob=None, device='cuda'):
     if GMM is None:
         component_distribution = dist.Independent(
@@ -152,7 +150,6 @@ def UpdateGMM(dists, GMM=None, mix_dist_prob=None, device='cuda'):
 
         return window_dist
 
-## For viz SSP:
 def viz_SZN_dist(SZN, input_token, path):
     dist = SZN(input_token)
     # Data
@@ -258,7 +255,6 @@ def viz_Value_in_Psi(policy, alpha, qf1, qf2, state, num_samples=10, device='cpu
     else: 
         return fig
 
-## For viz SSP:
 @torch.no_grad()
 def viz_Regert_in_Psi(base1, base2, state, num_samples=10, device='cpu', path='./'):
     def get_fuctions(base):
@@ -300,7 +296,6 @@ def viz_Regert_in_Psi(base1, base2, state, num_samples=10, device='cpu', path='.
     print('save at: ' + path + '-Regret' + '.png')
     plt.close()
 
-## For viz SSP:
 def viz_SZN_dist_circle(SZN, input_token, path, psi_z=None, ax=None):
     dist = SZN(input_token)
     auto_save = 0
@@ -334,7 +329,6 @@ def viz_SZN_dist_circle(SZN, input_token, path, psi_z=None, ax=None):
     else:
         return ax
 
-## For viz SSP:
 def viz_dist_circle(window, path=None, psi_z=None, ax=None):
     from matplotlib.patches import Ellipse
     auto_save = 0
@@ -372,7 +366,6 @@ def viz_dist_circle(window, path=None, psi_z=None, ax=None):
     else:
         return ax
 
-## For viz SSP:
 def viz_GMM_circle(GMM, path='./', psi_z=None, ax=None):
     from matplotlib.patches import Ellipse
     means_from_component = GMM.component_distribution.base_dist.loc

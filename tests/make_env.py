@@ -43,8 +43,6 @@ def make_env(args, max_path_length):
     elif args.env == 'ant_maze':
         from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
         env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
-        # env = MazeWrapper("antmaze-umaze-v0", random_init=False)
-        # env = MazeWrapper("maze2d-umaze-v1", random_init=False)
 
     elif args.env == 'ant_maze_large':
         from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
@@ -78,7 +76,7 @@ def make_env(args, max_path_length):
 
 def make_env_wo_args(**kwargs):
     from argparse import Namespace
-    args = Namespace(**kwargs)  # 将字典转换为 Namespace 对象
+    args = Namespace(**kwargs)
     
     if args.env == 'maze':
         from envs.maze_env import MazeEnv
@@ -111,14 +109,12 @@ def make_env_wo_args(**kwargs):
         local_lexa_path = os.path.abspath('./lexa')
         sys.path.insert(0, local_lexa_path)
         from envs.lexa.mykitchen import MyKitchenEnv
-        assert args.encoder  # Only support pixel-based environments
+        assert args.encoder 
         env = MyKitchenEnv(log_per_goal=True)
     
     elif args.env == 'ant_maze':
         from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
         env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
-        # env = MazeWrapper("antmaze-umaze-v0", random_init=False)
-        # env = MazeWrapper("maze2d-umaze-v1", random_init=False)
 
     elif args.env == 'lm':
         from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
