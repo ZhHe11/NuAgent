@@ -35,19 +35,15 @@ from garagei.experiment.option_local_runner import OptionLocalRunner
 from garagei.envs.consistent_normalized_env import consistent_normalize
 from garagei.sampler.option_multiprocessing_sampler import OptionMultiprocessingSampler
 from garagei.torch.modules.with_encoder import WithEncoder, Encoder
-from garagei.torch.modules.gaussian_mlp_module_ex import GaussianMLPTwoHeadedModuleEx, GaussianMLPIndependentStdModuleEx, GaussianMLPModuleEx, XY_GaussianMLPIndependentStdModuleEx, vector_GaussianMLPIndependentStdModuleEx
+from garagei.torch.modules.gaussian_mlp_module_ex import GaussianMLPTwoHeadedModuleEx, GaussianMLPIndependentStdModuleEx, GaussianMLPModuleEx, vector_GaussianMLPIndependentStdModuleEx
 from garagei.torch.modules.parameter_module import ParameterModule
 from garagei.torch.policies.policy_ex import PolicyEx
 from garagei.torch.q_functions.continuous_mlp_q_function_ex import ContinuousMLPQFunctionEx
 from garagei.torch.optimizers.optimizer_group_wrapper import OptimizerGroupWrapper
 from garagei.torch.utils import xavier_normal_ex
 from iod.metra import METRA
-from iod.metra_bl import METRA_bl
 from iod.dads import DADS
-from iod.PSZP import PSZP
-from iod.SZPC import SZPC
-from iod.SZPC3 import SZPC3
-from iod.SZPC3Policy import SZPC3Policy
+from iod.RSD import RSD
 from tests.make_env import make_env
 
 EXP_DIR = 'exp'
@@ -80,8 +76,8 @@ def get_argparser():
     parser.add_argument('--n_thread', type=int, default=1)
 
     parser.add_argument('--n_epochs', type=int, default=1000000)
-    parser.add_argument('--traj_batch_size', type=int, default=8)
-    parser.add_argument('--trans_minibatch_size', type=int, default=256)
+    parser.add_argument('--traj_batch_size', type=int, default=16)
+    parser.add_argument('--trans_minibatch_size', type=int, default=1024)
     parser.add_argument('--trans_optimization_epochs', type=int, default=200)
 
     parser.add_argument('--n_epochs_per_eval', type=int, default=125)
@@ -149,20 +145,17 @@ def get_argparser():
     parser.add_argument('--_trans_policy_optimization_epochs', type=int, default=1)
     parser.add_argument('--_trans_online_sample_epochs', type=int, default=1)
     parser.add_argument('--target_theta', type=float, default=1.)
-
-    parser.add_argument('--SZN_w2', type=float, default=3.)
-    parser.add_argument('--SZN_w3', type=float, default=3.)
-    parser.add_argument('--SZN_window_size', type=float, default=10.)
-    parser.add_argument('--SZN_repeat_time', type=float, default=5.)
+    
+    parser.add_argument('--SZP_w2', type=float, default=3.)
+    parser.add_argument('--SZP_w3', type=float, default=3.)
+    parser.add_argument('--SZP_window_size', type=float, default=10.)
+    parser.add_argument('--SZP_repeat_time', type=float, default=5.)
     parser.add_argument('--Repr_temperature', type=float, default=0.5)
     parser.add_argument('--Repr_max_step', type=float, default=300.)
-    parser.add_argument('--SZN_std_min', type=float, default=1e-1)
-    parser.add_argument('--SZN_std_max', type=float, default=5e-1)
-    
+    parser.add_argument('--SZP_std_min', type=float, default=1e-1)
+    parser.add_argument('--SZP_std_max', type=float, default=5e-1)
     parser.add_argument('--z_unit', type=int, default=0)
-    
     parser.add_argument('--save_pt_step', type=int, default=500)
-    
     
     return parser
 
@@ -338,10 +331,7 @@ def run(ctxt=None):
         init_std=1.,
     ))
 
-    if args.algo == 'SZPC3Policy':
-        policy_q_input_dim = module_obs_dim + 2 * args.dim_option
-    else:
-        policy_q_input_dim = module_obs_dim + args.dim_option
+    policy_q_input_dim = module_obs_dim + args.dim_option
         
     policy_module = module_cls(
         input_dim=policy_q_input_dim,
@@ -373,8 +363,6 @@ def run(ctxt=None):
             te_encoder = None
         traj_encoder = with_encoder(traj_encoder, encoder=te_encoder)
         
-
-    # SampleZPolicyx
     module_cls, module_kwargs = get_gaussian_module_construction(
         args,
         hidden_sizes=master_dims,
@@ -383,14 +371,11 @@ def run(ctxt=None):
         input_dim=args.traj_batch_size,
         output_dim=args.dim_option,
         init_std=3e-1,
-        min_std=args.SZN_std_min,   # 1e-1
-        max_std=args.SZN_std_max,   # 5e-1
-        # min_std=3e-1,
-        # max_std=3e-1,
+        min_std=args.SZP_std_min,   # 1e-1
+        max_std=args.SZP_std_max,   # 5e-1
         normal_distribution_cls=TanhNormal,
     )
     SampleZPolicy = module_cls(**module_kwargs)
-    # zhanghe end
 
    
    
@@ -466,7 +451,7 @@ def run(ctxt=None):
 
     replay_buffer = PathBufferTensor(capacity_in_transitions=int(args.sac_max_buffer_size), pixel_shape=pixel_shape)
 
-    if args.algo in ['metra', 'dads', 'metra_bl', 'SZN', 'SZN_batch', 'SZN_Z', 'SZN_P', 'SZN_PP', 'SZN_PPP', 'SZN_PPAU', 'P_SZN_AU', 'PSZP', 'PRR', 'P_PZ', 'PSZP_k', 'SZPC', 'SZPC3', 'SZPC3Policy']:
+    if args.algo in ['metra', 'dads', 'metra', 'SZPC']:
         qf1 = ContinuousMLPQFunctionEx(
             obs_dim=policy_q_input_dim,
             action_dim=action_dim,
@@ -574,57 +559,18 @@ def run(ctxt=None):
             **skill_common_args,
         )
     
-    elif args.algo == 'metra_bl':        
-        algo = METRA_bl(
-            **algo_kwargs,
-            **skill_common_args,
-        )
-    
-    elif args.algo == 'SZPC':
-        algo = SZPC(
+    elif args.algo == 'RSD':
+        algo = RSD(
             **algo_kwargs,
             SampleZPolicy=SampleZPolicy,
             **skill_common_args,
             _trans_phi_optimization_epochs=args._trans_phi_optimization_epochs,
             _trans_policy_optimization_epochs=args._trans_policy_optimization_epochs,
             _trans_online_sample_epochs=args._trans_online_sample_epochs,
-            SZN_w2=args.SZN_w2,
-            SZN_w3=args.SZN_w3,
-            SZN_window_size=args.SZN_window_size,
-            SZN_repeat_time=args.SZN_repeat_time,
-            Repr_temperature=args.Repr_temperature,
-            Repr_max_step=args.Repr_max_step,
-        )
-        
-    elif args.algo == 'SZPC3':
-        algo = SZPC3(
-            **algo_kwargs,
-            SampleZPolicy=SampleZPolicy,
-            **skill_common_args,
-            _trans_phi_optimization_epochs=args._trans_phi_optimization_epochs,
-            _trans_policy_optimization_epochs=args._trans_policy_optimization_epochs,
-            _trans_online_sample_epochs=args._trans_online_sample_epochs,
-            SZN_w2=args.SZN_w2,
-            SZN_w3=args.SZN_w3,
-            SZN_window_size=args.SZN_window_size,
-            SZN_repeat_time=args.SZN_repeat_time,
-            Repr_temperature=args.Repr_temperature,
-            Repr_max_step=args.Repr_max_step,
-        )
-    
-    
-    elif args.algo == 'SZPC3Policy':
-        algo = SZPC3Policy(
-            **algo_kwargs,
-            SampleZPolicy=SampleZPolicy,
-            **skill_common_args,
-            _trans_phi_optimization_epochs=args._trans_phi_optimization_epochs,
-            _trans_policy_optimization_epochs=args._trans_policy_optimization_epochs,
-            _trans_online_sample_epochs=args._trans_online_sample_epochs,
-            SZN_w2=args.SZN_w2,
-            SZN_w3=args.SZN_w3,
-            SZN_window_size=args.SZN_window_size,
-            SZN_repeat_time=args.SZN_repeat_time,
+            SZP_w2=args.SZP_w2,
+            SZP_w3=args.SZP_w3,
+            SZP_window_size=args.SZP_window_size,
+            SZP_repeat_time=args.SZP_repeat_time,
             Repr_temperature=args.Repr_temperature,
             Repr_max_step=args.Repr_max_step,
         )

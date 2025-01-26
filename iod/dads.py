@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-from iod.metra_bl import METRA_bl
+from iod.metra import METRA_bl
 
 
 class DADS(METRA_bl):
