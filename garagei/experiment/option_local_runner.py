@@ -393,9 +393,6 @@ class OptionLocalRunner(LocalRunner):
             #      else sum(len(l) for l in p['env_infos']['coordinates']))
             #     for p in paths
             # ])
-            '''
-            zhanghe: my env have no coordinates
-            '''
             self._stats.total_env_steps += 1
 
         return paths, infos

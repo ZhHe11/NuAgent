@@ -53,12 +53,6 @@ def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_P
         Repr_obs_2d = pca.fit_transform(Repr_obs_array)
     else:# # # Window Dist：
 
-# filepath = path + "-Maze_traj.png"
-# plt.savefig(filepath) 
-# print(filepath)
-
-# eval_metrics = calc_eval_metrics(All_Cover_list, is_option_trajectories=True)
-# print('[eval_metrics]:', eval_metrics)
         Repr_obs_2d = Repr_obs_array
         if is_goal:
             All_Goal_obs_2d = All_Goal_obs_array
@@ -89,15 +83,6 @@ def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_P
 def vec_norm(vec):
     return vec / (torch.norm(vec, p=2, dim=-1, keepdim=True) + 1e-8)
 
-# def gen_z(sub_goal, obs, traj_encoder, device="cpu", ret_emb: bool = False):
-#     goal_z = traj_encoder(sub_goal).mean
-#     target_cur_z = traj_encoder(obs).mean
-
-#     z = vec_norm(goal_z - target_cur_z)
-#     if ret_emb:
-#         return z, target_cur_z, goal_z
-#     else:
-#         return z
 
 def _get_concat_obs(obs, option):
     return get_torch_concat_obs(obs, option)
@@ -110,9 +95,6 @@ def _Psi(phi_x, phi_x0=None):
         # return torch.tanh((phi_x-phi_x0))
 
 def EstimateValue(policy, alpha, qf1, qf2, option, state, num_samples=1):
-    '''
-    num_samles越大,方差越小,偏差不会更小;
-    '''
     batch = option.shape[0]
     # [s0, z]
     processed_cat_obs = _get_concat_obs(policy.process_observations(state), option.float())     # [b,dim_s+dim_z]
@@ -239,8 +221,8 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, a
             np_random = np.random.default_rng(seed=0) 
             GoalList = env.goal_sampler(np_random=np_random)
             print(GoalList)
-        else:
-            GoalList = np.load('/mnt/nfs2/zhanghe/NuAgent/tests/savenp/less-LargeMazeGoal.npy')
+        # else:
+        #     GoalList = np.load('path')
         eval_num = len(GoalList)
     else:
         # provide a fake Goal List
@@ -517,9 +499,7 @@ def PlotMazeTrajWindowDist(env, window, agent_traj_encoder, qf1, qf2, alpha, pol
 @torch.no_grad()
 def PlotMazeTraj(env, agent_traj_encoder, policy, device, Psi, dim_option=2, max_path_length=300, path='./', option_type=None): 
     obs0 = env.reset()
-    # s0 = torch.tensor(obs0).to(device).float()
     fig, ax = plt.subplots(1,2, figsize=(16,8))
-    # fig.subplots_adjust(wspace=0.8, hspace=0.4) 
     env.draw(ax[0])
     ax[0].set_title('State of Traj. in Maze')
         
@@ -668,35 +648,4 @@ def PlotGMM(window_dist, psi_z, fig, ax, device, dim=4):
     ax.set_title('GMM Probability Density')
     ax.set_xlabel('Z[0]')
     ax.set_ylabel('Z[1]')
-
-
-if __name__ == '__main__':
-    
-    policy_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PR-uniformsd000_1729956628_ant_maze_SZN_P/option_policy4200.pt"
-    traj_encoder_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PR-uniformsd000_1729956628_ant_maze_SZN_P/traj_encoder4200.pt"
-    SZN_path = "/mnt/nfs2/zhanghe/NuAgent/exp/MazeSZN/PSZP-1-k_3sd000_1729773482_ant_maze_PSZP/wandb/latest-run/filesSampleZPolicy-1500.pt"
-
-    load_option_policy_base = torch.load(policy_path)
-    load_traj_encoder_base = torch.load(traj_encoder_path)
-    load_SZN_path_base = torch.load(SZN_path)
-    
-    model_name = policy_path.split('/')[-4]
-    path = './test/' + model_name   
-    dim_option = 2
-    device = 'cuda'
-    
-    if "target_traj_encoder" in load_traj_encoder_base.keys():
-        agent_traj_encoder = load_traj_encoder_base['target_traj_encoder'].eval()
-    else:
-        agent_traj_encoder = load_traj_encoder_base['traj_encoder'].eval()
-    SZN = load_SZN_path_base['goal_sample_network'].eval()
-    input_token = load_SZN_path_base['input_token']
-    
-    qf1 = load_option_policy_base['qf1']
-    qf2 = load_option_policy_base['qf2']
-    alpha = load_option_policy_base['alpha']
-    policy = load_option_policy_base['policy']
-
-    PlotMazeTrajDist(SZN, input_token, agent_traj_encoder, qf1, qf2, alpha, policy, device, dim_option=dim_option, path=path)
-
 
