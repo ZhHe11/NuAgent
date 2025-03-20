@@ -14,9 +14,9 @@ if __name__ == '__main__':
     # args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/Large/TheBestsd042_1735033571_ant_maze_large_SZPC'
     # args.eval_type = 'Projection_psi'
 
-    args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/LM-ready/AB-w3_3sd000_1735634378_lm_SZPC'
-    # args.eval_type = 'Projection_psi'
-    args.eval_type = 'random'
+    args.model_path = '/mnt/nfs2/zhanghe/project001/METRA/exp/LM-ready/P2sd000_1734330858_lm_SZPC'
+    args.eval_type = 'Projection_psi'
+    # args.eval_type = 'random'
     
     eval_type = args.eval_type
     args.epoch_list = ['800']
@@ -83,6 +83,8 @@ if __name__ == '__main__':
         fig, ax = plt.subplots(1,2, figsize=(20,8))
         
         ax[0], FinallDistanceList, All_Repr_obs_list, All_Goal_obs_list, All_trajs_list, FinallDistanceList, ArriveList, All_Cover_list = eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, ax=ax[0], max_path_length=max_path_length, Psi=__Psi, option_type=args.eval_type)
+        env.draw(ax[0])
+        plt.savefig('zero_shot.png')
         
         FinallDistance = np.array(FinallDistanceList).mean()
         ArriveRate = np.array(ArriveList).mean()

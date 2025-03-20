@@ -240,7 +240,9 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, a
             GoalList = env.goal_sampler(np_random=np_random)
             print(GoalList)
         else:
-            GoalList = np.load('/mnt/nfs2/zhanghe/NuAgent/tests/savenp/less-LargeMazeGoal.npy')
+            GoalList = np.load('/mnt/nfs2/zhanghe/project001/METRA/tests/savenp/less-LargeMazeGoal.npy')
+            # ax.scatter(GoalList, GoalList, s=25, marker='o', alpha=1, edgecolors='black')
+            # plt.savefig('zero_shot.png')
         eval_num = len(GoalList)
     else:
         # provide a fake Goal List
@@ -251,7 +253,7 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, a
     for j in trange(eval_num):
         goal = GoalList[j]
         dist_theld = -1
-        ax.scatter(goal[0], goal[1], s=25, marker='o', alpha=1, edgecolors='black')
+        ax.scatter(goal[0], goal[1], s=100, marker='o', alpha=1, edgecolors='black')
         if 'maze2d' in env.env_name:
             goal_tmp = (goal + 3.2) / 4
             goal[0] = goal_tmp[1]
@@ -330,12 +332,12 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, a
             obs = torch.tensor(obs).unsqueeze(0).to(device).float()
             gt_reward = - gt_dist / (30 * max_path_length)
             gt_return_list.append(gt_reward)
-            if -gt_dist > dist_theld:
-                arrive = 1
-                print('arrive', goal)
-                ax.scatter(goal[0], goal[1], s=100, marker='o', alpha=1, edgecolors='black')
-                if option_type != 'random':
-                    break
+            # if -gt_dist > dist_theld:
+            #     arrive = 1
+            #     print('arrive', goal)
+            #     # ax.scatter(goal[0], goal[1], s=100, marker='o', alpha=1, edgecolors='black')
+            #     if option_type != 'random':
+            #         break
         
         if arrive == 1:
             ArriveList.append(1)

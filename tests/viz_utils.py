@@ -14,12 +14,6 @@ from tqdm import trange, tqdm
 import copy
 from matplotlib import font_manager
 
-ArialPath = Path("/mnt/nfs2/zhanghe/NuAgent/fonts/Arial.ttf")
-# TimesPath = Path("/mnt/nfs2/zhanghe/NuAgent/fonts/Times New Roman.ttf")
-TimesPath =  .FontProperties(fname="/mnt/nfs2/zhanghe/NuAgent/fonts/Times New Roman.ttf", weight='bold')
-
-print(TimesPath.get_name())  # 确认字体名称
-
 
 from iod.utils import get_torch_concat_obs
 import torch.distributions as dist
@@ -733,29 +727,33 @@ if __name__ == '__main__':
         from iod.utils import get_normalizer_preset
         from garagei.envs.consistent_normalized_env import consistent_normalize
 
-        # env = AntEnv(render_hw=100)
-        # normalizer_name = 'ant'
-        # normalizer_kwargs = {}
-        # normalizer_mean, normalizer_std = get_normalizer_preset(f'{normalizer_name}_preset')
-        # env = consistent_normalize(env, normalize_obs=True, mean=normalizer_mean, std=normalizer_std, **normalizer_kwargs)      
+        env = AntEnv(render_hw=100)
+        normalizer_name = 'ant'
+        normalizer_kwargs = {}
+        normalizer_mean, normalizer_std = get_normalizer_preset(f'{normalizer_name}_preset')
+        env = consistent_normalize(env, normalize_obs=True, mean=normalizer_mean, std=normalizer_std, **normalizer_kwargs)      
         
         # AntMaze
         # from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
         # args.env = 'ant_maze'
         # env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
-        args.env = 'ant_large_maze'
-        from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
-        env = MazeWrapper("antmaze-large-diverse-v0", random_init=False)
+        # args.env = 'ant_large_maze'
+        # from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
+        # env = MazeWrapper("antmaze-large-diverse-v0", random_init=False)
         
         # # LM
         # from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
         # args.env = 'lm'
         # env = MazeWrapper("maze2d-large-v1", random_init=False)
         
-        normalizer_kwargs = {}
-        env = consistent_normalize(env, normalize_obs=False, **normalizer_kwargs)
+        # normalizer_kwargs = {}
+        # env = consistent_normalize(env, normalize_obs=False, **normalizer_kwargs)
         
         obs = env.reset()
+        
+        print(obs)
+        print(obs.shape)
+        
         policy_path = args.model_path + '/wandb/latest-run/filesoption_policy-' + str(epoch) + '.pt'
         traj_encoder_path = policy_path.replace('option_policy', 'traj_encoder')
         load_option_policy_base = torch.load(policy_path, map_location=device)
