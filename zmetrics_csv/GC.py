@@ -14,12 +14,12 @@ if __name__ == '__main__':
     # args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/Large/TheBestsd042_1735033571_ant_maze_large_SZPC'
     # args.eval_type = 'Projection_psi'
 
-    args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/LM-ready/AB-w3_3sd000_1735634378_lm_SZPC'
-    # args.eval_type = 'Projection_psi'
-    args.eval_type = 'random'
+    args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/LM-ready/TheBestsd000_1735206880_lm_SZPC'
+    args.eval_type = 'Projection_psi'
+    # args.eval_type = 'random'
     
     eval_type = args.eval_type
-    args.epoch_list = ['800']
+    args.epoch_list = ['1000']
     
     for epoch in args.epoch_list:
         # 1. define the env:

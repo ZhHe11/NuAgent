@@ -405,8 +405,8 @@ def plot_trajectories(env, trajectories, fig, ax, color_list=None):
         elif 'maze2d' in env.env_name:
             all_x = obs[:, 1] * 4 - 3.2
             all_y = obs[:, 0] * 4 - 3.2
-        ax.scatter(all_x, all_y, s=5, c=color, alpha=0.2)
-        ax.scatter(all_x[-1], all_y[-1], s=50, c=color, marker='*', alpha=1, edgecolors='black', label='traj.'+str(count))
+        ax.scatter(all_x, all_y, s=50, c=color, alpha=0.8)
+        ax.scatter(all_x[-1], all_y[-1], s=100, c=color, marker='*', alpha=1, edgecolors='black', label='traj.'+str(count))
         count += 1
 
     env.draw(ax)

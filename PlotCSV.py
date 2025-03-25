@@ -63,29 +63,29 @@ traj_batch_size = 16
 #3. Models
 # ## Ours
 model_name = 'Ours' 
-# data_ours = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/wandb_export_2024-12-13T16_26_22.570+08_00.csv', index_col=None)
+data_ours = pd.read_csv('/mnt/nfs2/zhanghe/NuAgent/wandb_export_2024-12-13T16_26_22.570+08_00.csv', index_col=None)
 data_dict = get_data(all_data, model_name)
-plot_data(data_dict, key=model_name, label='PDSD', color='red')
+plot_data(data_dict, key=model_name, label='RSD', color='red')
 
 ## METRA
 model_name = 'baseline' 
 data_dict = get_data(all_data, model_name)
 plot_data(data_dict, key=model_name, label='METRA', color='blue')
 
-# ## LSD
-# model_name = 'LSD' 
-# data_dict = get_data(all_data, model_name)
-# plot_data(data_dict, key=model_name, label='LSD', color='green')
+## LSD
+model_name = 'LSD' 
+data_dict = get_data(all_data, model_name)
+plot_data(data_dict, key=model_name, label='LSD', color='green')
 
-# ## DIAYN
-# model_name = 'DIAYN' 
-# data_dict = get_data(all_data, model_name)
-# plot_data(data_dict, key=model_name, label='DIAYN', color='grey')
+## DIAYN
+model_name = 'DIAYN' 
+data_dict = get_data(all_data, model_name)
+plot_data(data_dict, key=model_name, label='DIAYN', color='grey')
 
-# ## Dads
-# model_name = 'dads' 
-# data_dict = get_data(all_data, model_name)
-# plot_data(data_dict, key=model_name, label='DADS', color='orange')
+## Dads
+model_name = 'dads' 
+data_dict = get_data(all_data, model_name)
+plot_data(data_dict, key=model_name, label='DADS', color='orange')
 
 
 #4. Plot

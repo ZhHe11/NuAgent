@@ -41,13 +41,13 @@ from garagei.torch.policies.policy_ex import PolicyEx
 from garagei.torch.q_functions.continuous_mlp_q_function_ex import ContinuousMLPQFunctionEx
 from garagei.torch.optimizers.optimizer_group_wrapper import OptimizerGroupWrapper
 from garagei.torch.utils import xavier_normal_ex
-from iod.metra import METRA
-from iod.metra_bl import METRA_bl
-from iod.dads import DADS
-from iod.PSZP import PSZP
+# from iod.metra import METRA
+# from iod.metra_bl import METRA_bl
+# from iod.dads import DADS
+# from iod.PSZP import PSZP
 from iod.SZPC import SZPC
-from iod.SZPC3 import SZPC3
-from iod.SZPC3Policy import SZPC3Policy
+# from iod.SZPC3 import SZPC3
+# from iod.SZPC3Policy import SZPC3Policy
 from tests.make_env import make_env
 
 EXP_DIR = 'exp'

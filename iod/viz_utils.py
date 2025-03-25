@@ -251,12 +251,12 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, a
     for j in trange(eval_num):
         goal = GoalList[j]
         dist_theld = -1
-        ax.scatter(goal[0], goal[1], s=25, marker='o', alpha=1, edgecolors='black')
+        ax.scatter(goal[0], goal[1], s=100, marker='o', alpha=1, edgecolors='black')
         if 'maze2d' in env.env_name:
             goal_tmp = (goal + 3.2) / 4
             goal[0] = goal_tmp[1]
             goal[1] = goal_tmp[0]
-            dist_theld = -1/4
+            dist_theld = -1/3
         tensor_goal = torch.tensor(goal).to(device)
         # s0
         obs_0 = env.reset()
@@ -333,7 +333,7 @@ def eval_cover_rate(env, agent_traj_encoder, agent_policy, dim_option, device, a
             if -gt_dist > dist_theld:
                 arrive = 1
                 print('arrive', goal)
-                ax.scatter(goal[0], goal[1], s=100, marker='o', alpha=1, edgecolors='black')
+                # ax.scatter(goal[0], goal[1], s=100, marker='o', alpha=1, edgecolors='black')
                 if option_type != 'random':
                     break
         
