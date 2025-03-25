@@ -1,4 +1,4 @@
-import d4rl
+# import d4rl
 import gym
 import numpy as np
 import functools as ft

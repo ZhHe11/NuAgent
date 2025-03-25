@@ -25,6 +25,20 @@ from iod.viz_utils import PlotMazeTrajDist, PlotMazeTrajWindowDist, viz_dist_cir
 from functools import partial
 
 
+class dist_discrete():
+    def __init__(self, probs):
+        self.probs = probs
+        self.dim = probs.shape[-1]
+        self.mean = probs
+        self.stddev = torch.zeros_like(probs)
+        self.logits = torch.log(probs)
+        self.log_prob = self.logits
+        
+    def sample(self, shape):
+        return torch.multinomial(self.probs, 1).squeeze(-1)
+    
+
+
 class SZPC(IOD):
     def __init__(
             self,
@@ -174,6 +188,8 @@ class SZPC(IOD):
         self.train_policy = False
         self.train_phi = False
         self.save_debug = False
+        
+        self.window = None
     
     
     def Psi(self, phi_x, phi_x0=None):
@@ -307,15 +323,32 @@ class SZPC(IOD):
 
     def _get_train_trajectories_kwargs(self, runner):
         if self.discrete:
-            if self.method['explore'] == 'SZN' and self.buffer_ready:
-                if self.NumSampleTimes == self.SZN_repeat_time:
+          
+            if self.method['explore'] == 'SZN' and self.buffer_ready: 
+                if self.NumSampleTimes == self.SZN_repeat_time * len(self.DistWindow):
+                    # window pool operation: PopDist   
+                    # Method 2. pop the dist whose Regret less than 0;
+                    def PopDistDeque(window_size=5, pop_min=True):
+                        if len(self.DistWindow) >= window_size:
+                            if pop_min:
+                                All_Regrets = torch.tensor([(self.cal_regeret(dist_i.sample(), self.init_obs)[0]).mean() for dist_i in self.DistWindow])
+                                min_index = torch.argmin(All_Regrets)
+                                self.DistWindow.pop(min_index)
+                            else:
+                                self.DistWindow.pop(0)
+                        return self.DistWindow
+                    
                     self.NumSampleTimes = 0
                     self.copy_params(self.ResetSZPolicy, self.SampleZPolicy)
                     self.SampleZPolicy_optim = optim.Adam(self.SampleZPolicy.parameters(), lr=3e-2)
-                    # training loop
+                    with torch.no_grad():
+                        self.DistWindow = PopDistDeque(self.SZN_window_size, pop_min=False)
+                    window_dist = self.UpdateGMM(self.DistWindow, device=self.device)
+
                     for t in trange(100):
                         # Reset the SZN:
-                        z_values = self.SampleZPolicy(self.input_token).mean
+                        dist_z = self.SampleZPolicy(self.input_token)
+                        z_values = dist_z.mean
                         probabilities = F.softmax(z_values, dim=-1)
                         z_index = torch.multinomial(probabilities, 1).squeeze(-1)
                         z_onehot = F.one_hot(z_index, num_classes=self.dim_option).float()
@@ -325,9 +358,18 @@ class SZPC(IOD):
                         V_z = (V_z - V_z.mean()) / (V_z.std() + 1e-6)       # BN: 增加训练稳定性；
                         V_szn = (V_szn - V_szn.mean()) / (V_szn.std() + 1e-6)       # BN: 增加训练稳定性；
 
+                        # weight of KL
+                        kl = 0
+                        for dist_i in self.DistWindow:
+                            probabilities = F.softmax(dist_i.mean, dim=-1)
+                            q_z = (probabilities * z_onehot).sum(dim=-1)
+                            z_logq = torch.log(q_z)
+                            kl += p_z * (z_logp - z_logq)
+    
+                        
                         self.SampleZPolicy_optim.zero_grad()    
 
-                        loss_SZP = (-z_logp * (V_szn.detach() + V_z.detach())).mean()
+                        loss_SZP = (-z_logp * (V_szn.detach()) - self.SZN_w2 * kl ).mean()
 
                         loss_SZP.backward()
                         self.grad_clip.apply(self.SampleZPolicy.parameters())
@@ -336,10 +378,22 @@ class SZPC(IOD):
                             wandb.log({
                                 "SZN/loss_SZP": loss_SZP,
                                 "SZN/logp": z_logp.mean(),
+                                "SZN/kl": kl.mean(),
                                 "epoch": runner.step_itr,
                             })
+                                        # window queue operation    
+                    with torch.no_grad():
+                        dist = self.SampleZPolicy(self.input_token)    
+                        is_different = 1
+                        for j in range(len(self.DistWindow)):
+                            dist_j = self.DistWindow[j]
+                            if (self.norm(dist.mean- dist_j.mean)).mean() < 0.1:
+                                is_different = 0
+                                break
+                        if is_different == 1:
+                            self.DistWindow.append(dist)
+                            
                     # save k-1 policy and qf
-                    # Attention this part should process after all other things
                     self.copy_params(self.option_policy, self.last_policy)
                     self.copy_params(self.log_alpha, self.last_alpha)
                     self.copy_params(self.qf1, self.last_qf1)
@@ -360,18 +414,37 @@ class SZPC(IOD):
                 
                 ## GMM samples
                 self.NumSampleTimes += 1
-                z_values = self.SampleZPolicy(self.input_token).mean
-                probabilities = F.softmax(z_values, dim=-1)
-                z_index = torch.multinomial(probabilities, 1).squeeze(-1)
-                z_onehot = F.one_hot(z_index, num_classes=self.dim_option).float().detach().cpu().numpy()
                 
+                
+                # use window sample z
+                z_from_window = []
+                for dist_i in self.DistWindow:
+                    z_values = dist_i.mean
+                    probabilities = F.softmax(z_values, dim=-1)
+                    z_index = torch.multinomial(probabilities, 1).squeeze(-1)
+                    z_onehot = F.one_hot(z_index, num_classes=self.dim_option).float().detach().cpu().numpy()
+                    z_from_window.append(z_onehot)
+                # sample z from z_from_window
+                z_index = np.random.choice(len(z_from_window), 1)
+                z_onehot = z_from_window[z_index[0]]
+                
+                
+                # z_values = self.SampleZPolicy(self.input_token).mean
+                # probabilities = F.softmax(z_values, dim=-1)
+                # self.DistWindow.append(probabilities)
+                # z_index = torch.multinomial(probabilities, 1).squeeze(-1)
+                # z_onehot = F.one_hot(z_index, num_classes=self.dim_option).float().detach().cpu().numpy()
+                
+                print(f'z_onehot: {z_onehot}')
                 # Epsilon:
-                Epsilon = 0.1
-                if np.random.rand() < Epsilon: 
-                    extras = self._generate_option_extras(np.eye(self.dim_option)[np.random.randint(0, self.dim_option, runner._train_args.batch_size)])
-                else:
-                    extras = self._generate_option_extras(z_onehot, psi_g=z_onehot)   
-            
+                # Epsilon = 0.1
+                # if np.random.rand() < Epsilon: 
+                #     extras = self._generate_option_extras(np.eye(self.dim_option)[np.random.randint(0, self.dim_option, runner._train_args.batch_size)])
+                # else:
+                    # extras = self._generate_option_extras(z_onehot, psi_g=z_onehot)   
+                    
+                extras = self._generate_option_extras(z_onehot, psi_g=z_onehot)   
+                
             else: 
                 extras = self._generate_option_extras(np.eye(self.dim_option)[np.random.randint(0, self.dim_option, runner._train_args.batch_size)])
                 
@@ -515,11 +588,11 @@ class SZPC(IOD):
                 self.replay_buffer.add_path(path)
                 sfs.append(path['obs'][-1])
 
-            sfs = np.stack(sfs, axis=0)
-            with torch.no_grad():
-                SfRepr = self.Psi(self.traj_encoder(torch.tensor(sfs).to(self.device)).mean)
-            self.SfReprBuffer.extend(SfRepr.cpu().numpy())
-            self.new_trial.extend(SfRepr.cpu().numpy())
+            # sfs = np.stack(sfs, axis=0)
+            # with torch.no_grad():
+            #     SfRepr = self.Psi(self.traj_encoder(torch.tensor(sfs).to(self.device)).mean)
+            # self.SfReprBuffer.extend(SfRepr.cpu().numpy())
+            # self.new_trial.extend(SfRepr.cpu().numpy())
 
     def _sample_replay_buffer(self):
         samples = self.replay_buffer.sample_transitions(self._trans_minibatch_size)

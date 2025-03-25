@@ -42,13 +42,15 @@ from garagei.torch.q_functions.continuous_mlp_q_function_ex import ContinuousMLP
 from garagei.torch.optimizers.optimizer_group_wrapper import OptimizerGroupWrapper
 from garagei.torch.utils import xavier_normal_ex
 # from iod.metra import METRA
-# from iod.metra_bl import METRA_bl
+from iod.metra_bl import METRA_bl
 # from iod.dads import DADS
 # from iod.PSZP import PSZP
 from iod.SZPC import SZPC
 # from iod.SZPC3 import SZPC3
 # from iod.SZPC3Policy import SZPC3Policy
 from tests.make_env import make_env
+import mujoco
+import mujoco_py
 
 EXP_DIR = 'exp'
 if os.environ.get('START_METHOD') is not None:
@@ -382,12 +384,13 @@ def run(ctxt=None):
         w_init=torch.nn.init.xavier_uniform_,
         input_dim=args.traj_batch_size,
         output_dim=args.dim_option,
-        init_std=3e-1,
+        init_std=1e-6,
         min_std=args.SZN_std_min,   # 1e-1
         max_std=args.SZN_std_max,   # 5e-1
         # min_std=3e-1,
         # max_std=3e-1,
         normal_distribution_cls=TanhNormal,
+        const_std=True,
     )
     SampleZPolicy = module_cls(**module_kwargs)
     # zhanghe end

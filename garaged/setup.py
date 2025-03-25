@@ -20,7 +20,7 @@ REQUIRED = [
     'numpy>=1.14.5',
     'psutil',
     'python-dateutil',
-    'ray<=0.8.6',
+    # 'ray<=0.8.6',
     'scikit-image',
     'scipy',
     'setproctitle>=1.0',
@@ -28,8 +28,8 @@ REQUIRED = [
     'tensorflow-probability>=0.11.0',
     #'torch>=1.0.0,!=1.5.0',
     # For torch.clip
-    'torch>=1.7.0',
-    'torchvision>=0.2.1',
+    # 'torch>=1.7.0',
+    # 'torchvision>=0.2.1',
 ]
 
 # Dependencies for optional features
