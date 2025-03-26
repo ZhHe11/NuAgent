@@ -223,7 +223,7 @@ def set_gpu_mode(mode, gpu_id=0):
     _GPU_ID = gpu_id
     _USE_GPU = mode
     _DEVICE = torch.device(('cuda:' + str(_GPU_ID)) if _USE_GPU else 'cpu')
-    print(f"global device set to {_DEVICE}")
+    # print(f"global device set to {_DEVICE}")
 
 
 def global_device():
@@ -241,7 +241,7 @@ def global_device():
     """
     # pylint: disable=global-statement
     global _DEVICE
-    print(f"global device set to {_DEVICE}")
+    # print(f"global device set to {_DEVICE}")
     return _DEVICE
 
 
