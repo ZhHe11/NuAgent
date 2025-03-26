@@ -8,7 +8,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str, default='')
     parser.add_argument('--eval_type', type=str, default='random')
     args = parser.parse_args()
-    device = 'cuda:4'
+    # device = 'cuda:4'
     max_path_length = 300
     args.eval_num = 16
     # args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/Large/TheBestsd042_1735033571_ant_maze_large_SZPC'

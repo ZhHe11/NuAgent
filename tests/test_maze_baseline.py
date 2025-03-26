@@ -408,7 +408,7 @@ def run(path, num_eval, type=['metrics']):
 
     # settings:
     max_path_length = 300
-    device = 'cuda:0'
+    # device = 'cuda:0'
     model_name = policy_path.split('ant_maze')[0].split('/')[-1]
     path = './test/' + model_name + '/'
     if not os.path.exists(path):

@@ -45,6 +45,7 @@ from garagei.torch.optimizers.optimizer_group_wrapper import OptimizerGroupWrapp
 from garagei.torch.utils import xavier_normal_ex
 # from iod.metra import METRA
 from iod.metra_bl import METRA_bl
+from iod.metra_bl_ours import METRA_bl_ours
 # from iod.dads import DADS
 # from iod.PSZP import PSZP
 from iod.SZPC import SZPC
@@ -471,7 +472,7 @@ def run(ctxt=None):
 
     replay_buffer = PathBufferTensor(capacity_in_transitions=int(args.sac_max_buffer_size), pixel_shape=pixel_shape)
 
-    if args.algo in ['metra', 'dads', 'metra_bl', 'SZN', 'SZN_batch', 'SZN_Z', 'SZN_P', 'SZN_PP', 'SZN_PPP', 'SZN_PPAU', 'P_SZN_AU', 'PSZP', 'PRR', 'P_PZ', 'PSZP_k', 'SZPC', 'SZPC3', 'SZPC3Policy']:
+    if args.algo in ['metra', 'metra_bl_ours', 'dads', 'metra_bl', 'SZN', 'SZN_batch', 'SZN_Z', 'SZN_P', 'SZN_PP', 'SZN_PPP', 'SZN_PPAU', 'P_SZN_AU', 'PSZP', 'PRR', 'P_PZ', 'PSZP_k', 'SZPC', 'SZPC3', 'SZPC3Policy']:
         qf1 = ContinuousMLPQFunctionEx(
             obs_dim=policy_q_input_dim,
             action_dim=action_dim,
@@ -584,6 +585,23 @@ def run(ctxt=None):
             **algo_kwargs,
             **skill_common_args,
         )
+    
+    elif args.algo == 'metra_bl_ours':
+        algo = METRA_bl_ours(
+            **algo_kwargs,
+            SampleZPolicy=SampleZPolicy,
+            **skill_common_args,
+            _trans_phi_optimization_epochs=args._trans_phi_optimization_epochs,
+            _trans_policy_optimization_epochs=args._trans_policy_optimization_epochs,
+            _trans_online_sample_epochs=args._trans_online_sample_epochs,
+            SZN_w2=args.SZN_w2,
+            SZN_w3=args.SZN_w3,
+            SZN_window_size=args.SZN_window_size,
+            SZN_repeat_time=args.SZN_repeat_time,
+            Repr_temperature=args.Repr_temperature,
+            Repr_max_step=args.Repr_max_step,
+        )    
+    
     
     elif args.algo == 'SZPC':
         algo = SZPC(

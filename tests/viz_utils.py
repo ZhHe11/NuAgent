@@ -16,7 +16,7 @@ from matplotlib import font_manager
 
 ArialPath = Path("/mnt/nfs2/zhanghe/NuAgent/fonts/Arial.ttf")
 # TimesPath = Path("/mnt/nfs2/zhanghe/NuAgent/fonts/Times New Roman.ttf")
-TimesPath =  .FontProperties(fname="/mnt/nfs2/zhanghe/NuAgent/fonts/Times New Roman.ttf", weight='bold')
+# TimesPath =  .FontProperties(fname="/mnt/nfs2/zhanghe/NuAgent/fonts/Times New Roman.ttf", weight='bold')
 
 print(TimesPath.get_name())  # 确认字体名称
 
@@ -715,7 +715,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str, default='')
     parser.add_argument('--eval_type', type=str, default='random')
     args = parser.parse_args()
-    device = 'cuda:3'
+    # device = 'cuda:3'
     max_path_length = 300
     args.eval_num = 150
     # args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/Large/TheBestsd000_1735032511_ant_maze_large_SZPC'

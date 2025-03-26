@@ -77,7 +77,7 @@ agent_traj_encoder = load_traj_encoder_base['traj_encoder'].eval()
 
 
 # open the env, and set the init lists
-device = 'cuda:0'
+# device = 'cuda:0'
 frames = []
 All_Repr_obs_list = []
 All_Goal_obs_list = []

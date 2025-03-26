@@ -149,7 +149,7 @@ if __name__ == '__main__':
     args.encoder = 1
     args.normalizer_type = 'off'
     args.seed = 0
-    args.device = 'cuda:0'
+    # args.device = 'cuda:0'
     device = args.device
 
     # make env
