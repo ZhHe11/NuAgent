@@ -17,6 +17,8 @@ else:
     os.environ['MUJOCO_GL'] = 'egl'
     if 'SLURM_STEP_GPUS' in os.environ:
         os.environ['EGL_DEVICE_ID'] = os.environ['SLURM_STEP_GPUS']
+os.environ['EGL_DEVICE_ID'] = '0'
+
 
 # import better_exceptions
 import numpy as np
