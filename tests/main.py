@@ -267,7 +267,7 @@ def get_gaussian_module_construction(args,
 def run(ctxt=None):
     if args.is_wandb:
         wandb_output_dir = get_log_dir()
-        wandb.init(project='Ready', group=args.run_group, name=get_exp_name()[0], notes=args.wandb_note,
+        wandb.init(project=args.run_group, group=args.run_group, name=get_exp_name()[0], notes=args.wandb_note,
                     config=vars(args), dir=wandb_output_dir)
 
     dowel.logger.log('ARGS: ' + str(args))

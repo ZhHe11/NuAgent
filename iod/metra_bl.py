@@ -416,7 +416,7 @@ class METRA_bl(IOD):
             )
         
         elif env_name == 'kitchen':
-            self.eval_kitchen_metra(runner)
+            self.eval_metra(runner)
             
         else:
             self.eval_metra(runner)
