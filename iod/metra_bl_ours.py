@@ -23,7 +23,7 @@ import matplotlib.pyplot as plt
 import torch.distributions as dist
 from iod.viz_utils import PlotMazeTrajDist, PlotMazeTrajWindowDist, viz_dist_circle, PlotGMM
 from functools import partial
-
+import random
 
 
 class METRA_bl_ours(IOD):
@@ -156,7 +156,16 @@ class METRA_bl_ours(IOD):
         self.last_alpha = copy.deepcopy(self.log_alpha)
         self.copyed = 0
         with torch.no_grad():
-            self.DistWindow = [self.SampleZPolicy(self.input_token)]
+            self.DistWindow = [
+                self.SampleZPolicy(self.input_token).mean[0], 
+                self.SampleZPolicy(self.input_token).mean[0], 
+                self.SampleZPolicy(self.input_token).mean[0], 
+                self.SampleZPolicy(self.input_token).mean[0], 
+                self.SampleZPolicy(self.input_token).mean[0],
+                self.SampleZPolicy(self.input_token).mean[0],
+                self.SampleZPolicy(self.input_token).mean[0],
+                self.SampleZPolicy(self.input_token).mean[0]
+            ]
         
         self.NumSampleTimes = 0
         self.last_trial = []
@@ -272,7 +281,7 @@ class METRA_bl_ours(IOD):
                         # weight of KL
                         kl = 0
                         for dist_i in self.DistWindow:
-                            probabilities = F.softmax(dist_i.mean, dim=-1)
+                            probabilities = F.softmax(dist_i, dim=-1)
                             q_z = (probabilities * z_onehot).sum(dim=-1)
                             z_logq = torch.log(q_z)
                             kl += p_z * (z_logp - z_logq)
@@ -293,17 +302,34 @@ class METRA_bl_ours(IOD):
                             })
                             
                     # window queue operation    
+                    # with torch.no_grad():
+                    #     dist = self.SampleZPolicy(self.input_token)    
+                    #     is_different = 1
+                    #     for j in range(len(self.DistWindow)):
+                    #         dist_j = self.DistWindow[j]
+                    #         if (self.norm(dist.mean- dist_j.mean)).mean() < 0.1:
+                    #             is_different = 0
+                    #             break
+                    #     if is_different == 1:
+                    #         self.DistWindow.append(dist)
+                    
                     with torch.no_grad():
-                        dist = self.SampleZPolicy(self.input_token)    
-                        is_different = 1
-                        for j in range(len(self.DistWindow)):
-                            dist_j = self.DistWindow[j]
-                            if (self.norm(dist.mean- dist_j.mean)).mean() < 0.1:
-                                is_different = 0
+                        dist = self.SampleZPolicy(self.input_token)
+                        
+                        # 构造伪 one-hot 分布
+                        max_idx = torch.argmax(dist.mean[0], dim=-1)
+                        pseudo_one_hot = torch.zeros_like(dist.mean[0])
+                        pseudo_one_hot[max_idx] = 1.0
+
+                        is_different = True
+                        for dist_j in self.DistWindow:
+                            if torch.allclose(pseudo_one_hot, dist_j, atol=1e-3):
+                                is_different = False
                                 break
-                        if is_different == 1:
-                            self.DistWindow.append(dist)
-                            
+
+                        if is_different:
+                            self.DistWindow.append(pseudo_one_hot)
+                    
                     # save k-1 policy and qf
                     self.copy_params(self.option_policy, self.last_policy)
                     self.copy_params(self.log_alpha, self.last_alpha)
@@ -312,13 +338,14 @@ class METRA_bl_ours(IOD):
                     self.copyed = 1
                     # Visualization
                     if wandb.run is not None:
-                        probabilities = probabilities.detach().cpu().numpy()
+                        # probabilities = probabilities.detach().cpu().numpy()
+                        pseudo_one_hot = pseudo_one_hot.detach().cpu().numpy()
                         path = wandb.run.dir + '/E' + str(runner.step_itr)
                         fig = plt.figure(figsize=(8, 5), facecolor='w')
-                        plt.bar(range(len(probabilities[0])), probabilities[0], tick_label=[f"z{i}" for i in range(len(probabilities[0]))])
+                        plt.bar(range(len(pseudo_one_hot)), pseudo_one_hot, tick_label=[f"z{i}" for i in range(len(pseudo_one_hot))])
                         plt.xlabel("z values")
-                        plt.ylabel("Probabilities")
-                        plt.title("Distribution of Probabilities")
+                        plt.ylabel("pseudo_one_hot")
+                        plt.title("Distribution of pseudo_one_hot")
                         plt.savefig(path + '-Regret' + '.png')
                         print('save at: ' + path + '-Regret' + '.png')
                         plt.close()
@@ -329,21 +356,28 @@ class METRA_bl_ours(IOD):
                 # use window sample z
                 z_from_window = []
                 for dist_i in self.DistWindow:
-                    z_values = dist_i.mean
+                    z_values = dist_i
                     probabilities = F.softmax(z_values, dim=-1)
+                    print(f'1.probabilities: {probabilities}')  # [8,24]
                     
                     # min_prob
                     min_prob = 0.02
                     adjusted_probs = torch.maximum(probabilities, torch.tensor(min_prob))
                     adjusted_probs = adjusted_probs / torch.sum(adjusted_probs)
+                    print(f'2.adjusted_probs: {adjusted_probs}')
                     
                     z_index = torch.multinomial(adjusted_probs, 1).squeeze(-1)
                     z_onehot = F.one_hot(z_index, num_classes=self.dim_option).float().detach().cpu().numpy()
+                    print(f'3.z_onehot: {z_onehot}')
                     z_from_window.append(z_onehot)
+                    
                 # sample z from z_from_window
-                z_index = np.random.choice(len(z_from_window), 1)
-                z_onehot = z_from_window[z_index[0]]
+                # z_index = np.random.choice(len(z_from_window), 1)
+                # z_onehot = z_from_window[z_index[0]]
                 
+                sampled = [random.choice(z_from_window) for _ in range(8)]
+                z_onehot = np.stack(sampled)  # shape: [8, D]
+
                 
                 # z_values = self.SampleZPolicy(self.input_token).mean
                 # probabilities = F.softmax(z_values, dim=-1)
@@ -351,7 +385,7 @@ class METRA_bl_ours(IOD):
                 # z_index = torch.multinomial(probabilities, 1).squeeze(-1)
                 # z_onehot = F.one_hot(z_index, num_classes=self.dim_option).float().detach().cpu().numpy()
                 
-                print(f'z_onehot: {z_onehot}')
+                print(f'4.z_onehot: {z_onehot}')
                 # Epsilon:
                 # Epsilon = 0.1
                 # if np.random.rand() < Epsilon: 
@@ -418,7 +452,7 @@ class METRA_bl_ours(IOD):
         
         self.buffer_ready = 1
         
-        for _ in range(self._trans_optimization_epochs):
+        for _ in trange(self._trans_optimization_epochs):
             tensors = {}
 
             if self.replay_buffer is None:
