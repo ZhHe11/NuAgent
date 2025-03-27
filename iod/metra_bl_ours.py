@@ -282,13 +282,15 @@ class METRA_bl_ours(IOD):
                         kl = 0
                         for dist_i in self.DistWindow:
                             probabilities = dist_i
+                            if probabilities.sum() == 0:
+                                continue
                             q_z = (probabilities * z_onehot).sum(dim=-1)
                             z_logq = torch.log(q_z)
                             kl += p_z * (z_logp - z_logq)
     
                         self.SampleZPolicy_optim.zero_grad()    
 
-                        loss_SZP = (-z_logp * (V_szn.detach()) - self.SZN_w2 * kl ).mean()
+                        loss_SZP = (-z_logp * (V_szn.detach())).mean - self.SZN_w2 * kl.mean()
 
                         loss_SZP.backward()
                         self.grad_clip.apply(self.SampleZPolicy.parameters())
