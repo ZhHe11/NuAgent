@@ -333,7 +333,7 @@ class METRA_bl_ours(IOD):
                     probabilities = F.softmax(z_values, dim=-1)
                     
                     # min_prob
-                    min_prob = 0.025
+                    min_prob = 0.02
                     adjusted_probs = torch.maximum(probabilities, torch.tensor(min_prob))
                     adjusted_probs = adjusted_probs / torch.sum(adjusted_probs)
                     
