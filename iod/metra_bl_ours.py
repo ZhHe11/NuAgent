@@ -281,7 +281,7 @@ class METRA_bl_ours(IOD):
                         # weight of KL
                         kl = 0
                         for dist_i in self.DistWindow:
-                            probabilities = F.softmax(dist_i, dim=-1)
+                            probabilities = dist_i
                             q_z = (probabilities * z_onehot).sum(dim=-1)
                             z_logq = torch.log(q_z)
                             kl += p_z * (z_logp - z_logq)
@@ -357,11 +357,12 @@ class METRA_bl_ours(IOD):
                 z_from_window = []
                 for dist_i in self.DistWindow:
                     z_values = dist_i
-                    probabilities = F.softmax(z_values, dim=-1)
+                    # probabilities = F.softmax(z_values, dim=-1)
+                    probabilities = z_values
                     print(f'1.probabilities: {probabilities}')  # [8,24]
                     
                     # min_prob
-                    min_prob = 0.02
+                    min_prob = 0.025
                     adjusted_probs = torch.maximum(probabilities, torch.tensor(min_prob))
                     adjusted_probs = adjusted_probs / torch.sum(adjusted_probs)
                     print(f'2.adjusted_probs: {adjusted_probs}')
@@ -375,9 +376,12 @@ class METRA_bl_ours(IOD):
                 # z_index = np.random.choice(len(z_from_window), 1)
                 # z_onehot = z_from_window[z_index[0]]
                 
-                sampled = [random.choice(z_from_window) for _ in range(8)]
-                z_onehot = np.stack(sampled)  # shape: [8, D]
+                ## random sample
+                # sampled = [random.choice(z_from_window) for _ in range(8)]
+                # z_onehot = np.stack(sampled)  # shape: [8, D]
 
+                ## no random; sample all
+                z_onehot = np.stack(z_from_window)  # shape: [8, D]
                 
                 # z_values = self.SampleZPolicy(self.input_token).mean
                 # probabilities = F.softmax(z_values, dim=-1)
