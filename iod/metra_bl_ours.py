@@ -270,6 +270,7 @@ class METRA_bl_ours(IOD):
                         dist_z = self.SampleZPolicy(self.input_token)
                         z_values = dist_z.mean
                         probabilities = F.softmax(z_values, dim=-1)
+                        print(f't:{t}, probabilities : {probabilities}')
                         z_index = torch.multinomial(probabilities, 1).squeeze(-1)
                         z_onehot = F.one_hot(z_index, num_classes=self.dim_option).float()
                         p_z = (probabilities * z_onehot).sum(dim=-1)
@@ -735,6 +736,7 @@ class METRA_bl_ours(IOD):
         )
         eval_option_metrics = {}
         eval_option_metrics.update(runner._env.calc_eval_metrics(random_trajectories, is_option_trajectories=True))
+        print(eval_option_metrics)
         
         record_video(runner, f'Video_RandomZ-{eval_option_metrics["KitchenOverall"]}', random_trajectories, skip_frames=self.video_skip_frames)
         

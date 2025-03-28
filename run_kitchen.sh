@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=6
+export CUDA_VISIBLE_DEVICES=2
 export D4RL_SUPPRESS_IMPORT_ERROR=1
 export TF_ENABLE_ONEDNN_OPTS=0
 export TF_CPP_MIN_LOG_LEVEL=3
@@ -10,8 +10,8 @@ export MUJOCO_GL="osmesa"
 
 
 # Policy
-python tests/main.py --run_group kitchen --env kitchen --max_path_length 50 --traj_batch_size 8 --n_parallel 4 --normalizer_type off --sac_max_buffer_size 100000  --n_epochs_per_log 25 --seed 2 --n_epochs_per_eval 25 --n_epochs_per_save 1000 --n_epochs_per_pt_save 1000 --discrete 1 --dim_option 24 --encoder 1 --sample_cpu 0 --sac_lr_a -1  --frame_stack 3  \
-    --algo metra_bl_ours --exp_name ours3-kl_debug-no_softmax-sample8-w2_05-win_8_1 --phi_type baseline --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 100 --target_theta 1 --is_wandb 1 --trans_minibatch_size 256  --SZN_w2 0.5 --SZN_w3 1 --SZN_window_size 8 --SZN_repeat_time 1 --Repr_temperature 0 --Repr_max_step 300 --z_unit 0 --model_master_num_layers 2 --n_epochs 2000 --wandb_note '' --save_pt_step 100  --SZN_std_min 1e-1 
+python tests/main.py --run_group kitchen --env kitchen --max_path_length 50 --traj_batch_size 8 --n_parallel 4 --normalizer_type off --sac_max_buffer_size 100000  --n_epochs_per_log 25 --seed 2 --n_epochs_per_eval 25 --n_epochs_per_save 1000 --n_epochs_per_pt_save 1000 --discrete 1 --dim_option 32 --encoder 1 --sample_cpu 0 --sac_lr_a -1  --frame_stack 3  \
+    --algo metra_bl_ours --exp_name ours3-kl_debug-no_softmax-sample8-w2_1-win_8_1 --phi_type baseline --explore_type SZN --policy_type baseline --sample_type baseline --num_her 0 --trans_optimization_epochs 100 --target_theta 1 --is_wandb 1 --trans_minibatch_size 256  --SZN_w2 1 --SZN_w3 1 --SZN_window_size 8 --SZN_repeat_time 1 --Repr_temperature 0 --Repr_max_step 300 --z_unit 0 --model_master_num_layers 2 --n_epochs 2000 --wandb_note '' --save_pt_step 100  --SZN_std_min 1e-1 
 
 
     --algo metra_bl --exp_name metra_bl --sac_lr_a -1 --trans_optimization_epochs 100 --n_epochs_per_log 25 --n_epochs_per_eval 25 --n_epochs_per_save 1000 --n_epochs_per_pt_save 1000 --discrete 1 --dim_option 24 --encoder 1 --sample_cpu 0 --is_wandb 1
