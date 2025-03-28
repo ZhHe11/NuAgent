@@ -158,13 +158,13 @@ class METRA_bl_ours(IOD):
         with torch.no_grad():
             self.DistWindow = [
                 self.SampleZPolicy(self.input_token).mean[0], 
-                self.SampleZPolicy(self.input_token).mean[0], 
-                self.SampleZPolicy(self.input_token).mean[0], 
-                self.SampleZPolicy(self.input_token).mean[0], 
-                self.SampleZPolicy(self.input_token).mean[0],
-                self.SampleZPolicy(self.input_token).mean[0],
-                self.SampleZPolicy(self.input_token).mean[0],
-                self.SampleZPolicy(self.input_token).mean[0]
+                # self.SampleZPolicy(self.input_token).mean[0], 
+                # self.SampleZPolicy(self.input_token).mean[0], 
+                # self.SampleZPolicy(self.input_token).mean[0], 
+                # self.SampleZPolicy(self.input_token).mean[0],
+                # self.SampleZPolicy(self.input_token).mean[0],
+                # self.SampleZPolicy(self.input_token).mean[0],
+                # self.SampleZPolicy(self.input_token).mean[0]
             ]
         
         self.NumSampleTimes = 0
@@ -273,24 +273,24 @@ class METRA_bl_ours(IOD):
                         z_index = torch.multinomial(probabilities, 1).squeeze(-1)
                         z_onehot = F.one_hot(z_index, num_classes=self.dim_option).float()
                         p_z = (probabilities * z_onehot).sum(dim=-1)
-                        z_logp = torch.log(p_z)
+                        z_logp = torch.log(p_z + 1e-6)
                         V_szn, V_z = self.cal_regeret(z_onehot, self.init_obs)
                         V_z = (V_z - V_z.mean()) / (V_z.std() + 1e-6)       # BN: 增加训练稳定性；
                         V_szn = (V_szn - V_szn.mean()) / (V_szn.std() + 1e-6)       # BN: 增加训练稳定性；
 
                         # weight of KL
-                        kl = 0
+                        kl = torch.zeros_like(p_z)
                         for dist_i in self.DistWindow:
                             probabilities = dist_i
                             if probabilities.sum() == 0:
                                 continue
                             q_z = (probabilities * z_onehot).sum(dim=-1)
-                            z_logq = torch.log(q_z)
+                            z_logq = torch.log(q_z + 1e-6)
                             kl += p_z * (z_logp - z_logq)
     
                         self.SampleZPolicy_optim.zero_grad()    
 
-                        loss_SZP = (-z_logp * (V_szn.detach())).mean - self.SZN_w2 * kl.mean()
+                        loss_SZP = (-z_logp * (V_szn.detach()) - self.SZN_w2 * kl).mean()
 
                         loss_SZP.backward()
                         self.grad_clip.apply(self.SampleZPolicy.parameters())
@@ -357,33 +357,35 @@ class METRA_bl_ours(IOD):
                 
                 # use window sample z
                 z_from_window = []
-                for dist_i in self.DistWindow:
-                    z_values = dist_i
-                    # probabilities = F.softmax(z_values, dim=-1)
-                    probabilities = z_values
-                    print(f'1.probabilities: {probabilities}')  # [8,24]
-                    
-                    # min_prob
-                    min_prob = 0.025
-                    adjusted_probs = torch.maximum(probabilities, torch.tensor(min_prob))
-                    adjusted_probs = adjusted_probs / torch.sum(adjusted_probs)
-                    print(f'2.adjusted_probs: {adjusted_probs}')
-                    
-                    z_index = torch.multinomial(adjusted_probs, 1).squeeze(-1)
-                    z_onehot = F.one_hot(z_index, num_classes=self.dim_option).float().detach().cpu().numpy()
-                    print(f'3.z_onehot: {z_onehot}')
-                    z_from_window.append(z_onehot)
+                while len(z_from_window) < 8:
+                    for dist_i in self.DistWindow:
+                        z_values = dist_i
+                        # probabilities = F.softmax(z_values, dim=-1)
+                        probabilities = z_values
+                        print(f'1.probabilities: {probabilities}')  # [8,24]
+                        
+                        # min_prob
+                        min_prob = 0.025
+                        adjusted_probs = torch.maximum(probabilities, torch.tensor(min_prob))
+                        adjusted_probs = adjusted_probs / torch.sum(adjusted_probs)
+                        print(f'2.adjusted_probs: {adjusted_probs}')
+                        
+                        z_index = torch.multinomial(adjusted_probs, 1).squeeze(-1)
+                        z_onehot = F.one_hot(z_index, num_classes=self.dim_option).float().detach().cpu().numpy()
+                        print(f'3.z_onehot: {z_onehot}')
+                        z_from_window.append(z_onehot)
                     
                 # sample z from z_from_window
                 # z_index = np.random.choice(len(z_from_window), 1)
                 # z_onehot = z_from_window[z_index[0]]
                 
-                ## random sample
-                # sampled = [random.choice(z_from_window) for _ in range(8)]
-                # z_onehot = np.stack(sampled)  # shape: [8, D]
-
-                ## no random; sample all
-                z_onehot = np.stack(z_from_window)  # shape: [8, D]
+                if len(z_from_window) > 8:
+                    ## random sample
+                    sampled = [random.choice(z_from_window) for _ in range(8)]
+                    z_onehot = np.stack(sampled)  # shape: [8, D]
+                else:
+                    ## no random; sample all
+                    z_onehot = np.stack(z_from_window)  # shape: [8, D]
                 
                 # z_values = self.SampleZPolicy(self.input_token).mean
                 # probabilities = F.softmax(z_values, dim=-1)
@@ -734,7 +736,7 @@ class METRA_bl_ours(IOD):
         eval_option_metrics = {}
         eval_option_metrics.update(runner._env.calc_eval_metrics(random_trajectories, is_option_trajectories=True))
         
-        record_video(runner, 'Video_RandomZ', random_trajectories, skip_frames=self.video_skip_frames)
+        record_video(runner, f'Video_RandomZ-{eval_option_metrics["KitchenOverall"]}', random_trajectories, skip_frames=self.video_skip_frames)
         
         if wandb.run is not None:
             eval_option_metrics.update({'epoch': runner.step_itr})
