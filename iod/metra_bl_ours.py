@@ -270,7 +270,6 @@ class METRA_bl_ours(IOD):
                         dist_z = self.SampleZPolicy(self.input_token)
                         z_values = dist_z.mean
                         probabilities = F.softmax(z_values, dim=-1)
-                        print(f't:{t}, probabilities : {probabilities}')
                         z_index = torch.multinomial(probabilities, 1).squeeze(-1)
                         z_onehot = F.one_hot(z_index, num_classes=self.dim_option).float()
                         p_z = (probabilities * z_onehot).sum(dim=-1)
@@ -358,15 +357,15 @@ class METRA_bl_ours(IOD):
                 
                 # use window sample z
                 z_from_window = []
-                while len(z_from_window) < 8:
+                while len(z_from_window) < self.SZN_window_size:
                     for dist_i in self.DistWindow:
                         z_values = dist_i
-                        # probabilities = F.softmax(z_values, dim=-1)
-                        probabilities = z_values
+                        probabilities = F.softmax(z_values, dim=-1)
+                        # probabilities = z_values
                         print(f'1.probabilities: {probabilities}')  # [8,24]
                         
                         # min_prob
-                        min_prob = 0.025
+                        min_prob = 1e-2
                         adjusted_probs = torch.maximum(probabilities, torch.tensor(min_prob))
                         adjusted_probs = adjusted_probs / torch.sum(adjusted_probs)
                         print(f'2.adjusted_probs: {adjusted_probs}')
@@ -382,8 +381,8 @@ class METRA_bl_ours(IOD):
                 
                 if len(z_from_window) > 8:
                     ## random sample
-                    sampled = [random.choice(z_from_window) for _ in range(8)]
-                    z_onehot = np.stack(sampled)  # shape: [8, D]
+                    # sampled = [random.choice(z_from_window) for _ in range(8)]
+                    z_onehot = np.stack(z_from_window)[:8]  # shape: [8, D]
                 else:
                     ## no random; sample all
                     z_onehot = np.stack(z_from_window)  # shape: [8, D]
