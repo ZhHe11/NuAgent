@@ -56,7 +56,7 @@ def PlotGMM(window_dist, psi_z, fig, ax, device, dim=4):
     log_prob = torch.clip(window_dist.log_prob(grid_points_tensor_expanded), max=0)
     log_prob = log_prob.cpu().numpy()
     prob_density = np.exp(log_prob).reshape(X_grid.shape)
-    contour = ax.contourf(X_grid, Y_grid, prob_density, levels=20, cmap='viridis')
+    contour = ax.contourf(X_grid, Y_grid, prob_density, levels=20, cmap='Blues')
     cbar = fig.colorbar(contour, ax=ax)
     entorpy = -(log_prob * (np.exp(log_prob))).mean()
     # cbar.set_ticks([])
@@ -151,10 +151,10 @@ if __name__ == '__main__':
     device = 'cuda:3'
     max_path_length = 300
     args.eval_num = 16
-    args.model_path = '/mnt/nfs2/zhanghe/NuAgent/exp/LM-ready/AB-win15sd000_1735633978_lm_SZPC'
+    args.model_path = '/data/zh/project12_Metra/METRA/exp/Large/TheBestsd000_1748064812_ant_maze_large_SZPC'
     args.eval_type = 'random_psi'
     eval_type = args.eval_type
-    args.epoch_list = [0, 200, 400, 600, 800, 1000]
+    args.epoch_list = [2000]
     
     for epoch in args.epoch_list:
         # 1. define the env:
@@ -170,20 +170,20 @@ if __name__ == '__main__':
         # env = consistent_normalize(env, normalize_obs=True, mean=normalizer_mean, std=normalizer_std, **normalizer_kwargs)      
         
         # AntMaze
-        # from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
-        # args.env = 'ant_maze'
-        # env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
-        # args.env = 'ant_large_maze'
-        # from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
-        # env = MazeWrapper("antmaze-large-diverse-v0", random_init=False)
-        
-        # # LM
         from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
-        args.env = 'lm'
-        env = MazeWrapper("maze2d-large-v1", random_init=False)
+        args.env = 'ant_maze'
+        env = MazeWrapper("antmaze-medium-diverse-v0", random_init=False)
+        args.env = 'ant_large_maze'
+        from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
+        env = MazeWrapper("antmaze-large-diverse-v0", random_init=False)
         
-        normalizer_kwargs = {}
-        env = consistent_normalize(env, normalize_obs=False, **normalizer_kwargs)
+        # # # LM
+        # from envs.AntMazeEnv import MazeWrapper, GoalReachingMaze
+        # args.env = 'lm'
+        # env = MazeWrapper("maze2d-large-v1", random_init=False)
+        
+        # normalizer_kwargs = {}
+        # env = consistent_normalize(env, normalize_obs=False, **normalizer_kwargs)
         
         obs = env.reset()
         policy_path = args.model_path + '/wandb/latest-run/filesoption_policy-' + str(epoch) + '.pt'
@@ -224,9 +224,9 @@ if __name__ == '__main__':
         
         args.eval_num = 16
         
-        # options = window_dist.sample((args.eval_num, ))
-        # ax, All_Repr_obs_list, All_Goal_obs_list, All_trajs_list, FinallDistanceList, ArriveList, All_Cover_list = eval_cover_rate(env, agent_traj_encoder, agent_policy, device, options=options, ax=ax, max_path_length=300, Psi=__Psi, option_type=args.eval_type)   
-        # PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=False, ax=ax)
+        options = window_dist.sample((args.eval_num, ))
+        ax, All_Repr_obs_list, All_Goal_obs_list, All_trajs_list, FinallDistanceList, ArriveList, All_Cover_list = eval_cover_rate(env, agent_traj_encoder, agent_policy, device, options=options, ax=ax, max_path_length=300, Psi=__Psi, option_type=args.eval_type)   
+        PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=max_path_length, is_goal=False, ax=ax)
         
         # 美化格式
         # from matplotlib import font_manager
@@ -237,7 +237,7 @@ if __name__ == '__main__':
         # ax.set_title('Repr. Sapce', font=TimesPath, fontsize=25, pad=10)
         # plt.subplots_adjust(right=0.99) 
                         
-        save_path = '/mnt/nfs2/zhanghe/NuAgent/zmetrics_csv/AntLargeMaze'
+        save_path = '/data/zh/project12_Metra/METRA/zmetrics_csv/AntLargeMaze'
         filepath = save_path + '/GMM' + str(epoch) + '.pdf'
         plt.savefig(filepath, format='pdf', bbox_inches='tight')
         print(filepath)

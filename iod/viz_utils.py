@@ -62,11 +62,14 @@ def PCA_plot_traj(All_Repr_obs_list, All_Goal_obs_list, path, path_len=100, is_P
         Repr_obs_2d = Repr_obs_array
         if is_goal:
             All_Goal_obs_2d = All_Goal_obs_array
-    # 绘制 PCA 降维后的数据
+    # 绘制 PCA 降维后的数据：
     if ax is None:
         fig = plt.figure(figsize=(8, 6))
         ax = fig.add_subplot(111)
-    colors = cm.rainbow(np.linspace(0, 1, len(All_Repr_obs_list)))
+    # 更换颜色：
+    # colors = cm.rainbow(np.linspace(0, 1, len(All_Repr_obs_list)))
+    colors = cm.inferno(np.linspace(0, 1, len(All_Repr_obs_list)))
+
     for i in range(0,len(All_Repr_obs_list)):
         color = colors[i]
         start_index = i * path_len
